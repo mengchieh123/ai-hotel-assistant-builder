@@ -1,0 +1,20 @@
+{
+  "name": "speckit-editor-test",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "測試 Speckit 編輯器和 AI 自主開發能力",
+  "main": "speckit_editor.js",
+  "scripts": {
+    "start": "node server.js",
+    "editor": "node speckit_editor.js",
+    "test-variations": "node speckit_variation_tester.js",
+    "test-all": "node speckit_editor.js && node speckit_variation_tester.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "keywords": ["speckit", "ai", "autonomous-development"],
+  "author": "AI Developer",
+  "license": "MIT"
+}}

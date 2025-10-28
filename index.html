@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI訂房助理 - 智能酒店預訂</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏨</text></svg>"
+    />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- 頭部 -->
+      <header class="app-header">
+        <div class="header-content">
+          <div class="logo">
+            <span class="logo-icon">🏨</span>
+            <div class="logo-text">
+              <h1>AI訂房助理</h1>
+              <p>您的智能旅行管家</p>
+            </div>
+          </div>
+          <div class="header-status">
+            <span class="status-indicator online"></span>
+            <span>在線服務</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- 主內容區 -->
+      <main class="app-main">
+        <div class="chat-container">
+          <!-- 消息區域 -->
+          <div id="messagesContainer" class="messages-container">
+            <div class="welcome-message">
+              <div class="message ai-message">
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                  <div class="message-text">
+                    <strong>🏨 歡迎使用 AI 訂房助理！</strong><br /><br />
+                    我可以幫您：<br />
+                    • 尋找合適的住宿<br />
+                    • 比較價格和設施<br />
+                    • 根據預算推薦酒店<br />
+                    • 模擬預訂流程<br /><br />
+                    <em>請告訴我您的需求...</em>
+                  </div>
+                  <div class="message-time" id="welcomeTime"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 輸入區域 -->
+          <div class="input-section">
+            <div class="quick-replies" id="quickReplies">
+              <button class="quick-reply" data-message="我想找台北的飯店">
+                🏙️ 台北住宿
+              </button>
+              <button class="quick-reply" data-message="預算2000元以内">
+                💰 2000元预算
+              </button>
+              <button class="quick-reply" data-message="兩人住宿">
+                👥 兩人住宿
+              </button>
+              <button class="quick-reply" data-message="推薦親子飯店">
+                👨‍👩‍👧‍👦 親子飯店
+              </button>
+            </div>
+
+            <div class="input-container">
+              <div class="input-wrapper">
+                <textarea
+                  id="userInput"
+                  placeholder="輸入您的需求... 例如：我想找明天信義區的飯店，兩人，預算3000元"
+                  rows="1"
+                ></textarea>
+                <button id="sendButton" class="send-button">
+                  <span class="send-icon">📤</span>
+                  發送
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- 底部 -->
+      <footer class="app-footer">
+        <div class="footer-content">
+          <span>Powered by AI • 安全隱私保護 • 24小時服務</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- 加載動畫模板 -->
+    <template id="typingTemplate">
+      <div class="message ai-message typing-message">
+        <div class="message-avatar">🤖</div>
+        <div class="message-content">
+          <div class="typing-indicator">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <script src="script.js"></script>
+  </body>
+</html>

@@ -1,0 +1,43 @@
+# 動態 Speckit - 可修改測試AI響應
+project:
+  name: "{{PROJECT_NAME}}"
+  version: "{{VERSION}}"
+  description: "{{DESCRIPTION}}"
+
+features:
+  core:
+    - "{{FEATURE_1}}"
+    - "{{FEATURE_2}}"
+    - "{{FEATURE_3}}"
+  
+  advanced:
+    - "{{ADVANCED_FEATURE_1}}"
+    - "{{ADVANCED_FEATURE_2}}"
+
+apis:
+  required:
+    - "{{API_1}}"
+    - "{{API_2}}"
+  
+  optional:
+    - "{{OPTIONAL_API_1}}"
+
+ui:
+  style: "{{STYLE}}"
+  layout: "{{LAYOUT}}"
+  components: "{{COMPONENTS}}"
+
+ai_capabilities:
+  conversation: "{{CONVERSATION_LEVEL}}"
+  recommendation: "{{RECOMMENDATION_LEVEL}}"
+  personalization: "{{PERSONALIZATION_LEVEL}}"
+
+# 測試配置
+test_scenarios:
+  - name: "基礎功能測試"
+    input: "{{TEST_INPUT_1}}"
+    expected: "{{TEST_EXPECTED_1}}"
+  
+  - name: "進階功能測試" 
+    input: "{{TEST_INPUT_2}}"
+    expected: "{{TEST_EXPECTED_2}}"

@@ -1,0 +1,46 @@
+# 測試規範 - AI自主開發驗證
+project:
+  name: "ai-hotel-test-suite"
+  version: "1.0.0"
+  description: "測試AI根據Speckit自主開發能力"
+
+test_scenarios:
+  - name: "基礎架構生成"
+    description: "測試AI能否生成基礎項目結構"
+    validation:
+      files:
+        - "package.json"
+        - "server.js" 
+        - "index.html"
+        - "style.css"
+        - "script.js"
+      apis:
+        - "/api/chat"
+        - "/api/hotels"
+        - "/api/health"
+
+  - name: "AI對話功能"
+    description: "測試AI對話引擎是否正常工作"
+    test_cases:
+      - input: "你好"
+        expected: "包含問候語"
+      - input: "我想找台北的飯店"
+        expected: "返回台北酒店列表"
+      - input: "預算2000元"
+        expected: "過濾酒店價格"
+
+  - name: "版本更新測試"
+    description: "測試AI能否處理版本更新"
+    update_scenarios:
+      - from: "1.0.0"
+        to: "1.1.0"
+        changes:
+          - "添加酒店詳情API"
+          - "增強AI對話邏輯"
+          - "改進用戶界面"
+
+validation_rules:
+  file_structure: "必須包含所有指定文件"
+  api_endpoints: "必須實現所有API端點"
+  ai_functionality: "必須處理基本對話場景"
+  error_handling: "必須包含錯誤處理"
