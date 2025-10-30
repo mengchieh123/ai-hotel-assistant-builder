@@ -1,20 +1,21 @@
 {
-  "name": "speckit-editor-test",
+  "name": "ai-hotel-assistant-builder",
   "version": "1.0.0",
-  "type": "module",
-  "description": "測試 Speckit 編輯器和 AI 自主開發能力",
-  "main": "speckit_editor.js",
+  "description": "AI Hotel Assistant Autonomous Development System",
+  "main": "server-fixed.js",
   "scripts": {
-    "start": "node server.js",
-    "editor": "node speckit_editor.js",
-    "test-variations": "node speckit_variation_tester.js",
-    "test-all": "node speckit_editor.js && node speckit_variation_tester.js"
+    "start": "node server-fixed.js",
+    "dev": "node server-fixed.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "express": "^4.18.2"
   },
-  "keywords": ["speckit", "ai", "autonomous-development"],
-  "author": "AI Developer",
+  "keywords": [
+    "ai",
+    "hotel",
+    "assistant",
+    "autonomous"
+  ],
+  "author": "mengchieh123",
   "license": "MIT"
-}}
+}
