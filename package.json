@@ -1,11 +1,21 @@
 {
   "name": "ai-hotel-assistant-builder",
   "version": "1.0.0",
+  "description": "AI Hotel Assistant Autonomous Development System",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2"
-  }
+  },
+  "keywords": [
+    "ai",
+    "hotel",
+    "assistant",
+    "autonomous"
+  ],
+  "author": "mengchieh123",
+  "license": "MIT"
 }
