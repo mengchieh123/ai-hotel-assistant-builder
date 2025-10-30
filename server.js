@@ -1,18 +1,22 @@
 const express = require('express');
 
-console.log('🚀 Starting AI Hotel Assistant Server...');
+console.log('🚀 Starting AI Hotel Assistant on PORT 8080...');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// 明確使用 8080 端口
+const PORT = 8080;
+
+console.log('🔧 Using fixed PORT:', PORT);
 
 app.use(express.json());
 
-// Railway 健康檢查端點（必須有）
+// Railway 健康檢查端點
 app.get('/health', (req, res) => {
-  console.log('✅ Health check passed');
+  console.log('✅ Health check received on port', PORT);
   res.status(200).json({
     status: 'ok',
-    message: 'AI Hotel Assistant API - Railway Ready',
+    message: 'AI Hotel Assistant - PORT 8080',
+    port: PORT,
     timestamp: new Date().toISOString(),
     version: '1.0.0'
   });
@@ -22,66 +26,76 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     service: 'AI Hotel Assistant Builder',
+    version: '1.0.0',
     status: 'active',
+    port: PORT,
     endpoints: {
       'GET /health': '健康檢查',
-      'POST /api/ai/chat': 'AI對話',
+      'POST /api/ai/chat': 'AI對話處理',
       'GET /api/hotels/search': '飯店搜尋'
     }
   });
 });
 
-// AI 對話
+// AI 對話端點
 app.post('/api/ai/chat', (req, res) => {
   const { message } = req.body;
-  console.log('🤖 AI Chat:', message);
+  console.log('🤖 AI Chat on port', PORT, ':', message);
   
   res.json({
-    response: `已理解: ${message}`,
-    analysis: { location: '台北', budget: '5000元' },
+    success: true,
+    response: `🧠 已理解您的需求：${message}`,
+    analysis: {
+      location: '台北',
+      budget: '5000元',
+      timeFrame: '週末',
+      starRating: '五星級'
+    },
     timestamp: new Date().toISOString()
   });
 });
 
-// 飯店搜尋
+// 飯店搜尋端點
 app.get('/api/hotels/search', (req, res) => {
   const { location = '台北' } = req.query;
-  console.log('🔍 Hotel search:', location);
+  console.log('🔍 Hotel search on port', PORT, ':', location);
   
   res.json({
+    success: true,
     hotels: [
-      { id: '1', name: `${location}君悅`, price: 4500, rating: 4.8 }
+      {
+        id: 'hotel_1',
+        name: `${location}君悅大飯店`,
+        price: 4500,
+        rating: 4.8,
+        stars: 5,
+        available: true
+      },
+      {
+        id: 'hotel_2',
+        name: `${location}W飯店`, 
+        price: 4800,
+        rating: 4.9,
+        stars: 5,
+        available: true
+      }
     ],
-    total: 1
+    totalResults: 2
   });
-});
-
-// 錯誤處理
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: 'Internal Server Error' });
 });
 
 // 啟動伺服器
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log('='.repeat(50));
-  console.log('✅ SERVER STARTED AND READY FOR RAILWAY!');
+app.listen(PORT, '0.0.0.0', () => {
+  console.log('='.repeat(60));
+  console.log('🎯 SERVER STARTED ON PORT 8080');
   console.log(`📍 Port: ${PORT}`);
-  console.log('🌐 Endpoints:');
-  console.log('   GET  /health');
-  console.log('   GET  /');
-  console.log('   POST /api/ai/chat');
-  console.log('   GET  /api/hotels/search');
-  console.log('='.repeat(50));
+  console.log(`🌐 Internal: http://0.0.0.0:${PORT}`);
+  console.log(`🌐 External: https://ai-hotel-assistant-builder-production.up.railway.app`);
+  console.log('✅ Ready for Railway health checks');
+  console.log('='.repeat(60));
 });
 
-// Railway 健康檢查通過信號
-console.log('🚄 Railway: Application is ready for health checks');
-
-// 保持進程運行
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down');
-  server.close(() => {
-    console.log('Server closed');
-  });
-});
+// 保持運行
+setInterval(() => {
+  console.log('💓 Heartbeat - Port 8080 -', new Date().toISOString());
+}, 30000);
