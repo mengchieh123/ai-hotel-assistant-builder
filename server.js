@@ -230,57 +230,10 @@ app.post('/api/assistant/chat', (req, res) => {
       });
     }
 
-    
-    // [最終修復] 業務規格意圖識別
     const lowerMessage = message.toLowerCase();
-    
-    // 會員折扣意圖 - 直接硬編碼包含鑽石會員
-    if (lowerMessage.includes('會員') || lowerMessage.includes('折扣') || lowerMessage.includes('優惠')) {
-      let reply = "🎯 **會員優惠資訊**\n\n";
-      reply += "⭐ 普通會員 - 5% 折扣\n";
-      reply += "⭐ 黃金會員 - 10% 折扣\n"; 
-      reply += "⭐ 白金會員 - 15% 折扣\n";
-      reply += "💎 鑽石會員 - 20% 折扣 💎\n";
-      reply += "\n💡 立即加入會員享受專屬優惠！";
 
-      // 特殊處理鑽石會員
-      if (lowerMessage.includes('鑽石')) {
-        reply = "💎 **鑽石會員尊榮服務**\n\n";
-        reply += "⭐ 專享 20% 折扣\n\n";
-        reply += "🎁 專屬禮遇：\n";
-        reply += "   ✨ 免費機場接送\n";
-        reply += "   ✨ 私人管家服務\n"; 
-        reply += "   ✨ 專屬禮賓服務\n";
-      }
-      
-      return res.json({
-        success: true,
-        reply: reply,
-        session_id: session_id || 'session_' + Date.now(),
-        timestamp: new Date().toISOString(),
-        response_type: "membership_info",
-        hotel: "台北晶華酒店"
-      });
-    }
-    
-    // 促銷活動意圖 - 直接硬編碼包含週末特惠
-    if (lowerMessage.includes('促銷') || lowerMessage.includes('早鳥') || lowerMessage.includes('特惠') || lowerMessage.includes('週末')) {
-      let reply = "🎉 **促銷活動資訊**\n\n";
-      reply += "🔥 早鳥優惠 - 15% off (提前30天預訂)\n";
-      reply += "🔥 連住優惠 - 10% off (連續住宿3晚以上)\n";
-      reply += "🎊 週末特惠 - 25% off (週五至週日入住) 🎊\n";
-      reply += "\n📞 詳情請洽訂房組！";
-      
-      return res.json({
-        success: true,
-        reply: reply,
-        session_id: session_id || 'session_' + Date.now(),
-        timestamp: new Date().toISOString(),
-        response_type: "promotion_info",
-        hotel: "台北晶華酒店"
-      });
-    }
- || lowerMessage.includes('折扣') || lowerMessage.includes('優惠')) {
+    // 1. 會員折扣識別 - 簡化邏輯
+    if (lowerMessage.includes('會員') || lowerMessage.includes('折扣') || lowerMessage.includes('優惠')) {
       return res.json({
         success: true,
         reply: "🎯 **會員優惠資訊**\n\n⭐ 普通會員 - 5% 折扣\n⭐ 黃金會員 - 10% 折扣\n⭐ 白金會員 - 15% 折扣\n\n💡 立即加入會員享受專屬優惠！",
