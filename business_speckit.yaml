@@ -26,6 +26,8 @@ membership_system:
         - "專屬客服"
         - "房型升級機會"
         - "提早入住"
+        # 在 levels: 部分添加
+
   
   points_rules:
     earn_rate: 10
