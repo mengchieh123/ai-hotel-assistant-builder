@@ -1,6 +1,6 @@
 {
   "build": {
-    "builder": "nixpacks", 
-    "buildCommand": "yarn install"
+    "builder": "nixpacks",
+    "buildCommand": "npm install"
   }
 }
