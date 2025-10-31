@@ -1,11 +1,11 @@
 const express = require('express');
 
-console.log('🚀 Starting AI Hotel Assistant on PORT 8080...');
+console.log('🚀 Starting AI Hotel Assistant...');
 
 const app = express();
-const PORT = 8080;
+const PORT = process.env.PORT || 3000;
 
-console.log('🔧 Using fixed PORT:', PORT);
+console.log('🔧 Server PORT:', PORT);
 
 app.use(express.json());
 
@@ -177,7 +177,7 @@ app.get('/health', (req, res) => {
   console.log('✅ Health check received on port', PORT);
   res.status(200).json({
     status: 'ok',
-    message: 'AI Hotel Assistant - PORT 8080',
+    message: 'AI Hotel Assistant Server',
     port: PORT,
     timestamp: new Date().toISOString(),
     version: '1.0.0'
