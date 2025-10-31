@@ -22,6 +22,20 @@ app.get('/health', (req, res) => {
   });
 });
 
+// 完整健康檢查端點
+app.get('/api/health', (req, res) => {
+  console.log('✅ API Health check on port', PORT);
+  res.status(200).json({
+    status: 'healthy',
+    service: 'AI Hotel Assistant Builder',
+    timestamp: new Date().toISOString(),
+    port: PORT,
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    version: '1.0.0'
+  });
+});
+
 // 根路徑
 app.get('/', (req, res) => {
   res.json({
@@ -31,13 +45,16 @@ app.get('/', (req, res) => {
     port: PORT,
     endpoints: {
       'GET /health': '健康檢查',
+      'GET /api/health': '完整健康檢查',
       'POST /api/ai/chat': 'AI對話處理',
+      'POST /api/chat': '簡化聊天端點',
+      'POST /api/assistant/chat': '助理聊天端點',
       'GET /api/hotels/search': '飯店搜尋'
     }
   });
 });
 
-// AI 對話端點
+// AI 對話端點 (現有的)
 app.post('/api/ai/chat', (req, res) => {
   const { message } = req.body;
   console.log('🤖 AI Chat on port', PORT, ':', message);
@@ -55,7 +72,35 @@ app.post('/api/ai/chat', (req, res) => {
   });
 });
 
-// 飯店搜尋端點
+// 新增：兼容舊路徑的聊天端點
+app.post('/api/assistant/chat', (req, res) => {
+  const { message, session_id } = req.body;
+  console.log('🤖 Assistant Chat on port', PORT, ':', message);
+  
+  res.json({
+    success: true,
+    reply: `🧠 助理已理解您的需求：${message}`,
+    session_id: session_id || 'session_' + Date.now(),
+    timestamp: new Date().toISOString(),
+    port: PORT
+  });
+});
+
+// 新增：簡化聊天端點
+app.post('/api/chat', (req, res) => {
+  const { message, session_id } = req.body;
+  console.log('💬 Simple Chat on port', PORT, ':', message);
+  
+  res.json({
+    status: 'success',
+    reply: `💬 已收到您的訊息：${message}`,
+    session_id: session_id || 'sess_' + Date.now(),
+    language: 'zh-TW',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 飯店搜尋端點 (現有的)
 app.get('/api/hotels/search', (req, res) => {
   const { location = '台北' } = req.query;
   console.log('🔍 Hotel search on port', PORT, ':', location);
