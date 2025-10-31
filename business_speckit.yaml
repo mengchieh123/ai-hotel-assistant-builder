@@ -1,0 +1,48 @@
+# 業務功能規格文件 - 產品經理可編輯
+version: "1.0"
+spec_type: "business_features"
+last_updated: "2024-01-15"
+
+hotel_info:
+  name: "台北晶華酒店"
+  star_rating: 5
+  location: "台北市中山區中山北路二段39巷3號"
+  phone: "+886-2-2523-8000"
+
+membership_system:
+  enabled: true
+  levels:
+    - name: "普通會員"
+      discount: 5
+      min_points: 0
+      benefits: 
+        - "積分累積"
+        - "會員專屬價格"
+    
+    - name: "黃金會員"
+      discount: 10
+      min_points: 1000
+      benefits:
+        - "專屬客服"
+        - "房型升級機會"
+        - "提早入住"
+  
+  points_rules:
+    earn_rate: 10
+    redeem_rate: 1
+    expiry_days: 365
+
+promotion_system:
+  enabled: true
+  campaigns:
+    - name: "早鳥優惠"
+      discount: 15
+      conditions: "提前7天預訂"
+    
+    - name: "連住優惠"
+      discount: 10
+      conditions: "連續入住3晚以上"
+
+features:
+  - "membership_system"
+  - "promotion_system"
