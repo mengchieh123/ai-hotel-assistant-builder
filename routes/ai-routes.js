@@ -1,27 +1,35 @@
 const express = require('express');
 const router = express.Router();
 
-// 安全加載 OpenAI 服務
-let openaiService = null;
+// 智能選擇服務：嘗試 OpenAI，失敗則使用模擬服務
+let aiService;
+let serviceName = 'unknown';
+
 try {
-    openaiService = require('../services/openai-service');
-    console.log('✅ OpenAI 服務已加載');
+    const openaiService = require('../services/openai-service');
+    if (openaiService && openaiService.isAvailable && openaiService.isAvailable()) {
+        aiService = openaiService;
+        serviceName = 'OpenAI';
+        console.log('✅ 使用 OpenAI 服務');
+    } else {
+        aiService = require('../services/mock-ai-service');
+        serviceName = 'Mock';
+        console.log('⚠️  OpenAI 不可用，使用模擬服務');
+    }
 } catch (error) {
-    console.error('⚠️  OpenAI 服務加載失敗:', error.message);
+    console.log('⚠️  加載 OpenAI 失敗，使用模擬服務');
+    aiService = require('../services/mock-ai-service');
+    serviceName = 'Mock';
 }
 
-/**
- * GET /api/ai/status
- * 檢查 AI 服務狀態
- */
+// GET /api/ai/status
 router.get('/status', (req, res) => {
-    const isAvailable = openaiService && openaiService.isAvailable && openaiService.isAvailable();
+    const isAvailable = aiService && aiService.isAvailable && aiService.isAvailable();
     
     res.json({
         available: isAvailable,
-        message: isAvailable 
-            ? 'AI 服務正常運行' 
-            : 'AI 服務未配置或不可用',
+        message: isAvailable ? 'AI 服務正常運行' : 'AI 服務未配置',
+        service: serviceName,
         timestamp: new Date().toISOString(),
         features: {
             basicChat: isAvailable,
@@ -31,85 +39,54 @@ router.get('/status', (req, res) => {
     });
 });
 
-/**
- * POST /api/ai/chat
- * AI 對話功能
- */
+// POST /api/ai/chat
 router.post('/chat', async (req, res) => {
     try {
-        if (!openaiService) {
+        if (!aiService || !aiService.isAvailable()) {
             return res.status(503).json({
                 success: false,
-                error: 'AI 服務未初始化',
-                message: '請確認 OPENAI_API_KEY 環境變量已設置'
-            });
-        }
-
-        if (!openaiService.isAvailable || !openaiService.isAvailable()) {
-            return res.status(503).json({
-                success: false,
-                error: 'AI 服務不可用',
+                error: 'AI 服務未配置',
                 message: '請設置 OPENAI_API_KEY 環境變量'
             });
         }
 
-        const { message, sessionId, userId } = req.body;
+        const { message, sessionId } = req.body;
         
         if (!message) {
             return res.status(400).json({
                 success: false,
-                error: '缺少訊息內容',
-                message: '請提供 message 參數'
+                error: '缺少訊息內容'
             });
         }
 
-        const result = await openaiService.chat(message);
+        const result = await aiService.chat(message, sessionId || 'default');
         
-        if (result.success) {
-            res.json({
-                success: true,
-                message: result.message,
-                sessionId: sessionId || 'default',
-                timestamp: new Date().toISOString()
-            });
-        } else {
-            res.status(503).json({
-                success: false,
-                error: result.error || '處理失敗',
-                message: result.message || '無法生成回覆'
-            });
-        }
+        res.json(result);
+
     } catch (error) {
         console.error('Chat Error:', error);
         res.status(500).json({
             success: false,
             error: error.message,
-            message: '服務暫時不可用，請稍後再試'
+            message: '抱歉，處理您的請求時發生錯誤。'
         });
     }
 });
 
-/**
- * POST /api/ai/recommend-room
- * 房型推薦
- */
+// POST /api/ai/recommend-room
 router.post('/recommend-room', async (req, res) => {
     try {
-        if (!openaiService || !openaiService.isAvailable()) {
+        if (!aiService || !aiService.isAvailable()) {
             return res.status(503).json({
                 success: false,
-                error: 'AI 服務不可用'
+                error: 'AI 服務未配置'
             });
         }
 
-        const preferences = req.body;
-        const result = await openaiService.recommendRoom(preferences);
+        const result = await aiService.recommendRoom(req.body);
         
-        if (result.success) {
-            res.json(result);
-        } else {
-            res.status(503).json(result);
-        }
+        res.json(result);
+
     } catch (error) {
         console.error('Recommendation Error:', error);
         res.status(500).json({
@@ -119,16 +96,13 @@ router.post('/recommend-room', async (req, res) => {
     }
 });
 
-/**
- * POST /api/ai/translate
- * 翻譯功能
- */
+// POST /api/ai/translate
 router.post('/translate', async (req, res) => {
     try {
-        if (!openaiService || !openaiService.isAvailable()) {
+        if (!aiService || !aiService.isAvailable()) {
             return res.status(503).json({
                 success: false,
-                error: 'AI 服務不可用'
+                error: 'AI 服務未配置'
             });
         }
 
@@ -137,18 +111,14 @@ router.post('/translate', async (req, res) => {
         if (!text || !targetLanguage) {
             return res.status(400).json({
                 success: false,
-                error: '缺少必要參數',
-                message: '需要提供 text 和 targetLanguage'
+                error: '缺少必要參數'
             });
         }
 
-        const result = await openaiService.translate(text, targetLanguage);
+        const result = await aiService.translate(text, targetLanguage);
         
-        if (result.success) {
-            res.json(result);
-        } else {
-            res.status(503).json(result);
-        }
+        res.json(result);
+
     } catch (error) {
         console.error('Translation Error:', error);
         res.status(500).json({
@@ -156,16 +126,6 @@ router.post('/translate', async (req, res) => {
             error: error.message
         });
     }
-});
-
-// 錯誤處理中間件
-router.use((err, req, res, next) => {
-    console.error('AI Routes Error:', err);
-    res.status(500).json({
-        success: false,
-        error: err.message,
-        message: '服務器內部錯誤'
-    });
 });
 
 module.exports = router;
