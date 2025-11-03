@@ -1,24 +1,13 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm install && npm run speckit:generate"
+buildCommand = "npm install"
 
 [deploy]
-startCommand = "npm start"
+startCommand = "node server.js"
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 90
 numReplicas = 1
-restartPolicyType = "ON_FAILURE"
 
-[environments]
-  [environments.production]
-    [environments.production.variables]
-      NODE_ENV = "production"
-      PORT = "3000"
-
-  [environments.development]
-    [environments.development.variables]
-      NODE_ENV = "development"
-      PORT = "3000"
-
-# AI Hotel Assistant - Speckit Auto-Development
-# Project: 418bdf46-5dd6-4e84-b03f-4a723bd66dda
+[variables]
+NODE_ENV = "production"
+PORT = "3000"
