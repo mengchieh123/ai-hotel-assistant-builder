@@ -1,50 +1,264 @@
-# 業務功能規格文件 - 產品經理可編輯
-version: "1.0"
-spec_type: "business_features"
+# 完整業務功能規格文件 - 酒店管理系統
+version: "2.0"
+spec_type: "enterprise_hotel_management"
 last_updated: "2024-01-15"
 
-hotel_info:
-  name: "台北晶華酒店"
-  star_rating: 5
-  location: "台北市中山區中山北路二段39巷3號"
-  phone: "+886-2-2523-8000"
+metadata:
+  project: "AI Hotel Assistant Enterprise"
+  version: "2.0.0"
+  description: "五星級酒店智能管理系統 - 多業務場景整合"
+
+hotel_enterprise:
+  brand: "台北晶華酒店集團"
+  properties:
+    - name: "台北晶華酒店"
+      type: "luxury"
+      rooms: 300
+      location: "台北市中山區"
+    
+    - name: "台中晶華酒店" 
+      type: "business"
+      rooms: 200
+      location: "台中市西屯區"
+    
+    - name: "高雄晶華酒店"
+      type: "resort"
+      rooms: 250
+      location: "高雄市前金區"
 
 membership_system:
   enabled: true
-  levels:
-    - name: "普通會員"
-      discount: 5
-      min_points: 0
-      benefits: 
+  tier_structure:
+    silver:
+      name: "銀卡會員"
+      requirements: "首次入住"
+      benefits:
+        - "5% 房價折扣"
         - "積分累積"
         - "會員專屬價格"
     
-    - name: "黃金會員"
-      discount: 10
-      min_points: 1000
+    gold:
+      name: "金卡會員" 
+      requirements: "累積 5,000 點或 10 晚住宿"
       benefits:
-        - "專屬客服"
+        - "10% 房價折扣"
+        - "專屬客服熱線"
         - "房型升級機會"
-        - "提早入住"
-        # 在 levels: 部分添加
-
-  
-  points_rules:
-    earn_rate: 10
-    redeem_rate: 1
-    expiry_days: 365
-
-promotion_system:
-  enabled: true
-  campaigns:
-    - name: "早鳥優惠"
-      discount: 15
-      conditions: "提前7天預訂"
+        - "提早入住 (12:00)"
+        - "延遲退房 (14:00)"
     
-    - name: "連住優惠"
-      discount: 10
-      conditions: "連續入住3晚以上"
+    platinum:
+      name: "白金會員"
+      requirements: "累積 20,000 點或 30 晚住宿"
+      benefits:
+        - "15% 房價折扣"
+        - "個人化管家服務"
+        - "行政酒廊使用權"
+        - "免費早餐"
+        - "機場接送服務"
+    
+    diamond:
+      name: "鑽石會員"
+      requirements: "累積 50,000 點或 50 晚住宿"
+      benefits:
+        - "20% 房價折扣"
+        - "套房升級保證"
+        - "24小時專屬管家"
+        - "水療中心免費使用"
+        - "米其林餐廳預訂優先權"
+
+  points_system:
+    earn_rules:
+      base_rate: 10
+      weekend_bonus: 5
+      suite_bonus: 20
+      long_stay_bonus: "每多一晚 +5 點"
+    
+    redemption:
+      point_value: 1
+      min_redemption: 1000
+      redemption_options:
+        - "免費住宿"
+        - "餐飲抵扣"
+        - "水療服務"
+        - "客房升級"
+    
+    expiration: 
+      enabled: true
+      period_days: 730
+
+promotion_engine:
+  enabled: true
+  campaign_types:
+    
+    seasonal:
+      - name: "春節特惠"
+        period: "2024-01-20 to 2024-02-15"
+        discount: 20
+        conditions: "最少入住2晚"
+        target_audience: "家庭旅客"
+      
+      - name: "夏季促銷"
+        period: "2024-06-01 to 2024-08-31" 
+        discount: 15
+        conditions: "提前14天預訂"
+        target_audience: "休閒旅客"
+    
+    behavioral:
+      - name: "回頭客獎勵"
+        discount: 12
+        conditions: "第二次入住"
+        auto_apply: true
+      
+      - name: "長住優惠"
+        discount: "第3晚起 25%"
+        conditions: "連續入住3晚以上"
+        target_audience: "商務旅客"
+    
+    partnership:
+      - name: "航空公司合作"
+        discount: 15
+        conditions: "出示航空公司會員卡"
+        partners: ["中華航空", "長榮航空"]
+      
+      - name: "企業協議價"
+        discount: 20
+        conditions: "合作企業員工"
+        partners: ["台積電", "鴻海", "聯發科"]
+
+room_management:
+  room_types:
+    - type: "標準房"
+      size: "32㎡"
+      amenities: ["免費WiFi", "迷你吧", "保險箱"]
+      base_price: 4500
+      
+    - type: "豪華房" 
+      size: "45㎡"
+      amenities: ["海景陽台", "浴缸", "Nespresso咖啡機"]
+      base_price: 6800
+      
+    - type: "行政套房"
+      size: "68㎡"
+      amenities: ["獨立客廳", "行政酒廊", "管家服務"]
+      base_price: 12000
+      
+    - type: "總統套房"
+      size: "150㎡"
+      amenities: ["私人泳池", "廚房", "會議室", "專屬司機"]
+      base_price: 35000
+
+  inventory_management:
+    total_rooms: 750
+    overbooking_policy: 5%
+    maintenance_schedule: "季度保養"
+
+dining_services:
+  restaurants:
+    - name: "Robin's 牛排館"
+      type: "牛排館"
+      cuisine: "美式"
+      price_range: "$$$"
+      features: ["現場演奏", "葡萄酒窖"]
+      
+    - name: "晶華軒"
+      type: "中餐廳" 
+      cuisine: "粵菜"
+      price_range: "$$"
+      features: ["米其林推薦", "包廂服務"]
+      
+    - name: "義大利餐廳"
+      type: "西餐廳"
+      cuisine: "義大利"
+      price_range: "$$"
+      features: ["手工披薩", "露天座位"]
+
+  room_service:
+    available: true
+    operating_hours: "06:00-23:00"
+    service_fee: 200
+
+concierge_services:
+  standard_services:
+    - "機場接送"
+    - "旅遊規劃"
+    - "餐廳預訂"
+    - "租車服務"
+    
+  premium_services:
+    - "私人導遊"
+    - "直升機接送"
+    - "活動策劃"
+    - "購物助理"
+
+event_management:
+  venues:
+    - name: "宴會廳"
+      capacity: 500
+      features: ["舞台", "音響系統", "投影設備"]
+      
+    - name: "會議室"
+      capacity: 50
+      features: ["視頻會議", "白板", "茶水服務"]
+  
+  event_types:
+    - "婚宴"
+    - "企業會議"
+    - "產品發布會"
+    - "生日派對"
+
+loyalty_programs:
+  corporate_program:
+    name: "企業尊榮計劃"
+    benefits:
+      - "專屬客戶經理"
+      - "月結付款"
+      - "優先客房分配"
+    
+  travel_agent_program:
+    name: "旅行社合作計劃" 
+    commission: 15%
+    benefits:
+      - "即時房況查詢"
+      - "快速預訂通道"
+      - "季度獎金"
+
+analytics_dashboard:
+  kpis:
+    - "入住率"
+    - "平均房價"
+    - "RevPAR"
+    - "客戶滿意度"
+    - "會員轉化率"
+  
+  reports:
+    - "每日營收報告"
+    - "會員活動分析"
+    - "促銷活動效果"
+    - "競爭對手分析"
+
+integration_apis:
+  external_systems:
+    - "OTA 渠道管理"
+    - "支付網關"
+    - "CRM 系統"
+    - "會計軟體"
+  
+  internal_systems:
+    - "房務管理"
+    - "餐飲管理"
+    - "財務系統"
+    - "人力資源"
 
 features:
-  - "membership_system"
-  - "promotion_system"
+  - "multi_property_management"
+  - "advanced_membership_system"
+  - "dynamic_pricing_engine"
+  - "promotion_campaign_manager"
+  - "room_inventory_optimization"
+  - "dining_services_integration"
+  - "concierge_service_platform"
+  - "event_management_system"
+  - "loyalty_program_management"
+  - "business_intelligence_dashboard"
+  - "api_integration_framework"
