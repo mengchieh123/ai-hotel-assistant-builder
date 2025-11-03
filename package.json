@@ -3,16 +3,30 @@
   "version": "2.0.0",
   "description": "AI Hotel Assistant with Speckit Auto-Development",
   "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "dev:watch": "nodemon server.js",
     "speckit:generate": "node speckit/cli.js generate",
-    "speckit:validate": "node speckit/cli.js validate"
+    "speckit:validate": "node speckit/cli.js validate",
+    "test:health": "node -e \"require('http').get('http://localhost:3000/health', (res) => { console.log('Health check:', res.statusCode); process.exit(res.statusCode === 200 ? 0 : 1); })\""
   },
   "dependencies": {
     "chokidar": "^4.0.3",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "js-yaml": "^4.1.0",
     "yaml": "^2.8.1"
-  }
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["ai", "hotel", "assistant", "speckit", "ota"],
+  "author": "",
+  "license": "MIT"
 }
+
