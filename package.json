@@ -1,7 +1,7 @@
 {
   "name": "ai-hotel-assistant-builder",
-  "version": "2.0.0",
-  "description": "AI Hotel Assistant with Speckit Auto-Development",
+  "version": "2.1.0",
+  "description": "AI Hotel Assistant with OpenAI Integration",
   "main": "server.js",
   "engines": {
     "node": ">=18.0.0",
@@ -19,6 +19,17 @@
     "dotenv": "^17.2.3",
     "express": "^4.18.2",
     "js-yaml": "^4.1.0",
-    "yaml": "^2.8.1"
-  }
+    "yaml": "^2.8.1",
+    "openai": "^4.20.0"
+  },
+  "keywords": [
+    "hotel",
+    "ai",
+    "assistant",
+    "openai",
+    "speckit",
+    "automation"
+  ],
+  "author": "mengchieh123",
+  "license": "MIT"
 }

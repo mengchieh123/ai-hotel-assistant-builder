@@ -7,9 +7,9 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 靜態文件服務 - 提供 HTML 演示頁面
+// 靜態文件服務
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname)); // 為了向後兼容，也服務根目錄
+app.use(express.static(__dirname));
 
 // 健康檢查
 app.get('/health', (req, res) => {
@@ -17,16 +17,25 @@ app.get('/health', (req, res) => {
     res.json({
         status: 'healthy',
         service: 'AI Hotel Assistant',
-        version: '2.0.0',
+        version: '2.1.0',
         timestamp: new Date().toISOString(),
         port: PORT,
-        features: [
-            'Speckit Auto Development',
-            'Static File Serving',
-            'Health Monitoring'
-        ]
+        features: {
+            speckit: '✅ 已啟用',
+            openai: process.env.OPENAI_API_KEY ? '✅ 已配置' : '❌ 未配置',
+            staticFiles: '✅ 已啟用'
+        }
     });
 });
+
+// AI 路由
+try {
+    const aiRoutes = require('./routes/ai-routes');
+    app.use('/api/ai', aiRoutes);
+    console.log('✅ AI 路由已加載');
+} catch (error) {
+    console.warn('⚠️  AI 路由加載失敗:', error.message);
+}
 
 // 演示頁面路由
 app.get('/demo', (req, res) => {
@@ -37,13 +46,27 @@ app.get('/demo', (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         name: 'AI Hotel Assistant Builder',
-        version: '2.0.0',
-        description: 'Speckit-driven hotel management system',
+        version: '2.1.0',
+        description: 'Speckit-driven hotel management system with AI capabilities',
+        features: [
+            'Speckit Auto Development',
+            'OpenAI Integration',
+            'Smart Room Recommendation',
+            'Multi-language Translation',
+            'Natural Language Chat'
+        ],
         endpoints: {
-            health: '/health',
-            demo: '/demo',
-            speckit: '/speckit',
-            static: '/product-manager-demo.html'
+            system: {
+                health: 'GET /health',
+                root: 'GET /',
+                demo: 'GET /demo'
+            },
+            ai: {
+                status: 'GET /api/ai/status',
+                chat: 'POST /api/ai/chat',
+                recommendRoom: 'POST /api/ai/recommend-room',
+                translate: 'POST /api/ai/translate'
+            }
         },
         documentation: 'https://github.com/mengchieh123/ai-hotel-assistant-builder'
     });
@@ -59,7 +82,10 @@ app.use((req, res) => {
             '/ - API 信息',
             '/health - 健康檢查',
             '/demo - 演示頁面',
-            '/product-manager-demo.html - 產品經理演示'
+            '/api/ai/status - AI 服務狀態',
+            '/api/ai/chat - AI 對話',
+            '/api/ai/recommend-room - 智能推薦',
+            '/api/ai/translate - 多語言翻譯'
         ]
     });
 });
@@ -81,6 +107,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ 服務器運行在: http://0.0.0.0:${PORT}`);
     console.log(`🔍 健康檢查: http://0.0.0.0:${PORT}/health`);
     console.log(`🎨 演示頁面: http://0.0.0.0:${PORT}/demo`);
+    console.log(`🤖 OpenAI 狀態: ${process.env.OPENAI_API_KEY ? '✅ 已配置' : '❌ 未配置'}`);
 });
 
 // 心跳
