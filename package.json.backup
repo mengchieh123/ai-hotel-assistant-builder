@@ -19,9 +19,7 @@
     "health:check": "curl -s http://localhost:3000/health || echo \"服务器未运行\"",
     "logs": "railway logs",
     "status": "railway status",
-    "dev:watch": "nodemon server.js",
-    "test:health": "node -e \"require('http').get('http://localhost:3000/health', (res) => { console.log('Health check:', res.statusCode); process.exit(res.statusCode === 200 ? 0 : 1); })\"",
-    "validate": "npm run speckit:validate"
+    "dev:watch": "nodemon --watch server.js --watch speckit/ --watch specs/ --ext js,yaml,json server.js"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
@@ -31,19 +29,5 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
-  },
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
-  },
-  "keywords": [
-    "ai",
-    "hotel",
-    "assistant",
-    "speckit",
-    "ota",
-    "booking"
-  ],
-  "author": "",
-  "license": "MIT"
+  }
 }
