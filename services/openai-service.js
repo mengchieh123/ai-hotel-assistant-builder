@@ -1,161 +1,246 @@
 const OpenAI = require('openai');
+const hotelData = require('./hotel-data');
 
-/**
- * OpenAI 服務層
- * 提供 AI 對話、推薦、翻譯等功能
- */
 class OpenAIService {
     constructor() {
-        // 檢查 API Key 是否配置
-        this.isConfigured = !!process.env.OPENAI_API_KEY;
+        this.apiKey = process.env.OPENAI_API_KEY;
+        this.model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
         
-        if (this.isConfigured) {
-            this.client = new OpenAI({
-                apiKey: process.env.OPENAI_API_KEY
-            });
-            
-            this.model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-            this.maxTokens = parseInt(process.env.OPENAI_MAX_TOKENS) || 1000;
-            this.temperature = parseFloat(process.env.OPENAI_TEMPERATURE) || 0.7;
-            
-            console.log('✅ OpenAI 服務已初始化');
-            console.log(`📊 模型: ${this.model}`);
+        if (this.apiKey && this.apiKey !== 'sk-your-actual-api-key-here') {
+            try {
+                this.client = new OpenAI({
+                    apiKey: this.apiKey
+                });
+                this.available = true;
+                console.log('✅ OpenAI 服務已初始化');
+                console.log(`📊 模型: ${this.model}`);
+            } catch (error) {
+                console.error('❌ OpenAI 初始化失敗:', error.message);
+                this.available = false;
+            }
         } else {
-            console.warn('⚠️  OpenAI API Key 未配置，AI 功能已禁用');
+            console.log('⚠️  OpenAI API Key 未設置');
+            this.available = false;
         }
         
-        // 系統提示詞
-        this.systemPrompt = `你是台北晶華酒店的專業 AI 客服助手。
-
-你的職責：
-- 專業且友善地回答客戶關於飯店的問題
-- 提供房型、價格、設施和服務的詳細資訊
-- 協助客戶預訂房間和選擇促銷方案
-- 解答會員制度和積分系統的問題
-- 使用繁體中文回答（除非客戶使用其他語言）
-
-飯店資訊：
-- 名稱：台北晶華酒店 Regent Taipei
-- 星級：5 星級
-- 地址：台北市中山區中山北路二段39巷3號
-- 設施：室外泳池、健身房、Spa、餐廳、商務中心
-
-會員制度：
-- 銅卡：5% 折扣，0-999 積分
-- 銀卡：10% 折扣，1000-4999 積分
-- 金卡：15% 折扣，5000-14999 積分
-- 白金卡：20% 折扣，15000+ 積分
-
-回答風格：
-- 專業但不失親切
-- 簡潔明瞭
-- 提供具體數字和細節
-- 主動推薦合適的選項`;
+        // 對話歷史記憶（簡單版本，生產環境應使用資料庫）
+        this.conversations = new Map();
     }
 
-    /**
-     * 檢查服務是否可用
-     */
     isAvailable() {
-        return this.isConfigured;
+        return this.available && this.client;
     }
 
     /**
-     * 基礎對話 API
+     * 生成系統 Prompt
+     * 定義 AI 的角色、知識和行為
      */
-    async chat(userMessage, conversationHistory = []) {
-        if (!this.isConfigured) {
+    getSystemPrompt() {
+        const { hotelInfo, roomTypes, facilities } = hotelData;
+        
+        return `你是「${hotelInfo.name}」的智能客服助手，一位專業、親切、樂於助人的飯店服務人員。
+
+🏨 飯店基本資訊：
+- 名稱：${hotelInfo.name}
+- 星級：${hotelInfo.stars}星級飯店
+- 地址：${hotelInfo.address}
+- 電話：${hotelInfo.phone}
+- 入住時間：${hotelInfo.checkIn}
+- 退房時間：${hotelInfo.checkOut}
+
+🛏️ 房型與價格：
+${roomTypes.map(room => `
+【${room.name}】
+- 大小：${room.size}
+- 入住人數：${room.capacity}人
+- 床型：${room.bed}
+- 每晚價格：NT$ ${room.price.toLocaleString()}
+- 特色：${room.features.join('、')}
+- 說明：${room.description}
+`).join('\n')}
+
+🎯 設施與服務：
+${facilities.map(f => `${f.category}：${f.items.join('、')}`).join('\n')}
+
+📋 你的職責：
+1. 熱情回答客人關於房型、價格、設施的問題
+2. 根據客人需求（預算、人數、偏好）推薦合適房型
+3. 提供預訂流程指引
+4. 解答入住相關政策和問題
+5. 保持專業、友善、簡潔的溝通風格
+
+💡 對話原則：
+- 使用繁體中文回覆
+- 保持親切專業的語氣
+- 提供具體的房型和價格資訊
+- 主動詢問客人需求以提供更好的建議
+- 如果客人詢問預訂，引導他們提供：入住日期、退房日期、人數
+- 當客人表達預訂意願時，提供聯繫電話 ${hotelInfo.phone}
+
+❌ 限制：
+- 你只能回答與本飯店相關的問題
+- 如果問題與飯店無關，請禮貌地引導回主題
+- 不要編造不存在的房型或服務`;
+    }
+
+    /**
+     * 智能對話功能
+     */
+    async chat(message, sessionId = 'default') {
+        if (!this.isAvailable()) {
             return {
                 success: false,
-                error: 'OpenAI API Key 未配置',
-                fallback: '抱歉，AI 功能目前不可用。請聯繫客服：+886-2-2523-8000'
+                error: 'AI 服務未配置',
+                message: '很抱歉，AI 服務目前不可用。'
             };
         }
 
         try {
+            // 獲取或創建對話歷史
+            if (!this.conversations.has(sessionId)) {
+                this.conversations.set(sessionId, []);
+            }
+            
+            const history = this.conversations.get(sessionId);
+            
+            // 構建對話訊息
             const messages = [
-                { role: 'system', content: this.systemPrompt },
-                ...conversationHistory,
-                { role: 'user', content: userMessage }
+                {
+                    role: 'system',
+                    content: this.getSystemPrompt()
+                },
+                ...history,
+                {
+                    role: 'user',
+                    content: message
+                }
             ];
 
-            const response = await this.client.chat.completions.create({
+            // 調用 OpenAI API
+            const completion = await this.client.chat.completions.create({
                 model: this.model,
                 messages: messages,
-                max_tokens: this.maxTokens,
-                temperature: this.temperature
+                temperature: 0.7,
+                max_tokens: 500
             });
+
+            const reply = completion.choices[0].message.content;
+
+            // 更新對話歷史（保留最近5輪對話）
+            history.push(
+                { role: 'user', content: message },
+                { role: 'assistant', content: reply }
+            );
+            
+            if (history.length > 10) {
+                history.splice(0, 2); // 移除最舊的一輪對話
+            }
 
             return {
                 success: true,
-                message: response.choices[0].message.content,
-                usage: {
-                    promptTokens: response.usage.prompt_tokens,
-                    completionTokens: response.usage.completion_tokens,
-                    totalTokens: response.usage.total_tokens,
-                    estimatedCost: this.calculateCost(response.usage)
-                }
+                message: reply,
+                sessionId: sessionId
             };
+
         } catch (error) {
-            console.error('OpenAI API Error:', error);
+            console.error('Chat Error:', error);
             return {
                 success: false,
                 error: error.message,
-                fallback: '抱歉，AI 服務暫時不可用。請稍後再試或聯繫客服。'
+                message: '抱歉，處理您的請求時發生錯誤。請稍後再試。'
             };
         }
     }
 
     /**
-     * 智能房型推薦
+     * 房型推薦功能
      */
-    async recommendRoom(userPreferences) {
-        const prompt = `根據以下客戶需求，推薦最適合的房型：
+    async recommendRoom(preferences) {
+        if (!this.isAvailable()) {
+            return {
+                success: false,
+                error: 'AI 服務未配置'
+            };
+        }
 
-客戶需求：
-${JSON.stringify(userPreferences, null, 2)}
+        const { guests, budget, nights, preferences: prefs } = preferences;
+        
+        const prompt = `客人需求：
+- 入住人數：${guests || '未提供'}人
+- 預算：${budget ? `NT$ ${budget}` : '未提供'}
+- 入住天數：${nights || '未提供'}晚
+- 偏好：${prefs ? prefs.join('、') : '未提供'}
 
-可用房型：
-1. 標準雙人房（28平方米，NT$4,500/晚）
-2. 豪華客房（35平方米，NT$6,500/晚）
-3. 行政套房（55平方米，NT$12,000/晚）
-4. 總統套房（120平方米，NT$35,000/晚）
+請根據客人需求，從我們的房型中推薦最合適的選項，並說明推薦理由。`;
 
-請提供：
-1. 最推薦的房型
-2. 推薦理由
-3. 預估總價（考慮會員折扣）
-4. 是否有適用的促銷活動`;
+        try {
+            const completion = await this.client.chat.completions.create({
+                model: this.model,
+                messages: [
+                    { role: 'system', content: this.getSystemPrompt() },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 300
+            });
 
-        return await this.chat(prompt);
+            return {
+                success: true,
+                recommendation: completion.choices[0].message.content
+            };
+
+        } catch (error) {
+            console.error('Recommendation Error:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
 
     /**
-     * 多語言翻譯
+     * 翻譯功能
      */
     async translate(text, targetLanguage) {
-        const prompt = `將以下文字翻譯成${targetLanguage}：
+        if (!this.isAvailable()) {
+            return {
+                success: false,
+                error: 'AI 服務未配置'
+            };
+        }
 
-原文：
-"${text}"
+        try {
+            const completion = await this.client.chat.completions.create({
+                model: this.model,
+                messages: [
+                    {
+                        role: 'system',
+                        content: `你是專業翻譯，請將文字翻譯成${targetLanguage}，保持原意和專業性。`
+                    },
+                    {
+                        role: 'user',
+                        content: text
+                    }
+                ],
+                temperature: 0.3,
+                max_tokens: 200
+            });
 
-要求：
-- 保持專業語氣
-- 適合飯店業務場景
-- 文化適當性`;
+            return {
+                success: true,
+                translatedText: completion.choices[0].message.content,
+                originalText: text,
+                targetLanguage: targetLanguage
+            };
 
-        return await this.chat(prompt);
-    }
-
-    /**
-     * 計算 API 成本（使用 GPT-4o-mini 價格）
-     */
-    calculateCost(usage) {
-        const inputCost = (usage.prompt_tokens / 1000000) * 0.15; // $0.15 per 1M tokens
-        const outputCost = (usage.completion_tokens / 1000000) * 0.60; // $0.60 per 1M tokens
-        return (inputCost + outputCost).toFixed(6);
+        } catch (error) {
+            console.error('Translation Error:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
     }
 }
 
-// 導出單例
 module.exports = new OpenAIService();
