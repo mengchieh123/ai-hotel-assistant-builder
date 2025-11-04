@@ -1,3 +1,17 @@
+#!/bin/bash
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📤 立即推送 conversation-spec.yaml"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# 1. 確保目錄存在
+mkdir -p speckit
+
+# 2. 創建文件
+echo "📝 創建 conversation-spec.yaml..."
+
+cat > speckit/conversation-spec.yaml << 'EOFSPEC'
 name: hotel-ai-conversation-system
 version: 1.0.0
 description: 飯店 AI 助手對話系統規格書
@@ -163,3 +177,84 @@ performance:
   intent_accuracy: 95%
   response_time: 500ms
   completion_rate: 85%
+EOFSPEC
+
+echo "✅ 文件已創建"
+
+# 3. 檢查文件
+if [ -f "speckit/conversation-spec.yaml" ]; then
+    echo "✅ 文件存在：speckit/conversation-spec.yaml"
+    echo "   大小：$(wc -c < speckit/conversation-spec.yaml) bytes"
+else
+    echo "❌ 文件創建失敗"
+    exit 1
+fi
+
+# 4. Git 操作
+echo ""
+echo "📤 推送到 GitHub..."
+
+# 確保在正確的分支
+git branch
+
+# 添加文件
+git add speckit/conversation-spec.yaml
+
+# 檢查狀態
+echo ""
+echo "📊 Git 狀態："
+git status
+
+# 提交
+git commit -m "feat: add conversation-spec.yaml for AI chat system
+
+✅ Defines 10 conversation scenarios
+✅ Multi-turn booking flow
+✅ Entity extraction patterns
+✅ Performance targets
+
+Location: speckit/conversation-spec.yaml"
+
+# 推送
+echo ""
+echo "🚀 推送中..."
+git push origin main
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ 推送成功！"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "🔗 GitHub 連結："
+    echo "   https://github.com/mengchieh123/ai-hotel-assistant-builder/blob/main/speckit/conversation-spec.yaml"
+    echo ""
+    echo "📂 SpecKit 完整結構："
+    echo "   speckit/"
+    echo "   ├── business-spec.yaml"
+    echo "   ├── conversation-spec.yaml  ← 新增"
+    echo "   ├── README.md"
+    echo "   ├── ARCHITECTURE.md"
+    echo "   └── IMPLEMENTATION_PLAN.md"
+    echo ""
+    echo "💡 下一步："
+    echo "   1. 前往 GitHub 確認文件"
+    echo "   2. 查看文件內容"
+    echo "   3. 根據 spec 實現對話邏輯"
+    echo ""
+else
+    echo ""
+    echo "❌ 推送失敗，請檢查錯誤訊息"
+    echo ""
+    echo "可能原因："
+    echo "   • Git 認證問題"
+    echo "   • 網路連線問題"
+    echo "   • 分支權限問題"
+    echo ""
+    echo "手動推送指令："
+    echo "   git add speckit/conversation-spec.yaml"
+    echo "   git commit -m 'feat: add conversation-spec.yaml'"
+    echo "   git push origin main"
+    echo ""
+fi
+

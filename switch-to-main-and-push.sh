@@ -1,3 +1,37 @@
+#!/bin/bash
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔀 切換到 main 分支並推送"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# 按 q 退出 git branch 顯示
+# （如果還在顯示中）
+
+echo "1️⃣ 當前分支狀態："
+git branch
+
+echo ""
+echo "2️⃣ 切換到 main 分支..."
+git checkout main
+
+if [ $? -ne 0 ]; then
+    echo "❌ 切換失敗，嘗試創建 main 分支..."
+    git checkout -b main
+fi
+
+echo ""
+echo "3️⃣ 拉取最新代碼..."
+git pull origin main
+
+echo ""
+echo "4️⃣ 創建 speckit 目錄..."
+mkdir -p speckit
+
+echo ""
+echo "5️⃣ 創建 conversation-spec.yaml..."
+
+cat > speckit/conversation-spec.yaml << 'EOFSPEC'
 name: hotel-ai-conversation-system
 version: 1.0.0
 description: 飯店 AI 助手對話系統規格書
@@ -126,9 +160,7 @@ conversation_scenarios:
 booking_flow:
   stage_1_greeting:
     trigger: ["我想訂房", "訂房", "預訂"]
-    response: |
-      好的！讓我幫您安排訂房 😊
-      請告訴我：房型、天數、人數
+    response: "好的！請告訴我：房型、天數、人數"
   
   stage_2_collect:
     entities_needed:
@@ -163,3 +195,46 @@ performance:
   intent_accuracy: 95%
   response_time: 500ms
   completion_rate: 85%
+EOFSPEC
+
+echo "✅ 文件已創建"
+
+echo ""
+echo "6️⃣ 添加文件到 Git..."
+git add speckit/conversation-spec.yaml
+
+echo ""
+echo "7️⃣ 提交..."
+git commit -m "feat: add conversation-spec.yaml
+
+✅ 10 conversation scenarios
+✅ Booking flow definition
+✅ Entity extraction patterns
+✅ Performance targets
+
+File: speckit/conversation-spec.yaml"
+
+echo ""
+echo "8️⃣ 推送到 GitHub..."
+git push origin main
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ 成功推送到 main 分支！"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "🔗 GitHub 連結："
+    echo "   https://github.com/mengchieh123/ai-hotel-assistant-builder/blob/main/speckit/conversation-spec.yaml"
+    echo ""
+    echo "✅ 文件已在 main 分支"
+    echo ""
+else
+    echo ""
+    echo "❌ 推送失敗"
+    echo ""
+    echo "請手動執行："
+    echo "   git push origin main"
+    echo ""
+fi
+
