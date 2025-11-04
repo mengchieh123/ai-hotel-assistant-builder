@@ -1,17 +1,20 @@
 {
-  "name": "ai-hotel-assistant-builder",
-  "version": "2.1.0",
-  "description": "AI Hotel Assistant",
+  "name": "ai-hotel-assistant-railway-optimized",
+  "version": "3.2.1",
+  "description": "AI Hotel Assistant - Railway Optimized",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "echo \"No tests specified\" && exit 0"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1"
+    "express": "^4.18.2"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": ["hotel", "ai", "booking", "assistant"],
+  "author": "AI Hotel Team",
+  "license": "MIT"
 }
