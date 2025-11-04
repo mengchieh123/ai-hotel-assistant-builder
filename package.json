@@ -1,20 +1,29 @@
 {
   "name": "ai-hotel-assistant-railway-optimized",
   "version": "3.2.1",
-  "description": "AI Hotel Assistant - Railway Optimized",
+  "description": "AI Hotel Assistant with Business SpecKit",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "test": "echo \"No tests specified\" && exit 0"
+    "dev": "nodemon server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "hotel",
+    "ai",
+    "assistant",
+    "booking"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "keywords": ["hotel", "ai", "booking", "assistant"],
-  "author": "AI Hotel Team",
-  "license": "MIT"
+  }
 }
