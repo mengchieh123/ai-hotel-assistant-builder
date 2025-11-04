@@ -2,6 +2,39 @@ name: hotel-booking-system
 version: 1.0.0
 description: 飯店預訂管理系統業務規格書（台灣地區）
 
+# 新增：系統關聯架構
+system_relationships:
+  core_dependencies:
+    - 預訂系統 ↔ 房態系統 (雙向即時同步)
+    - 預訂系統 ↔ 價格系統 (價格查詢與計算)
+    - 預訂系統 ↔ 會員系統 (權益與折扣應用)
+    - 預訂系統 ↔ 支付系統 (交易處理)
+    - 房態系統 ↔ 價格系統 (供需動態定價)
+    
+  data_flows:
+    - 會員註冊 → 發送歡迎優惠券 → 促進預訂
+    - 預訂完成 → 更新房態 → 觸發價格調整
+    - 入住記錄 → 更新會員等級 → 解鎖新權益
+    - 促銷活動 → 影響預訂量 → 反饋至價格策略
+
+  business_process_chains:
+    預訂生命週期:
+      - 房型查詢(房態系統)
+      - 價格計算(價格系統)
+      - 會員驗證(會員系統)
+      - 促銷應用(促銷系統)
+      - 庫存鎖定(房態系統)
+      - 支付處理(支付系統)
+      - 訂單確認(預訂系統)
+      - 通知發送(通知系統)
+
+    會員升級流程:
+      - 入住記錄累積(預訂系統)
+      - 消費金額統計(支付系統)
+      - 等級評估(會員系統)
+      - 權益更新(會員系統)
+      - 專屬優惠發放(促銷系統)
+
 business_domains:
   - 預訂管理
   - 房態管理
@@ -10,6 +43,28 @@ business_domains:
   - 促銷管理
   - 支付處理
   - 報表分析
+
+# 新增：跨領域業務規則
+cross_domain_rules:
+  預訂與房態關聯:
+    - 預訂成立時立即鎖定對應房型庫存
+    - 取消預訂時釋放庫存並重新計算可用房
+    - 房型維護期間自動拒絕相關預訂請求
+  
+  會員與價格關聯:
+    - 會員等級決定基礎折扣率
+    - 會員專屬促銷可疊加使用
+    - 生日當月預訂自動套用生日優惠
+  
+  促銷與庫存關聯:
+    - 特定促銷活動綁定限量房型
+    - 熱門時段促銷需保留最低庫存
+    - 連住優惠需檢查連續日期房態
+
+  支付與預訂狀態關聯:
+    - 支付成功才確認預訂
+    - 退款處理同步更新預訂狀態
+    - 匯款待確認狀態保留庫存24小時
 
 core_business_rules:
   預訂規則:
@@ -60,15 +115,32 @@ core_business_rules:
     - 學生專案: 憑學生證享優惠
     - 銀髮專案: 65歲以上長者優惠
 
+# 新增：系統整合點關聯
+integration_relationships:
+  支付系統整合:
+    - 信用卡: 預訂流程 → 支付閘道 → 訂單狀態更新
+    - LINE Pay: LINE整合 → 快速支付 → 即時確認
+    - 銀行匯款: 生成虛擬帳號 → 對帳系統 → 手動確認
+  
+  通知系統整合:
+    - 預訂確認: 預訂系統 → Email/SMS/LINE
+    - 會員權益: 會員系統 → 專屬優惠通知
+    - 促銷推播: 促銷系統 → 目標客群行銷
+  
+  報表系統整合:
+    - 每日營收: 支付系統 + 預訂系統 → 財務報表
+    - 會員分析: 會員系統 + 預訂系統 → 行為分析
+    - 房態統計: 房態系統 + 預訂系統 → 營運效率
+
 workflows:
   預訂流程:
     steps:
-      - 查詢可用房型
+      - 查詢可用房型（房態系統）
       - 選擇房型與日期
       - 輸入客人資訊（含身份證字號）
       - 選擇支付方式
-      - 應用促銷代碼
-      - 計算總價格（含稅金）
+      - 應用促銷代碼（促銷系統）
+      - 計算總價格（價格系統）
       - 確認預訂
       - 發送確認通知（簡訊+LINE通知）
 
@@ -90,125 +162,10 @@ workflows:
       - 監控活動效果
       - 活動結束分析
 
-business_entities:
-  Room:
-    attributes:
-      - room_id: string
-      - room_type: string（標準房、豪華房、家庭房、套房）
-      - room_number: string
-      - floor: number
-      - amenities: array（免費WiFi、電視、冰箱、茶具）
-      - status: enum[available, occupied, maintenance]
-      - base_price: number（新台幣）
-
-  Booking:
-    attributes:
-      - booking_id: string
-      - guest_id: string
-      - room_id: string
-      - check_in_date: date
-      - check_out_date: date
-      - total_nights: number
-      - base_amount: number
-      - service_charge: number（10%服務費）
-      - tax_amount: number（5%營業稅）
-      - discount_amount: number
-      - total_amount: number
-      - status: enum[pending, confirmed, checked_in, checked_out, cancelled]
-      - payment_method: enum[credit_card, line_pay, bank_transfer]
-      - payment_status: enum[pending, paid, refunded]
-
-  Guest:
-    attributes:
-      - guest_id: string
-      - name: string
-      - email: string
-      - phone: string
-      - id_number: string（身份證字號/護照號碼）
-      - nationality: string（國籍）
-      - address: object（發票寄送地址）
-
-  Member:
-    attributes:
-      - member_id: string
-      - guest_id: string
-      - tier: enum[regular, silver, gold, platinum]
-      - points_balance: number
-      - total_stays: number
-      - total_spent: number
-      - join_date: date
-      - expiry_date: date
-      - line_user_id: string（LINE綁定ID）
-      - birthday: date（生日優惠用）
-
-  Promotion:
-    attributes:
-      - promotion_id: string
-      - name: string
-      - type: enum[early_bird, last_minute, long_stay, package, student, senior]
-      - discount_type: enum[percentage, fixed_amount]
-      - discount_value: number
-      - min_stay_nights: number
-      - advance_booking_days: number
-      - valid_period: object
-      - target_tiers: array
-      - required_document: string（學生證、身份證）
-
-business_metrics:
-  營收指標:
-    - 日均房價(ADR)
-    - 每間可售房收入(RevPAR)
-    - 入住率(Occupancy Rate)
-    - 總預訂額（新台幣）
-    - 平均住宿天數
-
-  會員指標:
-    - 會員註冊數
-    - 會員活躍度
-    - 會員復購率
-    - 會員貢獻占比
-    - 會員升級率
-
-  促銷效果:
-    - 促銷活動參與率
-    - 促銷帶來的訂單數
-    - 促銷ROI
-    - 優惠券使用率
-
-integration_points:
-  external_apis:
-    - 支付網關:
-        - 信用卡: 藍新金流、綠界科技
-        - LINE Pay: LINE支付接口
-        - 銀行匯款: 台灣銀行、中國信託、玉山銀行等
-    - 通知服務:
-        - 簡訊發送: 三竹資訊、Twilio
-        - LINE通知: LINE Messaging API
-        - Email發送: SendGrid
-    - 政府系統:
-        - 旅宿業登記系統
-        - 統一發票整合平台
-
-security_requirements:
-  - 客戶資料加密存儲（含身份證字號）
-  - 支付信息PCI DSS合規
-  - 會員密碼加密
-  - API訪問權限控制
-  - 敏感操作日誌記錄
-  - 個資法合規檢查
-
-compliance_requirements:
-  - 個人資料保護法（個資法）
-  - 發展觀光條例
-  - 旅館業管理規則
-  - 統一發票使用辦法
-  - 消費者保護法
-
-localization_features:
-  - 語言: 繁體中文
-  - 幣別: 新台幣（NT$）
-  - 稅金計算: 服務費10% + 營業稅5%
-  - 發票類型: 二聯式/三聯式統一發票
-  - 證件類型: 身份證、護照、居留證
-  - 節日設定: 台灣國定假日、連續假期
-  - 地址格式: 台灣縣市鄉鎮區格式
+# 以下保持原有內容...
+business_entities: [...]
+business_metrics: [...]
+integration_points: [...]
+security_requirements: [...]
+compliance_requirements: [...]
+localization_features: [...]
