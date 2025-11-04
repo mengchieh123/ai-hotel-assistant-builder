@@ -1,0 +1,578 @@
+#!/bin/bash
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🎨 創建產品經理 AI 對話測試頁面"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# 確保 public 目錄存在
+mkdir -p public
+
+# 創建 AI 對話測試頁面
+cat > public/ai-chat-demo.html << 'EOFHTML'
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 飯店助手 - 對話測試</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 90vh;
+            max-height: 800px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .status-bar {
+            padding: 15px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ccc;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.active {
+            background: #4caf50;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            background: #fafafa;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: flex-start;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: #667eea;
+            color: white;
+            margin-left: 10px;
+        }
+
+        .message.assistant .message-avatar {
+            background: #764ba2;
+            color: white;
+            margin-right: 10px;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 15px 20px;
+            border-radius: 20px;
+            line-height: 1.5;
+        }
+
+        .message.user .message-content {
+            background: #667eea;
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+            border-bottom-left-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 5px;
+        }
+
+        .typing-indicator {
+            display: none;
+            padding: 15px 20px;
+            background: white;
+            border-radius: 20px;
+            width: fit-content;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .typing-indicator.active {
+            display: block;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 5px;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #999;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+            }
+            30% {
+                transform: translateY(-10px);
+            }
+        }
+
+        .input-container {
+            padding: 20px 30px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .input-wrapper input {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .input-wrapper input:focus {
+            border-color: #667eea;
+        }
+
+        .input-wrapper button {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .input-wrapper button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .input-wrapper button:active {
+            transform: translateY(0);
+        }
+
+        .input-wrapper button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .quick-replies {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .quick-reply-btn {
+            padding: 8px 16px;
+            background: white;
+            border: 2px solid #667eea;
+            color: #667eea;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .quick-reply-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .welcome-message {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+
+        .welcome-message h2 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .error-message {
+            background: #ff5252;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            animation: shake 0.5s;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI 飯店助手</h1>
+            <p>產品經理測試介面 - 即時對話體驗</p>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">檢查連線中...</span>
+            </div>
+            <button onclick="clearChat()" style="padding: 5px 15px; border: none; background: #f0f0f0; border-radius: 15px; cursor: pointer; font-size: 12px;">清空對話</button>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="welcome-message">
+                <h2>👋 歡迎使用 AI 飯店助手</h2>
+                <p>我可以幫您解答關於飯店的任何問題</p>
+                <p style="margin-top: 10px; font-size: 13px; opacity: 0.7;">試試下面的快速問題，或直接輸入您的問題</p>
+            </div>
+        </div>
+
+        <div class="input-container">
+            <div class="quick-replies">
+                <button class="quick-reply-btn" onclick="sendQuickReply('你好')">👋 打招呼</button>
+                <button class="quick-reply-btn" onclick="sendQuickReply('有什麼房型？')">🏨 查詢房型</button>
+                <button class="quick-reply-btn" onclick="sendQuickReply('價格多少？')">💰 詢問價格</button>
+                <button class="quick-reply-btn" onclick="sendQuickReply('兩人入住推薦')">👥 預訂需求</button>
+                <button class="quick-reply-btn" onclick="sendQuickReply('飯店有什麼設施？')">🏊 設施查詢</button>
+            </div>
+            
+            <div class="input-wrapper">
+                <input 
+                    type="text" 
+                    id="messageInput" 
+                    placeholder="輸入您的問題..."
+                    onkeypress="handleKeyPress(event)"
+                >
+                <button id="sendButton" onclick="sendMessage()">發送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const sessionId = 'pm-demo-' + Date.now();
+        let isWaiting = false;
+
+        // 檢查 AI 服務狀態
+        async function checkAIStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/ai/status`);
+                const data = await response.json();
+                
+                const statusDot = document.getElementById('statusDot');
+                const statusText = document.getElementById('statusText');
+                
+                if (data.available) {
+                    statusDot.classList.add('active');
+                    statusText.textContent = '✅ AI 服務已就緒';
+                } else {
+                    statusText.textContent = '⚠️ AI 服務未配置';
+                }
+            } catch (error) {
+                console.error('Status check failed:', error);
+                document.getElementById('statusText').textContent = '❌ 連線失敗';
+            }
+        }
+
+        // 發送訊息
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message || isWaiting) return;
+            
+            input.value = '';
+            addMessage('user', message);
+            
+            isWaiting = true;
+            document.getElementById('sendButton').disabled = true;
+            showTypingIndicator();
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/ai/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        sessionId: sessionId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                hideTypingIndicator();
+                
+                if (data.success) {
+                    addMessage('assistant', data.message);
+                } else {
+                    addMessage('assistant', '抱歉，我目前無法回答您的問題。請稍後再試。', true);
+                }
+            } catch (error) {
+                console.error('Send message failed:', error);
+                hideTypingIndicator();
+                addMessage('assistant', '發生錯誤，請稍後再試。', true);
+            } finally {
+                isWaiting = false;
+                document.getElementById('sendButton').disabled = false;
+            }
+        }
+
+        // 快速回覆
+        function sendQuickReply(message) {
+            document.getElementById('messageInput').value = message;
+            sendMessage();
+        }
+
+        // 添加訊息到聊天視窗
+        function addMessage(type, content, isError = false) {
+            const chatContainer = document.getElementById('chatContainer');
+            const welcomeMsg = chatContainer.querySelector('.welcome-message');
+            if (welcomeMsg) welcomeMsg.remove();
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const time = new Date().toLocaleTimeString('zh-TW', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+            
+            const avatar = type === 'user' ? '👤' : '🤖';
+            
+            messageDiv.innerHTML = `
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-content ${isError ? 'error-message' : ''}">
+                    ${content}
+                    <div class="message-time">${time}</div>
+                </div>
+            `;
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // 顯示輸入指示器
+        function showTypingIndicator() {
+            const chatContainer = document.getElementById('chatContainer');
+            const indicator = document.createElement('div');
+            indicator.className = 'message assistant';
+            indicator.id = 'typingIndicator';
+            indicator.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="typing-indicator active">
+                    <div class="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            `;
+            chatContainer.appendChild(indicator);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // 隱藏輸入指示器
+        function hideTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) indicator.remove();
+        }
+
+        // 清空對話
+        function clearChat() {
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.innerHTML = `
+                <div class="welcome-message">
+                    <h2>👋 歡迎使用 AI 飯店助手</h2>
+                    <p>我可以幫您解答關於飯店的任何問題</p>
+                    <p style="margin-top: 10px; font-size: 13px; opacity: 0.7;">試試下面的快速問題，或直接輸入您的問題</p>
+                </div>
+            `;
+        }
+
+        // 處理 Enter 鍵
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAIStatus();
+            document.getElementById('messageInput').focus();
+        });
+    </script>
+</body>
+</html>
+EOFHTML
+
+echo "✅ AI 對話測試頁面已創建"
+echo ""
+
+# 提交到 Git
+git add public/ai-chat-demo.html
+git commit -m "feat: add PM AI chat demo page
+
+- Interactive chat interface for product managers
+- Real-time AI conversation testing
+- Quick reply buttons for common queries
+- Beautiful UI with typing indicators
+- Status monitoring
+
+Features:
+✅ Live chat with AI assistant
+✅ Quick reply suggestions
+✅ Typing indicators
+✅ Session management
+✅ Error handling"
+
+git push origin main
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ 部署完成！"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "⏱️  等待 Railway 部署（60秒）..."
+sleep 60
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🎉 AI 對話測試頁面已就緒！"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "📱 產品經理測試入口："
+echo "   https://ai-hotel-assistant-builder-production.up.railway.app/ai-chat-demo.html"
+echo ""
+echo "🎯 功能特色："
+echo "   ✅ 即時 AI 對話"
+echo "   ✅ 快速回覆按鈕"
+echo "   ✅ 輸入指示器"
+echo "   ✅ 美觀的對話介面"
+echo "   ✅ 狀態監控"
+echo ""
+echo "�� 測試建議："
+echo "   1. 點擊快速回覆按鈕測試"
+echo "   2. 輸入自然語言問題"
+echo "   3. 測試多輪對話"
+echo "   4. 觀察 AI 回覆品質"
+echo ""
+
