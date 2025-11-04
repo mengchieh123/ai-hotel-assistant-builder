@@ -1,13 +1,18 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm install"
 
 [deploy]
-startCommand = "node server.js"
 healthcheckPath = "/health"
-healthcheckTimeout = 90
-numReplicas = 1
+healthcheckTimeout = 60
+restartPolicyType = "on_failure"
 
-[variables]
-NODE_ENV = "production"
-PORT = "3000"
+[service]
+name = "ai-hotel-assistant"
+startCommand = "npm start"
+
+[service.healthcheck]
+path = "/health"
+timeout = 30
+interval = 15
+maxRetries = 5
+initialDelay = 30

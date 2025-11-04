@@ -1,35 +1,16 @@
 {
   "name": "ai-hotel-assistant-builder",
   "version": "2.1.0",
-  "description": "AI Hotel Assistant with OpenAI Integration",
+  "description": "AI Hotel Assistant",
   "main": "server.js",
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
-  },
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "dev:watch": "nodemon server.js",
-    "speckit:generate": "node speckit/cli.js generate",
-    "speckit:validate": "node speckit/cli.js validate"
+    "dev": "node server.js"
   },
   "dependencies": {
-    "chokidar": "^4.0.3",
-    "dotenv": "^17.2.3",
-    "express": "^4.18.2",
-    "js-yaml": "^4.1.0",
-    "yaml": "^2.8.1",
-    "openai": "^4.20.0"
+    "express": "^4.18.2"
   },
-  "keywords": [
-    "hotel",
-    "ai",
-    "assistant",
-    "openai",
-    "speckit",
-    "automation"
-  ],
-  "author": "mengchieh123",
-  "license": "MIT"
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
