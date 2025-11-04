@@ -1,402 +1,214 @@
-# business_speckit.yaml
-version: "2.0"
-name: "ai-hotel-assistant-enhanced"
-description: "智能酒店助手完整對話技能系統"
-domain: "hospitality"
+name: hotel-booking-system
+version: 1.0.0
+description: 飯店預訂管理系統業務規格書（台灣地區）
 
-# 核心業務目標
-business_goals:
-  primary:
-    - "實現完整的酒店預訂對話流程"
-    - "提供精確的費用計算和明細"
-    - "智能推薦個性化套餐"
-    - "提升用戶預訂轉化率"
-  
-  secondary:
-    - "減少人工客服負擔"
-    - "提高客戶滿意度"
-    - "增加套餐銷售比例"
+business_domains:
+  - 預訂管理
+  - 房態管理
+  - 價格管理
+  - 會員管理
+  - 促銷管理
+  - 支付處理
+  - 報表分析
 
-# 用戶畫像和用例
-user_personas:
-  family_traveler:
-    name: "家庭旅客"
-    characteristics:
-      - "2大1小或2大2小"
-      - "關注兒童設施和優惠"
-      - "需要空間寬敞的房型"
-    goals:
-      - "找到適合家庭的房型"
-      - "了解兒童政策和費用"
-      - "獲得家庭套餐推薦"
-  
-  business_traveler:
-    name: "商務旅客" 
-    characteristics:
-      - "1-2位成人"
-      - "關注工作效率和便利性"
-      - "需要會議設施和快速服務"
-    goals:
-      - "快速完成預訂"
-      - "獲得商務設施信息"
-      - "安排會議和交通"
-  
-  romantic_traveler:
-    name: "情侶旅客"
-    characteristics:
-      - "2位成人"
-      - "追求浪漫體驗"
-      - "關注特殊場合安排"
-    goals:
-      - "安排浪漫體驗"
-      - "獲得紀念日優惠"
-      - "預訂特殊服務"
+core_business_rules:
+  預訂規則:
+    - 最少入住天數: 1天
+    - 最長入住天數: 30天
+    - 提前預訂時限: 最多365天前
+    - 取消政策:
+        免費取消: 入住前24小時
+        部分退款: 入住前12小時(退50%)
+        不可退款: 入住前12小時內
+    - 入住時間: 15:00後
+    - 退房時間: 11:00前（台灣常見退房時間）
 
-# 核心對話流程規範
-conversation_flows:
-  booking_flow:
-    name: "預訂主流程"
+  房態管理規則:
+    - 庫存同步: 實時更新可用房間數
+    - 超賣保護: 不允許超賣
+    - 房型升級: 當原房型售完時可自動升級
+    - 維護封房: 可臨時關閉特定房間
+
+  價格計算規則:
+    - 基礎價格: 房型基礎價格（新台幣）
+    - 動態定價: 根據供需調整
+    - 季節係數: 淡旺季價格調整（寒暑假、連續假期）
+    - 週末加成: 週五、六價格上浮
+    - 促銷折扣: 會員折扣、促銷代碼
+    - 政府稅金: 包含10%服務費及5%營業稅
+
+  會員體系規則:
+    - 會員等級:
+        普通會員: 註冊即獲得
+        銀卡會員: 累計入住10晚或消費NT$15,000
+        金卡會員: 累計入住30晚或消費NT$45,000
+        白金會員: 累計入住60晚或消費NT$90,000
+    - 會員權益:
+        折扣優惠: 銀卡5%、金卡8%、白金12%
+        提前入住: 金卡以上可12:00入住
+        延遲退房: 金卡以上可13:00退房
+        積分累積: 每消費NT$100累積1點
+        生日優惠: 當月入住享85折
+        專屬禮遇: 迎賓水果、迷你吧免費
+
+  促銷規則:
+    - 早鳥優惠: 提前30天預訂享8折
+    - 連住優惠: 連住3晚以上享9折
+    - 最後優惠: 當日預訂享7折
+    - 國旅補助: 配合觀光局國旅方案
+    - 連續假期: 春節、端午、中秋專案
+    - 學生專案: 憑學生證享優惠
+    - 銀髮專案: 65歲以上長者優惠
+
+workflows:
+  預訂流程:
     steps:
-      - step: "initial_greeting"
-        user_intent: "開始預訂"
-        system_response: "提供預訂引導"
-        required_data: []
-        
-      - step: "date_collection" 
-        user_intent: "提供日期"
-        system_response: "確認日期並詢問人數"
-        required_data: ["checkin_date", "checkout_date"]
-        
-      - step: "guest_collection"
-        user_intent: "提供人數"
-        system_response: "確認人數並詢問詳細信息"
-        required_data: ["adults_count"]
-        optional_data: ["children_count", "children_ages"]
-        
-      - step: "room_recommendation"
-        user_intent: "選擇房型"
-        system_response: "推薦合適房型"
-        required_data: ["room_preference"]
-        
-      - step: "package_suggestion"
-        user_intent: "考慮套餐"
-        system_response: "推薦個性化套餐"
-        optional_data: ["package_selection"]
-        
-      - step: "price_calculation"
-        user_intent: "確認價格"
-        system_response: "提供詳細費用明細"
-        required_data: []
-        
-      - step: "booking_confirmation"
-        user_intent: "完成預訂"
-        system_response: "確認預訂詳情"
-        required_data: ["contact_info"]
+      - 查詢可用房型
+      - 選擇房型與日期
+      - 輸入客人資訊（含身份證字號）
+      - 選擇支付方式
+      - 應用促銷代碼
+      - 計算總價格（含稅金）
+      - 確認預訂
+      - 發送確認通知（簡訊+LINE通知）
 
-  inquiry_flow:
-    name: "查詢流程"
+  會員註冊流程:
     steps:
-      - step: "price_inquiry"
-        user_intent: "詢問價格"
-        system_response: "提供價格參考和計算"
-        
-      - step: "facility_inquiry"
-        user_intent: "詢問設施"
-        system_response: "詳細介紹設施服務"
-        
-      - step: "policy_inquiry"
-        user_intent: "詢問政策"
-        system_response: "解釋相關政策"
+      - 填寫基本資訊（姓名、手機、Email）
+      - 驗證手機號碼
+      - 註冊成功獲得普通會員
+      - 發送歡迎禮包（優惠券）
+      - 綁定LINE官方帳號
 
-# 價格計算引擎規範
-pricing_engine:
-  base_room_rates:
-    standard: 100
-    deluxe: 150
-    suite: 200
-    sea_view: 180
-    presidential: 500
+  促銷活動流程:
+    steps:
+      - 創建促銷活動
+      - 設定活動規則
+      - 設定目標客群
+      - 上線活動
+      - 透過LINE、Email推播
+      - 監控活動效果
+      - 活動結束分析
 
-  breakfast_options:
-    none:
-      cost: 0
-      description: "不含早餐"
-    continental:
-      adult: 15
-      child: 8
-      description: "歐陸式早餐"
-    buffet:
-      adult: 25  
-      child: 12
-      description: "自助早餐"
-    family:
-      adult: 20
-      child: 6
-      description: "家庭早餐套餐"
-      conditions: "至少2位大人和1位兒童"
+business_entities:
+  Room:
+    attributes:
+      - room_id: string
+      - room_type: string（標準房、豪華房、家庭房、套房）
+      - room_number: string
+      - floor: number
+      - amenities: array（免費WiFi、電視、冰箱、茶具）
+      - status: enum[available, occupied, maintenance]
+      - base_price: number（新台幣）
 
-  child_policy:
-    infant:
-      age_range: [0, 2]
-      bed_cost: 0
-      breakfast_cost: 0
-      description: "嬰兒(0-2歲)免費"
-    toddler:
-      age_range: [3, 6] 
-      bed_cost: 25
-      breakfast_cost: 10
-      description: "幼兒(3-6歲)優惠價"
-    child:
-      age_range: [7, 12]
-      bed_cost: 40
-      breakfast_cost: 15
-      description: "兒童(7-12歲)標準價"
-    teen:
-      age_range: [13, 17]
-      bed_cost: 50
-      breakfast_cost: 20
-      description: "青少年(13-17歲)成人價"
+  Booking:
+    attributes:
+      - booking_id: string
+      - guest_id: string
+      - room_id: string
+      - check_in_date: date
+      - check_out_date: date
+      - total_nights: number
+      - base_amount: number
+      - service_charge: number（10%服務費）
+      - tax_amount: number（5%營業稅）
+      - discount_amount: number
+      - total_amount: number
+      - status: enum[pending, confirmed, checked_in, checked_out, cancelled]
+      - payment_method: enum[credit_card, line_pay, bank_transfer]
+      - payment_status: enum[pending, paid, refunded]
 
-  extra_charges:
-    extra_bed: 50
-    airport_transfer: 30
-    meeting_room: 50
+  Guest:
+    attributes:
+      - guest_id: string
+      - name: string
+      - email: string
+      - phone: string
+      - id_number: string（身份證字號/護照號碼）
+      - nationality: string（國籍）
+      - address: object（發票寄送地址）
 
-  discounts:
-    senior:
-      rate: 0.15
-      min_age: 65
-      description: "年長者85折"
-    long_stay:
-      tiers:
-        - nights: [3, 5]
-          rate: 0.05
-          description: "住3-5晚95折"
-        - nights: [6, null]
-          rate: 0.10
-          description: "住6晚以上9折"
-    early_booking:
-      tiers:
-        - days: [15, 30]
-          rate: 0.08
-          description: "提前15-30天92折"
-        - days: [31, 90]
-          rate: 0.12
-          description: "提前31-90天88折"
+  Member:
+    attributes:
+      - member_id: string
+      - guest_id: string
+      - tier: enum[regular, silver, gold, platinum]
+      - points_balance: number
+      - total_stays: number
+      - total_spent: number
+      - join_date: date
+      - expiry_date: date
+      - line_user_id: string（LINE綁定ID）
+      - birthday: date（生日優惠用）
 
-  tax_calculation:
-    tax_rate: 0.10
-    service_charge: 0
+  Promotion:
+    attributes:
+      - promotion_id: string
+      - name: string
+      - type: enum[early_bird, last_minute, long_stay, package, student, senior]
+      - discount_type: enum[percentage, fixed_amount]
+      - discount_value: number
+      - min_stay_nights: number
+      - advance_booking_days: number
+      - valid_period: object
+      - target_tiers: array
+      - required_document: string（學生證、身份證）
 
-# 套餐推薦系統
-package_system:
-  family_fun_package:
-    name: "家庭歡樂套餐"
-    target_audience: "family_traveler"
-    markup_rate: 0.20
-    inclusions:
-      - "兒童免費早餐(12歲以下)"
-      - "免費加床1張"
-      - "遊樂場門票2張"
-      - "家庭電影夜服務"
-    conditions:
-      min_adults: 2
-      min_children: 1
-      max_children: 3
-    estimated_savings: 85
+business_metrics:
+  營收指標:
+    - 日均房價(ADR)
+    - 每間可售房收入(RevPAR)
+    - 入住率(Occupancy Rate)
+    - 總預訂額（新台幣）
+    - 平均住宿天數
 
-  romantic_getaway_package:
-    name: "浪漫情侶套餐"
-    target_audience: "romantic_traveler" 
-    markup_rate: 0.30
-    inclusions:
-      - "房間浪漫佈置"
-      - "燭光晚餐2位"
-      - "延遲退房至14:00"
-      - "迎賓氣泡酒"
-    conditions:
-      adults: 2
-      children: 0
-    estimated_savings: 120
+  會員指標:
+    - 會員註冊數
+    - 會員活躍度
+    - 會員復購率
+    - 會員貢獻占比
+    - 會員升級率
 
-  business_excellence_package:
-    name: "商務尊享套餐"
-    target_audience: "business_traveler"
-    markup_rate: 0.25
-    inclusions:
-      - "免費會議室使用2小時"
-      - "延遲退房至16:00"
-      - "免費機場接送"
-      - "行政酒廊權益"
-    estimated_savings: 95
+  促銷效果:
+    - 促銷活動參與率
+    - 促銷帶來的訂單數
+    - 促銷ROI
+    - 優惠券使用率
 
-# 對話管理規範
-conversation_management:
-  session_management:
-    session_timeout: 1800  # 30分鐘
-    data_persistence: true
-    context_retention: true
+integration_points:
+  external_apis:
+    - 支付網關:
+        - 信用卡: 藍新金流、綠界科技
+        - LINE Pay: LINE支付接口
+        - 銀行匯款: 台灣銀行、中國信託、玉山銀行等
+    - 通知服務:
+        - 簡訊發送: 三竹資訊、Twilio
+        - LINE通知: LINE Messaging API
+        - Email發送: SendGrid
+    - 政府系統:
+        - 旅宿業登記系統
+        - 統一發票整合平台
 
-  intent_recognition:
-    booking_intents:
-      - "訂房"
-      - "預訂" 
-      - "預約"
-      - "book"
-      - "reserve"
-    
-    price_intents:
-      - "價格"
-      - "價錢"
-      - "多少錢"
-      - "cost"
-      - "price"
-    
-    inquiry_intents:
-      - "房型"
-      - "設施"
-      - "服務"
-      - "政策"
-      - "取消"
+security_requirements:
+  - 客戶資料加密存儲（含身份證字號）
+  - 支付信息PCI DSS合規
+  - 會員密碼加密
+  - API訪問權限控制
+  - 敏感操作日誌記錄
+  - 個資法合規檢查
 
-  response_templates:
-    greeting: |
-      🏨 歡迎光臨！我是AI酒店助手，可以協助您：
-      • 預訂房間和計算費用
-      • 推薦合適的套餐  
-      • 解答酒店相關問題
-      
-      請問需要什麼協助？
+compliance_requirements:
+  - 個人資料保護法（個資法）
+  - 發展觀光條例
+  - 旅館業管理規則
+  - 統一發票使用辦法
+  - 消費者保護法
 
-    booking_guidance: |
-      好的！為您安排預訂。
-      
-      請提供：
-      📅 入住和退房日期
-      👥 入住人數（幾位大人、幾位小孩）
-      💰 大致的預算範圍
-      
-      例如：11/15-11/17，2大1小，預算$500/晚
-
-    price_breakdown: |
-      💰 費用明細：
-      
-      📊 基礎費用：
-      • 房費：${room_price}
-      • 早餐：${breakfast_cost}
-      • 加床：${extra_bed_cost}
-      • 兒童費用：${children_cost}
-      
-      🎁 折扣優惠：
-      • ${discount_description}：-${discount_amount}
-      
-      💎 最終價格：
-      • 小計：${subtotal}
-      • 稅費：${tax_amount}
-      • 總計：${total_price}
-
-# 技術實現規範
-technical_specifications:
-  architecture:
-    pattern: "modular_microservices"
-    components:
-      - "conversation_manager"
-      - "pricing_engine" 
-      - "recommendation_engine"
-      - "session_manager"
-    
-  data_models:
-    booking_request:
-      fields:
-        - "session_id"
-        - "checkin_date"
-        - "checkout_date" 
-        - "adults_count"
-        - "children_count"
-        - "children_ages"
-        - "room_type"
-        - "breakfast_option"
-        - "extra_beds"
-        - "special_requests"
-    
-    price_breakdown:
-      fields:
-        - "base_room_rate"
-        - "breakfast_cost"
-        - "extra_charges"
-        - "discounts"
-        - "taxes"
-        - "final_price"
-
-  api_endpoints:
-    required:
-      - "POST /api/ai/chat - 主要對話接口"
-      - "POST /api/ai/calculate - 價格計算接口"
-      - "GET /api/ai/status - 服務狀態檢查"
-      - "GET /health - 健康檢查"
-
-  performance_requirements:
-    response_time: "< 2秒"
-    availability: "99.5%"
-    concurrent_users: "50+"
-    error_rate: "< 1%"
-
-# 質量保證標準
-quality_assurance:
-  functional_testing:
-    test_cases:
-      - "完整預訂流程測試"
-      - "價格計算準確性測試"
-      - "套餐推薦相關性測試"
-      - "錯誤處理測試"
-      - "邊界情況測試"
-  
-  performance_testing:
-    scenarios:
-      - "高併發對話測試"
-      - "長時間會話測試"
-      - "大量計算請求測試"
-  
-  user_experience:
-    metrics:
-      - "對話完成率 > 80%"
-      - "用戶滿意度 > 4/5"
-      - "錯誤恢復率 > 90%"
-
-# 部署和監控
-deployment_monitoring:
-  environment: "production"
-  monitoring:
-    - "服務健康狀態"
-    - "API響應時間"
-    - "錯誤率監控"
-    - "用戶行為分析"
-  
-  logging:
-    level: "info"
-    fields:
-      - "session_id"
-      - "user_message"
-      - "system_response"
-      - "processing_time"
-      - "error_details"
-
-# 版本控制和更新策略
-version_control:
-  current_version: "3.0.0"
-  update_strategy: "gradual_rollout"
-  backward_compatibility: true
-
-# 成功指標
-success_metrics:
-  business_metrics:
-    - "預訂轉化率提升"
-    - "套餐銷售比例"
-    - "客戶滿意度評分"
-    - "人工客服負擔減少"
-  
-  technical_metrics:
-    - "系統響應時間"
-    - "服務可用性"
-    - "錯誤處理效率"
-    - "會話成功率"
+localization_features:
+  - 語言: 繁體中文
+  - 幣別: 新台幣（NT$）
+  - 稅金計算: 服務費10% + 營業稅5%
+  - 發票類型: 二聯式/三聯式統一發票
+  - 證件類型: 身份證、護照、居留證
+  - 節日設定: 台灣國定假日、連續假期
+  - 地址格式: 台灣縣市鄉鎮區格式
