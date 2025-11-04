@@ -1,327 +1,246 @@
-AI Hotel Assistant Builder
+bash
+#!/bin/bash
 
-https://img.shields.io/badge/Node.js-18+-green.svg
-https://img.shields.io/badge/Express-4.x-blue.svg
-https://img.shields.io/badge/OpenAI-GPT--4o--mini-purple.svg
-https://img.shields.io/badge/Deployed-Railway-black.svg
+echo "🔄 更新 README.md 以反映當前環境..."
 
-一個智能酒店助手系統，整合 OpenAI GPT-4o-mini 模型，提供自然語言對話、房間推薦和多語言翻譯服務。
+cat > speckit/README.md << 'EOF'
+# 🏨 AI 酒店訂房助理 - Business SpecKit
 
-🚀 即時演示
+## 📋 項目概覽
 
-🌐 線上演示
+**AI 酒店訂房助理**是一個基於對話式 AI 的智能訂房系統，目前部署在 Railway 平台，提供完整的酒店預訂對話服務。
 
-主應用: https://ai-hotel-assistant-builder-production.up.railway.app
-健康檢查: https://ai-hotel-assistant-builder-production.up.railway.app/health
-演示頁面: https://ai-hotel-assistant-builder-production.up.railway.app/demo
-💬 AI 聊天演示
+### 🚀 線上演示
+- **主應用**: https://ai-hotel-assistant-builder-production.up.railway.app/
+- **聊天演示**: https://ai-hotel-assistant-builder-production.up.railway.app/ai-chat-demo.html
 
-測試頁面: https://ai-hotel-assistant-builder-production.up.railway.app/ai-chat-demo.html
-✨ 核心功能
+### 📊 當前狀態
+| 項目 | 狀態 | 說明 |
+|------|------|------|
+| 核心 AI 引擎 | ✅ 生產環境運行 | 規則型意圖識別 |
+| 訂房對話流程 | ✅ 已實現 | 多輪對話支持 |
+| Web 界面 | ✅ 已部署 | 響應式聊天界面 |
+| 部署平台 | ✅ Railway | 自動化部署 |
+| 監控 | ✅ 基礎監控 | Railway Metrics |
 
-🤖 AI 對話系統
+## 🗂️ SpecKit 文件結構
 
-自然語言理解: 處理複雜的酒店相關查詢
-上下文記憶: 支持多輪對話，記住用戶偏好
-多語言支持: 中英文及其他語言對話
-智能回應: 根據情境提供相關建議
-🏨 房間智能推薦
+Business SpecKit 是項目的完整規格定義體系，包含三個核心層次：
 
-預算導向: 根據用戶預算推薦合適房型
-偏好匹配: 考慮用戶偏好（海景、安靜、設施等）
-人數優化: 根據入住人數推薦最佳房型
-價格計算: 自動計算總價和優惠
-🌐 多語言翻譯
+### 核心規格文件
+- [`business-spec.yaml`](./business-spec.yaml) - **業務規則與流程定義**
+- [`conversation-spec.yaml`](./conversation-spec.yaml) - **對話邏輯與場景定義**  
+- [`technical-spec.yaml`](./technical-spec.yaml) - **技術實現與架構定義**
 
-即時翻譯: 支持中英日韓等多種語言
-酒店術語: 專業酒店相關詞彙翻譯
-上下文保持: 翻譯時保持語境完整性
-⚡ 系統特性
+### 支持文檔
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) - **系統架構設計文檔**
+- [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) - **實施計劃與路線圖**
+- [`README.md`](./README.md) - **項目說明文檔** (當前文件)
 
-高可用性: 生產級別部署，99%+ 可用性
-快速響應: 平均響應時間 < 2秒
-錯誤處理: 完善的錯誤處理和用戶提示
-RESTful API: 標準化的 API 設計
-🛠️ 技術架構
+## 🎯 快速開始
 
-核心技術棧
+### 本地開發
+```bash
+# 克隆項目
+git clone https://github.com/mengchieh123/ai-hotel-assistant-builder.git
 
-yaml
-後端框架: Express.js 4.18+
-AI 引擎: OpenAI GPT-4o-mini
-部署平台: Railway
-環境: Node.js 18+
-系統依賴
+# 安裝依賴
+npm install
 
-json
-{
-  "express": "Web 框架",
-  "openai": "AI 服務集成", 
-  "dotenv": "環境變量管理",
-  "js-yaml": "配置解析",
-  "chokidar": "文件監控"
-}
+# 啟動開發服務器
+npm run dev
+
+# 訪問應用
+open http://localhost:8080
+生產部署
+
+項目使用 Railway 自動化部署，推送代碼到 main 分支即可自動部署。
+
+🔧 技術棧
+
+後端技術
+
+Runtime: Node.js 18.x
+Framework: Express.js 4.x
+語言: JavaScript ES2022+
+前端技術
+
+技術: Vanilla JavaScript + HTML5 + CSS3
+樣式: 自定義 CSS + 響應式設計
+構建: 無需構建，直接部署
+部署與基礎設施
+
+平台: Railway
+構建工具: Nixpacks
+監控: Railway Metrics
+域名: Railway 自動分配
 📡 API 文檔
 
-基礎端點
+核心端點
 
-方法	端點	描述	狀態
-GET	/health	系統健康檢查	✅ 正常
-GET	/	API 信息	✅ 正常
-GET	/demo	演示頁面	✅ 正常
-AI 服務端點
-
-方法	端點	描述	狀態
-GET	/api/ai/status	AI 服務狀態	✅ 正常
-POST	/api/ai/chat	AI 對話	✅ 正常
-POST	/api/ai/recommend-room	房間推薦	✅ 正常
-POST	/api/ai/translate	多語言翻譯	✅ 正常
-詳細 API 說明
-
-1. 健康檢查
+健康檢查
 
 http
 GET /health
-響應:
-
-json
-{
-  "status": "healthy",
-  "service": "AI Hotel Assistant",
-  "version": "2.1.0",
-  "timestamp": "2025-11-03T09:20:33.982Z",
-  "features": {
-    "speckit": "✅ 已啟用",
-    "openai": "✅ 已配置", 
-    "staticFiles": "✅ 已啟用"
-  }
-}
-2. AI 對話
+Response: { "status": "OK", "timestamp": "2024-01-01T00:00:00.000Z" }
+AI 聊天
 
 http
 POST /api/ai/chat
 Content-Type: application/json
 
-{
-  "message": "你好，有什麼房型推薦？",
-  "sessionId": "user-123"
-}
-響應:
-
-json
-{
-  "success": true,
-  "reply": "我們提供多種房型：標準房、豪華房、套房、海景房...",
-  "sessionId": "user-123",
-  "timestamp": "2025-11-03T09:21:00.000Z"
-}
-3. 房間推薦
-
-http
-POST /api/ai/recommend-room
-Content-Type: application/json
-
-{
-  "guests": 2,
-  "budget": 150,
-  "nights": 3,
-  "preferences": ["海景", "安靜"]
-}
-響應:
-
-json
-{
-  "success": true,
-  "recommendation": "豪華房",
-  "reason": "根據您的預算和偏好推薦",
-  "price": "$150/晚",
-  "features": ["免費早餐", "海景", "免費WiFi"],
-  "totalPrice": "$450"
-}
-4. 多語言翻譯
-
-http
-POST /api/ai/translate  
-Content-Type: application/json
-
-{
-  "text": "歡迎光臨我們的酒店",
-  "targetLanguage": "English"
-}
-響應:
-
-json
-{
-  "success": true,
-  "original": "歡迎光臨我們的酒店",
-  "translated": "Welcome to our hotel",
-  "targetLanguage": "English"
-}
-🚀 快速開始
-
-環境要求
-
-Node.js 18.0.0 或更高版本
-npm 9.0.0 或更高版本
-OpenAI API Key
-安裝步驟
-
-克隆倉庫
-bash
-git clone https://github.com/mengchieh123/ai-hotel-assistant-builder.git
-cd ai-hotel-assistant-builder
-安裝依賴
-bash
-npm install
-環境配置
-bash
-# 複製環境變量模板
-cp .env.example .env
-
-# 設置 OpenAI API Key
-echo "OPENAI_API_KEY=sk-your-api-key-here" >> .env
-echo "OPENAI_MODEL=gpt-4o-mini" >> .env
-啟動服務
-bash
-# 開發模式
-npm run dev
-
-# 生產模式  
-npm start
-Railway 部署
-
-連接 GitHub 倉庫到 Railway
-設置環境變量：
-
-OPENAI_API_KEY: 您的 OpenAI API Key
-OPENAI_MODEL: gpt-4o-mini
-自動部署完成
-🧪 測試與驗證
-
-自動化測試
+Request: { "message": "你好" }
+Response: { "message": "🏨 歡迎光臨！...", "timestamp": "..." }
+對話示例
 
 bash
-# 運行完整測試套件
-bash test-ai-complete.sh
-
-# 快速功能測試
-bash test-config.sh
-
-# 系統極限測試  
-bash test-ai-limits.sh
-手動測試用例
-
-對話測試
-
-bash
-curl -X POST https://ai-hotel-assistant-builder-production.up.railway.app/api/ai/chat \
+# 測試對話
+curl -X POST "https://ai-hotel-assistant-builder-production.up.railway.app/api/ai/chat" \
   -H "Content-Type: application/json" \
-  -d '{
-    "message": "兩個人入住，預算5000元，推薦什麼房型？",
-    "sessionId": "test-001"
-  }'
-推薦測試
+  -d '{"message": "價格多少"}'
+🎪 功能特性
 
-bash
-curl -X POST https://ai-hotel-assistant-builder-production.up.railway.app/api/ai/recommend-room \
-  -H "Content-Type: application/json" \
-  -d '{
-    "guests": 2,
-    "budget": 200,
-    "nights": 3,
-    "preferences": ["海景", "安靜"]
-  }'
-🔧 配置說明
+已實現功能
 
+✅ 智能對話: 意圖識別和自然語言響應
+✅ 房型介紹: 詳細房間信息和價格展示
+✅ 價格查詢: 參考價格和精確報價
+✅ 優惠活動: 早鳥、連住、學生等優惠
+✅ 訂房流程: 多輪對話引導完成預訂
+✅ 健康檢查: 服務狀態監控
+對話場景
+
+🏨 房型查詢與介紹
+💰 價格諮詢與報價
+📅 訂房流程引導
+🎉 優惠活動說明
+🍳 早餐與附加服務
+📋 政策與條款查詢
+🚀 部署信息
+
+當前部署
+
+平台: Railway
+環境: Production
+狀態: 🟢 運行中
+版本: v3.2.1 (Railway 優化版)
+部署流程
+
+text
+Git Push → Railway 自動構建 → 健康檢查 → 流量切換
 環境變量
 
-變量名	必需	默認值	描述
-OPENAI_API_KEY	✅	-	OpenAI API 密鑰
-OPENAI_MODEL	❌	gpt-4o-mini	使用的 AI 模型
-PORT	❌	8080	服務器端口
-NODE_ENV	❌	development	運行環境
-模型配置
+bash
+NODE_ENV=production
+PORT=8080
+RAILWAY_ENVIRONMENT=production
+🛠️ 開發指南
 
-目前支持的 OpenAI 模型：
+項目結構
 
-gpt-4o-mini (推薦，性價比高)
-gpt-4o
-gpt-3.5-turbo
-📊 系統狀態
+text
+ai-hotel-assistant-builder/
+├── server.js              # 主服務器文件
+├── package.json           # 項目配置
+├── speckit/               # SpecKit 規格文件
+│   ├── business-spec.yaml
+│   ├── conversation-spec.yaml
+│   ├── technical-spec.yaml
+│   ├── ARCHITECTURE.md
+│   ├── IMPLEMENTATION_PLAN.md
+│   └── README.md
+└── (其他靜態文件)
+代碼規範
 
-當前狀態
+使用 ES2022+ 語法特性
+錯誤處理和日誌記錄
+模塊化代碼組織
+遵循 RESTful API 設計
+📈 監控與日誌
 
-✅ AI 服務: 正常運行 (GPT-4o-mini)
-✅ API 端點: 全部可用
-✅ 部署狀態: 生產環境穩定
-✅ 響應時間: < 2秒
-監控指標
+健康監控
 
-服務可用性: 99.5%
-平均響應時間: 1.8秒
-錯誤率: < 0.1%
-併發處理: 支持 50+ 併發用戶
+bash
+# 檢查服務狀態
+curl https://ai-hotel-assistant-builder-production.up.railway.app/health
+日誌查看
+
+通過 Railway Dashboard 查看實時日誌
+日誌級別: info, error, debug
+結構化日誌輸出
+🔄 更新流程
+
+規格更新
+
+業務變更 → 更新 business-spec.yaml
+對話優化 → 更新 conversation-spec.yaml
+技術升級 → 更新 technical-spec.yaml
+架構調整 → 更新 ARCHITECTURE.md
+代碼部署
+
+bash
+# 1. 修改代碼
+git add .
+git commit -m "feat: description"
+
+# 2. 推送部署
+git push origin main
+
+# 3. 等待 Railway 自動部署
 🐛 故障排除
 
 常見問題
 
-Q: AI 服務返回 "未配置" 錯誤
+服務重啟問題
 
 bash
-# 檢查環境變量
-curl -s https://ai-hotel-assistant-builder-production.up.railway.app/health | jq '.features.openai'
-解決方案: 確保 OPENAI_API_KEY 在 Railway 環境變量中正確設置
+# 檢查健康狀態
+curl -I https://ai-hotel-assistant-builder-production.up.railway.app/health
 
-Q: API 端點返回 404
-
-bash
-# 檢查可用端點
-curl -s https://ai-hotel-assistant-builder-production.up.railway.app/
-解決方案: 重啟 Railway 部署或檢查路由配置
-
-日誌查看
+# 查看部署日誌
+# 通過 Railway Dashboard → Deployments
+對話無響應
 
 bash
-# Railway 日誌
-railway logs
+# 測試 API 端點
+curl -X POST "https://ai-hotel-assistant-builder-production.up.railway.app/api/ai/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "test"}'
+支持資源
 
-# 本地日誌
-npm run dev  # 查看控制台輸出
-🔮 未來規劃
+GitHub Issues: 問題報告和功能請求
+Railway Docs: 部署和平台文檔
+SpecKit 文檔: 項目規格參考
+🤝 貢獻指南
 
-短期目標
+我們歡迎貢獻！請遵循以下流程：
 
-增加更多酒店服務集成
-優化對話流程和用戶體驗
-添加數據分析儀表板
-長期規劃
-
-支持語音對話接口
-集成預訂系統
-多酒店鏈支持
-移動應用開發
-📄 許可證
-
-本項目採用 MIT 許可證 - 查看 LICENSE 文件了解詳情。
-
-🤝 貢獻
-
-歡迎提交 Issue 和 Pull Request！
-
-Fork 本項目
+Fork 項目
 創建功能分支 (git checkout -b feature/AmazingFeature)
 提交更改 (git commit -m 'Add some AmazingFeature')
 推送到分支 (git push origin feature/AmazingFeature)
 開啟 Pull Request
-📞 支持
+開發規範
 
-如有問題，請通過以下方式聯繫：
+遵循現有代碼風格
+更新相關文檔
+添加適當的測試
+確保所有檢查通過
+📄 許可證
 
-📧 郵件: [項目維護者]
-🐛 Issues: GitHub Issues
-🚀 部署問題: Railway Dashboard
-最後更新: 2025年11月3日
-版本: v2.1.0
-維護者: mengchieh123
+此項目採用 MIT 許可證 - 查看 LICENSE 文件了解詳情。
 
-⭐ 如果這個項目對您有幫助，請給個 Star！
+📞 聯繫信息
+
+項目維護者: mengchieh123
+問題反饋: GitHub Issues
+在線演示: Railway Deployment
+🎯 版本歷史
+
+版本	日期	主要更新
+v1.0	2024-01-XX	初始版本和基礎架構
+v2.0	2024-01-XX	完整對話流程實現
+v3.0	2024-01-XX	Railway 部署優化
+v3.2	2024-01-XX	SpecKit 規格體系建立
+備注: 此文檔應隨項目發展持續更新，確保反映當前系統狀態和開發實踐。
+EOF
