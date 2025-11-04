@@ -1,35 +1,79 @@
 const express = require('express');
+const cors = require('cors');
+const path = require('path');
+
 const app = express();
 
-app.use(express.json());
-
-// 最簡單的健康檢查
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', time: new Date().toISOString() });
-});
-
-app.get('/', (req, res) => res.redirect('/health'));
-
-// 最簡單的 AI 端點
-app.post('/api/ai/chat', (req, res) => {
-  const msg = (req.body.message || '').toLowerCase();
-  
-  let response = '🤖 請說「價格」查房價、「房型」看房間、「訂房」開始預訂';
-  if (msg.includes('你好')) response = '🏨 歡迎！需要什麼協助？';
-  if (msg.includes('價格')) response = '💰 豪華房: NT$7,500-9,500/晚';
-  if (msg.includes('房型')) response = '🏨 豪華房/行政房/套房';
-  if (msg.includes('訂房')) response = '📅 請提供入住日期';
-  
-  res.json({ message: response });
-});
-
+// 從環境變數讀取 PORT，Railway 會自動設定
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+
+// 中間件
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
+
+// 健康檢查端點 - 必須快速響應
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
 });
 
-// 基本信號處理
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  setTimeout(() => process.exit(0), 1000);
+// 根路徑
+app.get('/', (req, res) => {
+  res.send('AI Hotel Assistant API is running');
 });
+
+// AI 聊天路由
+const aiRoutes = require('./routes/ai-routes');
+app.use('/api/ai', aiRoutes);
+
+// 錯誤處理
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: err.message 
+  });
+});
+
+// 優雅關閉處理
+let server;
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing server gracefully...');
+  if (server) {
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
+    
+    // 強制關閉超時
+    setTimeout(() => {
+      console.log('Forcing shutdown');
+      process.exit(1);
+    }, 10000);
+  }
+});
+
+// 啟動服務器
+server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+  console.log(`🤖 AI Chat: http://localhost:${PORT}/api/ai/chat`);
+});
+
+// 處理未捕獲的錯誤
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err);
+  process.exit(1);
+});
+
+module.exports = app;
