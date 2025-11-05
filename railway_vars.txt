@@ -1,0 +1,45 @@
+╔══════════════════ Variables for ai-hotel-assistant-builder ══════════════════╗
+║ NODE_ENV                                       │ *****                       ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ OPENAI_API_KEY                                 │ sk-proj-                    ║
+║                                                │ Z8WeaS-_lWH93fbLQ0NLsEdnpoT ║
+║                                                │ dcstlq2Y6cZ7zEPnay8r6TkwyOR ║
+║                                                │ h2h121K-5-                  ║
+║                                                │ rpJfVFV7XIT3BlbkFJZJgPBxoil ║
+║                                                │ 8sBlVoszI_WH_VGtoaHqC3hgLO3 ║
+║                                                │ ClC7fau8B-                  ║
+║                                                │ GVDmQgPgSkMoY9Um_5kZftuFGIg ║
+║                                                │ A                           ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ OPENAI_MODEL                                   │ gpt-4o-mini                 ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_ENVIRONMENT                            │ production                  ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_ENVIRONMENT_ID                         │ 3d5abe8f-9791-4f9b-a4c2-    ║
+║                                                │ 6fa5125d0d31                ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_ENVIRONMENT_NAME                       │ production                  ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_PRIVATE_DOMAIN                         │ ai-hotel-assistant-         ║
+║                                                │ builder.railway.internal    ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_PROJECT_ID                             │ 418bdf46-5dd6-4e84-b03f-    ║
+║                                                │ 4a723bd66dda                ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_PROJECT_NAME                           │ industrious-forgiveness     ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_PUBLIC_DOMAIN                          │ ai-hotel-assistant-builder- ║
+║                                                │ production.up.railway.app   ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_SERVICE_AI_HOTEL_ASSISTANT_BUILDER_URL │ ai-hotel-assistant-builder- ║
+║                                                │ production.up.railway.app   ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_SERVICE_ID                             │ 7164c3dd-1253-4909-95e0-    ║
+║                                                │ de554d7f960d                ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_SERVICE_NAME                           │ ai-hotel-assistant-builder  ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ RAILWAY_STATIC_URL                             │ ai-hotel-assistant-builder- ║
+║                                                │ production.up.railway.app   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+

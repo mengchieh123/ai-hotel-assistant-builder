@@ -1,3 +1,30 @@
+#!/bin/bash
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "💥 強制部署新版本 v4.0.0"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo "當前問題:"
+echo "❌ 版本: 3.3.0 (舊)"
+echo "❌ 價格: NT$7,500 (舊)"
+echo "🎯 目標: v4.0.0 + NT$3,800"
+
+# 1. 檢查當前文件狀態
+echo ""
+echo "1️⃣ 檢查文件狀態:"
+echo "server.js 版本: $(grep -o '"version":"[^"]*"' server.js 2>/dev/null | head -1 || echo '未找到')"
+echo "server.js 價格: $(grep -o "NT\\\\$[0-9,]*" server.js 2>/dev/null | head -1 || echo '未找到')"
+
+# 2. 使用我們之前創建的增強版本
+if [ -f "server-enhanced.js" ]; then
+    echo ""
+    echo "2️⃣ 使用 server-enhanced.js..."
+    cp server-enhanced.js server.js
+    echo "✅ 已複製增強版本"
+else
+    echo ""
+    echo "2️⃣ 創建新的 server.js..."
+    cat > server.js << 'SERVERJS'
 const express = require('express');
 const app = express();
 app.use(express.json());
@@ -111,3 +138,46 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('✅ Running on port:', PORT);
   console.log('🚀 =================================');
 });
+SERVERJS
+    echo "✅ 已創建新版本 server.js"
+fi
+
+# 3. 強制提交
+echo ""
+echo "3️⃣ 強制提交新版本..."
+git add .
+git commit -m "FORCE: 強制部署 v4.0.0 增強版
+
+🎯 明確目標:
+- 版本: 4.0.0-FORCED-DEPLOY
+- 價格: NT$3,800 (已確認)
+- 功能: 增強對話質量
+- 部署: 強制覆蓋舊版本
+
+🔧 優化內容:
+• 智能意圖識別
+• 結構化回應
+• 多輪對話支持
+• 專業領域知識
+
+⏰ 部署時間: $(date)
+
+這個部署必須成功覆蓋舊版本！"
+
+# 4. 強制推送
+echo ""
+echo "4️⃣ 強制推送到 Railway..."
+echo "執行: git push railway main --force"
+git push railway main --force
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ 強制部署已觸發"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "⏳ 等待 3-5 分鐘讓 Railway 重新部署..."
+echo ""
+echo "📋 部署完成後檢查:"
+echo "1. 版本號應為 4.0.0-FORCED-DEPLOY"
+echo "2. 價格應為 NT$3,800"
+echo "3. 回應應包含增強功能"
