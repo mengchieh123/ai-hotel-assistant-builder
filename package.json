@@ -1,25 +1,24 @@
 {
-  "name": "ai-hotel-assistant-railway-ultimate",
-  "version": "3.3.0",
-  "description": "AI Hotel Assistant - Railway Optimized Ultimate Version",
+  "name": "ai-hotel-assistant",
+  "version": "5.0.0-ENHANCED",
+  "description": "智能飯店訂房助理 - 增強版",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node test-enhanced-ai.js",
+    "test": "node test-client.js"
   },
   "dependencies": {
-    "express": "^4.18.2"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
   },
   "keywords": [
-    "hotel",
     "ai",
-    "booking",
+    "hotel",
     "assistant",
-    "railway"
+    "booking",
+    "nlp"
   ],
-  "author": "AI Hotel Team",
+  "author": "AI Hotel Assistant Team",
   "license": "MIT"
 }
