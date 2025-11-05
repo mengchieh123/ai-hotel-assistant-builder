@@ -1,391 +1,50 @@
-/**
- * Enhanced AI Hotel Assistant Service v5.2.0-OPTIMIZED
- * Multi-intent recognition, English support, Complete entity extraction
- */
-
 class EnhancedAIService {
-  constructor() {
-    this.version = '5.2.0-OPTIMIZED';
-    
-    // [translate:擴充的意圖關鍵字配置]
-    this.intentKeywords = {
-      price: {
-        primary: [
-          // [translate:中文]
-          '價格', '多少錢', '費用', '收費', '金額', '總共', '算', '划算',
-          '便宜', '價差', '折扣', '優惠價',
-          // English
-          'price', 'cost', 'how much', 'total', 'expensive', 'cheap'
-        ],
-        secondary: ['房價', '住宿費', '一晚'],
-        weight: 3
-      },
-      booking: {
-        primary: [
-          // [translate:中文]
-          '訂房', '預訂', '預約', '訂', '入住', '我要', '我想', '需要', '想訂',
-          '員工旅遊', '團體', '公司',
-          // English
-          'book', 'reserve', 'need', 'want', 'rooms for'
-        ],
-        secondary: ['房間', '客房'],
-        weight: 3
-      },
-      facility: {
-        primary: [
-          // [translate:中文]
-          '設施', '設備', '健身房', '泳池', '游泳池', '停車', '停車場',
-          '早餐', '會議室', '網路', 'WiFi',
-          // English
-          'facilities', 'gym', 'pool', 'parking', 'breakfast'
-        ],
-        weight: 3
-      },
-      policy: {
-        primary: [
-          // [translate:中文]
-          '取消', '退訂', '退款', '改期', '政策', '規定',
-          // English
-          'cancel', 'refund', 'policy'
-        ],
-        weight: 3
-      },
-      special: {
-        primary: [
-          // [translate:中文]
-          '無障礙', '輪椅', '寵物', '狗', '貓', '素食', '小孩', '兒童',
-          '會員', '金卡', '白金', '鑽石', '銀卡',
-          '懷孕', '過敏', '特殊', '需求',
-          // English
-          'wheelchair', 'pet', 'dog', 'vegetarian', 'kids', 'children'
-        ],
-        weight: 3
-      }
-    };
-  }
-
-  async processMessage(message) {
-    try {
-      const intents = this.identifyMultipleIntents(message);
-      const primaryIntent = intents[0] || 'greeting';
-      
-      const entities = this.extractEntities(message);
-      const response = this.generateResponse(primaryIntent, entities, message);
-      
-      return {
-        message: response,
-        intent: primaryIntent,
-        intents: intents,
-        entities: entities,
-        timestamp: new Date().toISOString(),
-        version: this.version
-      };
-    } catch (error) {
-      console.error('AI 服務錯誤:', error);
-      return {
-        message: '抱歉，服務暫時無法處理您的請求。',
-        intent: 'error',
-        entities: {},
-        timestamp: new Date().toISOString(),
-        version: this.version,
-        error: error.message
-      };
+    constructor() {
+        this.version = '5.2.0-OPTIMIZED-FIXED';
     }
-  }
 
-  identifyMultipleIntents(message) {
-    const scores = {};
-    
-    for (const [intent, config] of Object.entries(this.intentKeywords)) {
-      let score = 0;
-      
-      for (const keyword of config.primary) {
-        const regex = new RegExp(keyword, 'i');
-        if (regex.test(message)) {
-          score += config.weight * 3;
+    async processMessage(message) {
+        console.log(`处理消息: ${message}`);
+        
+        // 简单的意图识别
+        let intent = 'greeting';
+        let reply = '';
+        
+        if (message.includes('你好') || message.includes('hello')) {
+            intent = 'greeting';
+            reply = '您好！我是AI酒店助手，很高兴为您服务！';
         }
-      }
-      
-      if (config.secondary) {
-        for (const keyword of config.secondary) {
-          const regex = new RegExp(keyword, 'i');
-          if (regex.test(message)) {
-            score += config.weight;
-          }
+        else if (message.includes('订') || message.includes('book') || message.includes('reserve')) {
+            intent = 'booking';
+            reply = '📅 我可以帮您预订房间！请告诉我入住日期和住宿天数。';
         }
-      }
-      
-      scores[intent] = score;
-    }
-    
-    // [translate:特殊規則強化]
-    if (message.match(/我要|我想|需要|想訂|book|reserve/i)) {
-      scores.booking = (scores.booking || 0) + 8;
-    }
-    
-    if (message.match(/\d+月\d+[日號]|December|Christmas/i)) {
-      scores.booking = (scores.booking || 0) + 5;
-    }
-    
-    if (message.match(/比較|差別|划算|價差|compare/i)) {
-      scores.price = (scores.price || 0) + 8;
-    }
-    
-    if (message.match(/輪椅|懷孕|過敏|素食|寵物|wheelchair|pregnant|allergic/i)) {
-      scores.special = (scores.special || 0) + 10;
-    }
-    
-    const sortedIntents = Object.entries(scores)
-      .filter(([_, score]) => score > 0)
-      .sort(([_, a], [__, b]) => b - a)
-      .map(([intent, _]) => intent);
-    
-    return sortedIntents.length > 0 ? sortedIntents : ['greeting'];
-  }
-
-  extractEntities(message) {
-    const entities = {};
-    
-    // [translate:日期提取]
-    let dateMatch = message.match(/(\d{1,2})月(\d{1,2})[日號]/);
-    if (!dateMatch) {
-      dateMatch = message.match(/December\s+(\d{1,2})-(\d{1,2})/i);
-      if (dateMatch) {
-        entities.date = `12月${dateMatch[1]}日`;
-        entities.endDate = `12月${dateMatch[2]}日`;
-        entities.nights = parseInt(dateMatch[2]) - parseInt(dateMatch[1]);
-      } else if (message.match(/Christmas/i)) {
-        entities.date = '12月24日';
-      }
-    } else {
-      entities.date = `${dateMatch[1]}月${dateMatch[2]}日`;
-    }
-    
-    // [translate:天數提取]
-    if (!entities.nights) {
-      const nightsMatch = message.match(/(\d+)[晚夜]|(\d+)\s+nights?/i);
-      if (nightsMatch) {
-        entities.nights = parseInt(nightsMatch[1] || nightsMatch[2]);
-      }
-      
-      const daysMatch = message.match(/(\d+)天(\d+)[夜晚]/);
-      if (daysMatch) {
-        entities.nights = parseInt(daysMatch[2]);
-      }
-    }
-    
-    // [translate:會員識別]
-    if (message.match(/會員|金卡|白金|鑽石|銀卡|member/i)) {
-      entities.isMember = true;
-      if (message.match(/金卡|gold/i)) entities.memberLevel = 'gold';
-      if (message.match(/白金|platinum/i)) entities.memberLevel = 'platinum';
-      if (message.match(/鑽石|diamond/i)) entities.memberLevel = 'diamond';
-      if (message.match(/銀卡|silver/i)) entities.memberLevel = 'silver';
-    }
-    
-    // [translate:兒童年齡提取]
-    const childAges = [];
-    const ageMatches = message.matchAll(/(\d+)歲|ages?\s+(\d+)/gi);
-    for (const match of ageMatches) {
-      const age = parseInt(match[1] || match[2]);
-      if (age > 0 && age < 18) {
-        childAges.push(age);
-      }
-    }
-    if (childAges.length > 0) {
-      entities.children = {
-        count: childAges.length,
-        ages: childAges
-      };
-    }
-    
-    // [translate:預算]
-    const budgetMatch = message.match(/預算.*?(\d+,?\d*)|budget.*?(\d+)/i);
-    if (budgetMatch) {
-      entities.budget = parseInt((budgetMatch[1] || budgetMatch[2]).replace(',', ''));
-    }
-    
-    // [translate:房型]
-    if (message.match(/豪華|deluxe/i)) entities.roomType = '豪華客房';
-    if (message.match(/行政|executive/i)) entities.roomType = '行政客房';
-    if (message.match(/套房|suite/i)) entities.roomType = '尊榮套房';
-    
-    // [translate:房間數量]
-    const roomCountMatch = message.match(/(\d+)間|(\d+)\s+rooms?/i);
-    if (roomCountMatch) {
-      entities.roomCount = parseInt(roomCountMatch[1] || roomCountMatch[2]);
-    }
-    
-    // [translate:特殊需求]
-    if (message.match(/無障礙|輪椅|wheelchair/i)) entities.accessibility = true;
-    if (message.match(/寵物|狗|貓|pet|dog/i)) entities.pet = true;
-    if (message.match(/素食|vegetarian/i)) entities.vegetarian = true;
-    if (message.match(/懷孕|pregnant/i)) entities.pregnant = true;
-    if (message.match(/過敏|allergic/i)) entities.allergic = true;
-    
-    return entities;
-  }
-
-  generateResponse(intent, entities, message) {
-    switch (intent) {
-      case 'price':
-        return this.generatePriceResponse(entities);
-      case 'booking':
-        return this.generateBookingResponse(entities);
-      case 'facility':
-        return this.generateFacilityResponse(entities);
-      case 'policy':
-        return this.generatePolicyResponse(entities);
-      case 'special':
-        return this.generateSpecialResponse(entities);
-      default:
-        return this.generateGreetingResponse();
-    }
-  }
-
-  generatePriceResponse(entities) {
-    let response = '🏨 **房價資訊** 🎉\n\n';
-    
-    if (entities.date && entities.nights) {
-      response += `📅 **您的查詢**:\n`;
-      response += `• 入住日期：${entities.date}\n`;
-      if (entities.endDate) response += `• 退房日期：${entities.endDate}\n`;
-      response += `• 住宿天數：${entities.nights}晚\n\n`;
-      
-      const basePrice = 3800;
-      const total = basePrice * entities.nights;
-      
-      response += `💰 **豪華客房計算**:\n`;
-      response += `• 單價：NT$${basePrice.toLocaleString()}/晚\n`;
-      response += `• 總價：NT$${total.toLocaleString()} (${entities.nights}晚)\n\n`;
-      
-      if (entities.isMember) {
-        const discount = Math.round(total * 0.9);
-        response += `🎯 **會員優惠**:\n`;
-        response += `• 會員價：NT$${discount.toLocaleString()} (9折)\n`;
-        response += `• 節省：NT$${(total - discount).toLocaleString()}\n\n`;
-      }
-    } else {
-      response += '💰 **精選房價**:\n';
-      response += '• 豪華客房：NT$3,800 - 4,500/晚\n';
-      response += '• 行政客房：NT$5,200 - 6,800/晚\n';
-      response += '• 尊榮套房：NT$8,500 - 11,000/晚\n\n';
-    }
-    
-    if (entities.children && entities.children.ages) {
-      response += '👶 **兒童住宿政策**:\n';
-      entities.children.ages.forEach(age => {
-        if (age <= 6) {
-          response += `• ${age}歲兒童：不佔床免費\n`;
-        } else if (age <= 12) {
-          response += `• ${age}歲兒童：不佔床半價\n`;
-        } else {
-          response += `• ${age}歲視為成人收費\n`;
+        else if (message.includes('价格') || message.includes('多少钱') || message.includes('price') || message.includes('cost')) {
+            intent = 'price';
+            reply = '💰 豪华客房: NT$3,800/晚\n行政客房: NT$5,200/晚\n尊荣套房: NT$8,500/晚';
         }
-      });
-      response += '\n';
-    }
-    
-    if (entities.isMember) {
-      response += '🎯 **會員專屬禮遇**:\n';
-      response += '• 金卡會員：房價9折 + 免費早餐\n';
-      response += '• 白金會員：房價85折 + 免費升等\n';
-      response += '• 鑽石會員：房價8折 + 行政酒廊\n\n';
-    }
-    
-    response += '💫 需要為您完成訂房嗎？';
-    return response;
-  }
-
-  generateBookingResponse(entities) {
-    let response = '📅 **訂房服務** 🎉\n\n';
-    
-    if (entities.date || entities.nights || entities.roomCount) {
-      response += `✅ **您的需求**:\n`;
-      if (entities.date) response += `• 入住日期：${entities.date}\n`;
-      if (entities.endDate) response += `• 退房日期：${entities.endDate}\n`;
-      if (entities.nights) response += `• 住宿天數：${entities.nights}晚\n`;
-      if (entities.roomCount) response += `• 房間數：${entities.roomCount}間\n`;
-      if (entities.roomType) response += `• 房型：${entities.roomType}\n`;
-      if (entities.isMember) response += `• 會員身份：✅\n`;
-      if (entities.children) {
-        response += `• 兒童：${entities.children.count}位`;
-        if (entities.children.ages) {
-          response += ` (${entities.children.ages.join('歲、')}歲)`;
+        else if (message.includes('取消') || message.includes('cancel')) {
+            intent = 'policy';
+            reply = '📋 取消政策:\n• 入住前48小时免费取消\n• 入住前24小时收取50%费用';
         }
-        response += '\n';
-      }
-      response += '\n';
+        else if (message.includes('会员') || message.includes('member')) {
+            intent = 'member';
+            reply = '🎯 会员优惠:\n• 金卡会员: 房价9折\n• 白金会员: 房价85折\n• 钻石会员: 房价8折';
+        }
+        else if (message.includes('小孩') || message.includes('儿童') || message.includes('child')) {
+            intent = 'children';
+            reply = '👶 儿童政策:\n• 6岁以下: 不占床免费\n• 6-12岁: 不占床半价';
+        }
+        else {
+            reply = '您好！我可以帮您：预订房间、查询价格、了解会员优惠、儿童政策等。请告诉我您的需求！';
+        }
+        
+        return {
+            version: this.version,
+            message: reply,
+            intent: intent,
+            timestamp: new Date().toISOString()
+        };
     }
-    
-    response += '需要我協助您完成訂房嗎？';
-    return response;
-  }
-
-  generateFacilityResponse(entities) {
-    return '🏊 **飯店設施** ✨\n\n' +
-           '🏃 運動休閒：健身中心、泳池、三溫暖\n' +
-           '💼 商務設施：商務中心、會議室、WiFi\n' +
-           '🍽️ 餐飲服務：全日餐廳、酒吧、客房服務\n' +
-           '🚗 便利服務：停車場、機場接送、行李寄存\n\n' +
-           '需要特定設施的詳細資訊嗎？';
-  }
-
-  generatePolicyResponse(entities) {
-    return '📋 **飯店政策** 📜\n\n' +
-           '🔄 **取消政策**：\n' +
-           '• 入住前 48 小時：免費取消\n' +
-           '• 入住前 24-48 小時：收取 50% 費用\n' +
-           '• 入住前 24 小時內：收取全額費用\n\n' +
-           '📅 **改期政策**：\n' +
-           '• 入住前 7 天：免費改期一次\n\n' +
-           '還有其他政策想了解嗎？';
-  }
-
-  generateSpecialResponse(entities) {
-    let response = '🌟 **特殊需求服務** 💫\n\n';
-    
-    if (entities.children) {
-      response += '👶 **兒童政策**：\n';
-      if (entities.children.ages) {
-        entities.children.ages.forEach(age => {
-          if (age <= 12) {
-            response += `• ${age}歲以下兒童免費同住\n`;
-          }
-        });
-      }
-      response += '• 提供嬰兒床（需預約）\n';
-      response += '• 兒童遊樂設施\n\n';
-    }
-    
-    if (entities.accessibility) {
-      response += '♿ 無障礙服務：專用客房、輪椅租借、扶手設施\n';
-    }
-    if (entities.pet) {
-      response += '🐕 寵物友善：10kg以下小型犬 NT$500/晚\n';
-    }
-    if (entities.vegetarian) {
-      response += '🥗 素食服務：早餐素食選項、客房素食餐\n';
-    }
-    if (entities.pregnant) {
-      response += '🤰 孕婦關懷：柔軟床墊、靠墊提供\n';
-    }
-    if (entities.allergic) {
-      response += '🛡️ 防過敏：防蟎寢具、空氣清淨機\n';
-    }
-    
-    response += '\n請告訴我更多細節，為您安排最合適的房間！';
-    return response;
-  }
-
-  generateGreetingResponse() {
-    return '您好！我是飯店AI助理 🏨\n\n' +
-           '• 最新房價查詢 (豪華客房 NT$3,800起)\n' +
-           '• 線上訂房服務\n' +
-           '• 設施介紹\n\n' +
-           '請問需要什麼協助？\n\n' +
-           'Hello! I\'m the hotel AI assistant. How can I help you today?';
-  }
 }
 
 module.exports = new EnhancedAIService();
