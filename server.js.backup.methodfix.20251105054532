@@ -1,0 +1,149 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+
+// 導入增強版 AI 服務
+console.log('🚀 載入增強版 AI 服務...');
+const enhancedAI = require('./services/enhanced-ai-service');
+console.log('✅ 增強版 AI 服務載入成功');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// 中間件
+app.use(cors());
+app.use(express.json());
+app.use(express.static('.'));
+
+// 健康檢查端點
+app.get('/health', (req, res) => {
+    res.json({
+        status: '服務運行中',
+        version: '5.0.0-ENHANCED',
+        timestamp: new Date().toISOString(),
+        features: [
+            '多層次意圖識別',
+            '特殊需求處理', 
+            '團體訂房支援',
+            '長期住宿方案',
+            '寵物政策',
+            '無障礙設施',
+            '生日驚喜安排'
+        ],
+        ai: {
+            model: 'enhanced-intent-v5',
+            capabilities: ['complex_queries', 'multi_intent', 'personalized_responses']
+        }
+    });
+});
+
+// 聊天端點 - 使用增強版 AI
+app.post('/chat', (req, res) => {
+    const { message } = req.body;
+    
+    if (!message) {
+        return res.status(400).json({ error: '請提供訊息' });
+    }
+    
+    try {
+        console.log(`👤 用戶查詢: ${message}`);
+        const startTime = Date.now();
+        const response = enhancedAI.generateResponse(message);
+        const processingTime = Date.now() - startTime;
+        
+        console.log(`�� AI 回應 (${processingTime}ms): ${response.substring(0, 100)}...`);
+        
+        res.json({ 
+            response,
+            metadata: {
+                processingTime: `${processingTime}ms`,
+                version: '5.0.0-ENHANCED',
+                timestamp: new Date().toISOString()
+            }
+        });
+    } catch (error) {
+        console.error('❌ 處理錯誤:', error);
+        res.status(500).json({ 
+            error: '服務暫時不可用',
+            details: error.message
+        });
+    }
+});
+
+// 增強版功能測試端點
+app.get('/test-enhanced', (req, res) => {
+    const testQueries = [
+        '無障礙房間需要輪椅',
+        '團體訂房15人會議室',
+        '長期住宿一個月開發票',
+        '寵物小型犬5公斤',
+        '生日佈置蛋糕鮮花'
+    ];
+    
+    const results = testQueries.map(query => {
+        try {
+            const response = enhancedAI.generateResponse(query);
+            return {
+                query,
+                response: response.substring(0, 200) + '...',
+                success: true
+            };
+        } catch (error) {
+            return {
+                query,
+                error: error.message,
+                success: false
+            };
+        }
+    });
+    
+    res.json({
+        version: '5.0.0-ENHANCED',
+        timestamp: new Date().toISOString(),
+        testResults: results
+    });
+});
+
+// 測試頁面
+app.get('/test', (req, res) => {
+    res.sendFile(path.join(__dirname, 'ai-assistant-test.html'));
+});
+
+// 根路徑
+app.get('/', (req, res) => {
+    res.json({
+        message: '🏨 飯店 AI 助理 - 增強版 v5.0.0',
+        version: '5.0.0-ENHANCED',
+        description: '多層次意圖識別智能助理',
+        endpoints: {
+            health: '/health',
+            chat: 'POST /chat',
+            test: '/test-enhanced',
+            web_test: '/test'
+        },
+        features: [
+            '複雜查詢處理',
+            '特殊需求識別',
+            '團體訂房優惠',
+            '長期住宿方案',
+            '政策查詢回應'
+        ]
+    });
+});
+
+// 啟動伺服器
+app.listen(PORT, '0.0.0.0', () => {
+    console.log('================================');
+    console.log('🚀 增強版 AI 服務啟動成功');
+    console.log('📊 版本: 5.0.0-ENHANCED');
+    console.log('🌐 端口:', PORT);
+    console.log('--------------------------------');
+    console.log('📋 可用端點:');
+    console.log('   /health         - 健康檢查');
+    console.log('   POST /chat      - AI 對話');
+    console.log('   /test-enhanced  - 功能測試');
+    console.log('   /test           - 網頁測試');
+    console.log('================================');
+});
+
+module.exports = app;
