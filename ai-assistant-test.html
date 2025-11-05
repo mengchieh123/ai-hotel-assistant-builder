@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 訂房助理測試</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #667eea; text-align: center; margin-bottom: 10px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 25px; font-size: 14px; }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        .status-card {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+        .status-label { font-size: 11px; color: #666; margin-bottom: 4px; }
+        .status-value { font-size: 18px; font-weight: 700; color: #333; }
+        .test-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .test-btn {
+            padding: 12px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 13px;
+            text-align: center;
+        }
+        .test-btn:hover {
+            border-color: #667eea;
+            background: #f8f9fa;
+            transform: translateY(-2px);
+        }
+        .chat {
+            height: 400px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 15px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            background: #fafafa;
+        }
+        .msg {
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            border-radius: 10px;
+            max-width: 75%;
+            word-wrap: break-word;
+            animation: slideIn 0.3s;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .msg.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: auto;
+        }
+        .msg.bot { background: #e9ecef; color: #333; }
+        .msg.system { background: #fff3cd; color: #856404; max-width: 100%; text-align: center; font-size: 12px; }
+        .input-area { display: flex; gap: 10px; }
+        input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        input:focus { outline: none; border-color: #667eea; }
+        button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        button:hover { opacity: 0.9; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏨 AI 訂房助理測試</h1>
+        <div class="subtitle">產品經理測試版 v1.0</div>
+
+        <div class="status-grid">
+            <div class="status-card">
+                <div class="status-label">服務狀態</div>
+                <div class="status-value" id="status">檢查中</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">測試次數</div>
+                <div class="status-value" id="count">0</div>
+            </div>
+            <div class="status-card">
+                <div class="status-label">成功率</div>
+                <div class="status-value" id="rate">-</div>
+            </div>
+        </div>
+
+        <div class="test-buttons">
+            <button class="test-btn" onclick="send('豪華客房多少錢')">💰 價格</button>
+            <button class="test-btn" onclick="send('我要訂房')">📅 訂房</button>
+            <button class="test-btn" onclick="send('有什麼設施')">🏊 設施</button>
+            <button class="test-btn" onclick="send('早餐時間')">🍳 早餐</button>
+            <button class="test-btn" onclick="send('可以加床嗎')">🛏️ 加床</button>
+            <button class="test-btn" onclick="send('取消政策')">📋 政策</button>
+        </div>
+
+        <div class="chat" id="chat"></div>
+
+        <div class="input-area">
+            <input id="input" placeholder="輸入問題..." onkeypress="if(event.key==='Enter')send()">
+            <button onclick="send()" id="btn">發送</button>
+        </div>
+    </div>
+
+    <script>
+        const API = 'https://ai-hotel-assistant-builder-production.up.railway.app'\;
+        let count = 0, success = 0;
+
+        function add(type, text) {
+            const chat = document.getElementById('chat');
+            const div = document.createElement('div');
+            div.className = 'msg ' + type;
+            div.textContent = text;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        async function init() {
+            try {
+                const r = await fetch(`${API}/health`);
+                const d = await r.json();
+                document.getElementById('status').textContent = '✅ 正常';
+                add('system', '系統已就緒，請開始測試');
+            } catch {
+                document.getElementById('status').textContent = '❌ 離線';
+                add('system', '⚠️ 無法連接服務');
+            }
+        }
+
+        async function send(msg) {
+            const input = document.getElementById('input');
+            const text = msg || input.value.trim();
+            if (!text) return;
+
+            add('user', text);
+            input.value = '';
+
+            const btn = document.getElementById('btn');
+            btn.disabled = true;
+            btn.textContent = '思考中...';
+
+            count++;
+            document.getElementById('count').textContent = count;
+
+            try {
+                const r = await fetch(`${API}/api/ai/chat`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: text})
+                });
+                const d = await r.json();
+                add('bot', d.message);
+                success++;
+                document.getElementById('rate').textContent = Math.round(success/count*100) + '%';
+            } catch (e) {
+                add('system', '❌ 請求失敗: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '發送';
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
+<!-- 在現有測試按鈕下方添加進階測試區 -->
+<!-- 此部分需要手動整合到 ai-assistant-test.html -->

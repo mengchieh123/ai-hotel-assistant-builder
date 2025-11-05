@@ -1,3 +1,39 @@
+#!/bin/bash
+
+echo "🚀 完整重新部署增強版 AI"
+echo "================================"
+
+# 顏色定義
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# 檢查必要檔案
+check_files() {
+    echo "🔍 檢查必要檔案..."
+    local files=(
+        "services/enhanced-ai-service.js"
+        "package.json"
+    )
+    
+    for file in "${files[@]}"; do
+        if [ -f "$file" ]; then
+            echo -e "${GREEN}✅ $file${NC}"
+        else
+            echo -e "${RED}❌ $file 缺失${NC}"
+            return 1
+        fi
+    done
+    return 0
+}
+
+# 創建完整的 server.js
+create_server() {
+    echo ""
+    echo "📝 創建 server.js..."
+    
+    cat > server.js << 'SERVER_EOF'
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -147,3 +183,83 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 
 module.exports = app;
+SERVER_EOF
+
+    echo -e "${GREEN}✅ server.js 創建成功${NC}"
+}
+
+# 驗證語法
+validate_syntax() {
+    echo ""
+    echo "🔍 驗證語法..."
+    if node -c server.js && node -c services/enhanced-ai-service.js; then
+        echo -e "${GREEN}✅ 所有檔案語法正確${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ 語法驗證失敗${NC}"
+        return 1
+    fi
+}
+
+# 本地測試
+local_test() {
+    echo ""
+    echo "🧪 本地功能測試..."
+    node -e "
+        const enhancedAI = require('./services/enhanced-ai-service');
+        const testQuery = '我想訂無障礙房間需要輪椅和扶手';
+        console.log('測試查詢:', testQuery);
+        console.log('--- AI 回應 ---');
+        console.log(enhancedAI.generateResponse(testQuery));
+        console.log('--- 測試完成 ---');
+    " && echo -e "${GREEN}✅ 本地測試通過${NC}" || echo -e "${RED}❌ 本地測試失敗${NC}"
+}
+
+# 部署到 Railway
+deploy_to_railway() {
+    echo ""
+    echo "🚀 部署到 Railway..."
+    
+    # 提交更改
+    git add .
+    git commit -m "feat: deploy enhanced AI v5.0.0 with multi-layer intent recognition" || echo "⚠️  提交可能無新變更"
+    
+    # 推送到 GitHub (觸發 Railway 部署)
+    if git push; then
+        echo -e "${GREEN}✅ 代碼推送成功${NC}"
+        echo ""
+        echo "⏳ Railway 部署已觸發..."
+        echo "   請等待 2-3 分鐘完成部署"
+        echo ""
+        echo "🔍 部署完成後檢查:"
+        echo "   curl https://ai-hotel-assistant-builder.up.railway.app/health"
+    else
+        echo -e "${RED}❌ 代碼推送失敗${NC}"
+        return 1
+    fi
+}
+
+# 主流程
+main() {
+    echo "開始完整重新部署..."
+    echo ""
+    
+    if check_files && create_server && validate_syntax && local_test; then
+        echo ""
+        echo -e "${GREEN}✅ 所有預檢查通過${NC}"
+        echo ""
+        read -p "🚀 是否部署到 Railway? (y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            deploy_to_railway
+        else
+            echo "⏹️  已取消部署"
+        fi
+    else
+        echo -e "${RED}❌ 預檢查失敗，請修復問題後重試${NC}"
+        exit 1
+    fi
+}
+
+# 執行主流程
+main

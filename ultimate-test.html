@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 訂房助理 - 終極測試頁面</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { 
+            color: #667eea; 
+            font-size: 32px; 
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+        .diagnostic {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            border-left: 4px solid #667eea;
+        }
+        .diagnostic h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        .diagnostic-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .diagnostic-item:last-child { border-bottom: none; }
+        .diagnostic-label { color: #666; font-size: 14px; }
+        .diagnostic-value { 
+            font-weight: 600; 
+            color: #333;
+            font-size: 14px;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-ok { background: #28a745; }
+        .status-error { background: #dc3545; }
+        .status-loading { background: #ffc107; animation: pulse 1.5s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .test-section {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .test-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .quick-tests {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .test-btn {
+            padding: 12px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+            font-weight: 500;
+            text-align: center;
+        }
+        .test-btn:hover {
+            border-color: #667eea;
+            background: #f8f9fa;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+        .chat-box {
+            height: 400px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 15px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            background: #fafafa;
+        }
+        .message {
+            margin-bottom: 12px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 75%;
+            word-wrap: break-word;
+            animation: fadeIn 0.3s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: auto;
+        }
+        .message.bot {
+            background: #e9ecef;
+            color: #333;
+        }
+        .message.system {
+            background: #fff3cd;
+            color: #856404;
+            max-width: 100%;
+            text-align: center;
+            font-size: 13px;
+        }
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            max-width: 100%;
+        }
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+        input {
+            flex: 1;
+            padding: 14px 18px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: scale(1.05); }
+        button:disabled { 
+            opacity: 0.6; 
+            cursor: not-allowed; 
+            transform: none; 
+        }
+        .debug-console {
+            margin-top: 20px;
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .debug-line {
+            margin-bottom: 5px;
+        }
+        .debug-timestamp {
+            color: #888;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏨 AI 訂房助理 - 終極測試</h1>
+        <div class="subtitle">完整診斷與測試工具 v1.0</div>
+
+        <!-- 診斷資訊 -->
+        <div class="diagnostic">
+            <h3>🔍 系統診斷</h3>
+            <div class="diagnostic-item">
+                <span class="diagnostic-label">服務狀態</span>
+                <span class="diagnostic-value">
+                    <span class="status-indicator status-loading" id="statusIndicator"></span>
+                    <span id="statusText">檢查中...</span>
+                </span>
+            </div>
+            <div class="diagnostic-item">
+                <span class="diagnostic-label">CORS 狀態</span>
+                <span class="diagnostic-value" id="corsStatus">檢查中...</span>
+            </div>
+            <div class="diagnostic-item">
+                <span class="diagnostic-label">服務版本</span>
+                <span class="diagnostic-value" id="version">-</span>
+            </div>
+            <div class="diagnostic-item">
+                <span class="diagnostic-label">運行時間</span>
+                <span class="diagnostic-value" id="uptime">-</span>
+            </div>
+            <div class="diagnostic-item">
+                <span class="diagnostic-label">測試次數</span>
+                <span class="diagnostic-value" id="testCount">0</span>
+            </div>
+            <div class="diagnostic-item">
+                <span class="diagnostic-label">成功率</span>
+                <span class="diagnostic-value" id="successRate">-</span>
+            </div>
+        </div>
+
+        <!-- 對話測試區 -->
+        <div class="test-section">
+            <h3>💬 對話測試</h3>
+            
+            <div class="quick-tests">
+                <button class="test-btn" onclick="quickTest('豪華客房多少錢')">💰 價格查詢</button>
+                <button class="test-btn" onclick="quickTest('我要訂房')">📅 訂房意圖</button>
+                <button class="test-btn" onclick="quickTest('有什麼設施')">🏊 設施詢問</button>
+                <button class="test-btn" onclick="quickTest('早餐時間')">🍳 早餐詢問</button>
+                <button class="test-btn" onclick="quickTest('可以加床嗎')">🛏️ 加床詢問</button>
+                <button class="test-btn" onclick="quickTest('取消政策')">📋 政策詢問</button>
+            </div>
+
+            <div class="chat-box" id="chatBox"></div>
+
+            <div class="input-area">
+                <input 
+                    type="text" 
+                    id="userInput" 
+                    placeholder="輸入您的問題..." 
+                    onkeypress="if(event.key==='Enter')sendMessage()"
+                >
+                <button onclick="sendMessage()" id="sendBtn">發送</button>
+            </div>
+        </div>
+
+        <!-- Debug 控制台 -->
+        <div class="debug-console" id="debugConsole">
+            <div class="debug-line">🔧 Debug Console - 等待操作...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'https://ai-hotel-assistant-builder-production.up.railway.app'\;
+        let testCount = 0;
+        let successCount = 0;
+        let serviceReady = false;
+
+        // 添加 Debug 日誌
+        function debugLog(msg, type = 'info') {
+            const console = document.getElementById('debugConsole');
+            const time = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            line.className = 'debug-line';
+            
+            const icon = type === 'error' ? '❌' : type === 'success' ? '✅' : '🔍';
+            line.innerHTML = `<span class="debug-timestamp">${time}</span>${icon} ${msg}`;
+            
+            console.appendChild(line);
+            console.scrollTop = console.scrollHeight;
+            
+            // 保持最多 50 行
+            while (console.children.length > 50) {
+                console.removeChild(console.firstChild);
+            }
+        }
+
+        // 添加訊息到聊天框
+        function addMessage(type, text) {
+            const chatBox = document.getElementById('chatBox');
+            const msg = document.createElement('div');
+            msg.className = 'message ' + type;
+            msg.textContent = text;
+            chatBox.appendChild(msg);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // 更新診斷資訊
+        function updateDiagnostics() {
+            if (testCount > 0) {
+                const rate = Math.round((successCount / testCount) * 100);
+                document.getElementById('successRate').textContent = `${rate}% (${successCount}/${testCount})`;
+            }
+            document.getElementById('testCount').textContent = testCount;
+        }
+
+        // 初始化
+        async function init() {
+            debugLog('開始初始化系統...');
+            addMessage('system', '系統正在初始化，請稍候...');
+
+            try {
+                // 1. 測試健康檢查
+                debugLog('測試健康檢查端點...');
+                const healthRes = await fetch(`${API_URL}/health`);
+                
+                if (!healthRes.ok) {
+                    throw new Error(`HTTP ${healthRes.status}`);
+                }
+
+                const healthData = await healthRes.json();
+                debugLog(`健康檢查成功: ${JSON.stringify(healthData)}`, 'success');
+
+                // 2. 更新狀態
+                document.getElementById('statusIndicator').className = 'status-indicator status-ok';
+                document.getElementById('statusText').textContent = '✅ 正常';
+                document.getElementById('version').textContent = healthData.version || '-';
+                document.getElementById('uptime').textContent = Math.floor(healthData.uptime) + 's';
+
+                // 3. 測試 CORS
+                debugLog('檢查 CORS 設定...');
+                const corsTest = healthRes.headers.get('access-control-allow-origin');
+                if (corsTest === '*') {
+                    document.getElementById('corsStatus').innerHTML = '<span style="color: #28a745;">✅ 已啟用</span>';
+                    debugLog('CORS 檢查成功: ' + corsTest, 'success');
+                } else {
+                    document.getElementById('corsStatus').innerHTML = '<span style="color: #dc3545;">❌ 未檢測到</span>';
+                    debugLog('CORS 檢查失敗: ' + corsTest, 'error');
+                }
+
+                serviceReady = true;
+                addMessage('bot', '👋 您好！我是 AI 訂房助理。系統已準備就緒，請使用快速按鈕或輸入框提問。');
+                debugLog('初始化完成，服務已就緒', 'success');
+
+            } catch (error) {
+                debugLog(`初始化失敗: ${error.message}`, 'error');
+                document.getElementById('statusIndicator').className = 'status-indicator status-error';
+                document.getElementById('statusText').textContent = '❌ 離線';
+                document.getElementById('corsStatus').innerHTML = '<span style="color: #dc3545;">無法檢測</span>';
+                
+                addMessage('error', `⚠️ 無法連接服務: ${error.message}`);
+                addMessage('system', '💡 建議：檢查網路連接或服務是否正常運行');
+            }
+        }
+
+        // 快速測試
+        function quickTest(message) {
+            document.getElementById('userInput').value = message;
+            sendMessage();
+        }
+
+        // 發送訊息
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const message = input.value.trim();
+
+            if (!message) {
+                debugLog('空訊息，取消發送', 'error');
+                return;
+            }
+
+            if (!serviceReady) {
+                addMessage('error', '⚠️ 服務尚未就緒，請稍候...');
+                debugLog('服務未就緒', 'error');
+                return;
+            }
+
+            debugLog(`發送訊息: "${message}"`);
+            addMessage('user', message);
+            input.value = '';
+
+            const btn = document.getElementById('sendBtn');
+            btn.disabled = true;
+            btn.textContent = '思考中...';
+
+            testCount++;
+            updateDiagnostics();
+
+            try {
+                debugLog('POST /api/ai/chat...');
+                const response = await fetch(`${API_URL}/api/ai/chat`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ message })
+                });
+
+                debugLog(`回應狀態: ${response.status}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                debugLog(`收到回應 (意圖: ${data.intent || 'unknown'})`, 'success');
+
+                if (data.message) {
+                    addMessage('bot', data.message);
+                    successCount++;
+                    updateDiagnostics();
+                } else {
+                    throw new Error('回應格式錯誤');
+                }
+
+            } catch (error) {
+                debugLog(`請求失敗: ${error.message}`, 'error');
+                addMessage('error', `❌ 發生錯誤: ${error.message}`);
+                addMessage('system', '💡 請查看 Debug Console 了解詳細資訊');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '發送';
+            }
+        }
+
+        // 啟動初始化
+        init();
+    </script>
+</body>
+</html>
