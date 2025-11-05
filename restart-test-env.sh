@@ -1,0 +1,306 @@
+#!/bin/bash
+
+echo "🚀 重新啟動測試環境"
+echo "=========================================="
+echo ""
+
+# 1. 清理舊進程
+echo "1️⃣ 清理舊進程..."
+pkill -f "python.*http.server" 2>/dev/null || true
+pkill -f "http-server" 2>/dev/null || true
+sleep 1
+
+# 2. 創建簡單可靠的測試頁面
+echo "2️⃣ 創建測試頁面..."
+cat > test-pm.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 訂房助理 - 產品經理測試</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { 
+            color: #667eea; 
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+        .status-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .status-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+        .status-card h3 {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .status-card .value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #333;
+        }
+        .chat-container {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .chat-box {
+            height: 400px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 10px;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 75%;
+            animation: fadeIn 0.3s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-left: auto;
+        }
+        .message.bot {
+            background: #e9ecef;
+            color: #333;
+        }
+        .message .meta {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-bottom: 5px;
+        }
+        .quick-tests {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .quick-btn {
+            padding: 12px;
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .quick-btn:hover {
+            border-color: #667eea;
+            background: #f8f9fa;
+            transform: translateY(-2px);
+        }
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+        input {
+            flex: 1;
+            padding: 14px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: scale(1.05); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .loading { text-align: center; color: #666; padding: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏨 AI 訂房助理測試</h1>
+        <div class="subtitle">產品經理測試專用介面 v1.0</div>
+
+        <div class="status-bar">
+            <div class="status-card">
+                <h3>服務狀態</h3>
+                <div class="value" id="status">檢查中...</div>
+            </div>
+            <div class="status-card">
+                <h3>版本</h3>
+                <div class="value" id="version">-</div>
+            </div>
+            <div class="status-card">
+                <h3>測試次數</h3>
+                <div class="value" id="count">0</div>
+            </div>
+        </div>
+
+        <div class="chat-container">
+            <div class="quick-tests">
+                <button class="quick-btn" onclick="test('豪華客房多少錢')">💰 價格查詢</button>
+                <button class="quick-btn" onclick="test('我要訂房')">📅 訂房</button>
+                <button class="quick-btn" onclick="test('有什麼設施')">🏊 設施</button>
+                <button class="quick-btn" onclick="test('早餐時間')">🍳 早餐</button>
+                <button class="quick-btn" onclick="test('可以加床嗎')">🛏️ 加床</button>
+                <button class="quick-btn" onclick="test('取消政策')">📋 政策</button>
+            </div>
+
+            <div class="chat-box" id="chat">
+                <div class="loading">正在初始化...</div>
+            </div>
+
+            <div class="input-area">
+                <input id="input" placeholder="輸入您的問題..." onkeypress="if(event.key==='Enter')test()">
+                <button onclick="test()" id="btn">發送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = 'https://ai-hotel-assistant-builder-production.up.railway.app'\;
+        let count = 0;
+
+        // 初始化
+        async function init() {
+            try {
+                const r = await fetch(`${API}/health`);
+                const d = await r.json();
+                document.getElementById('status').textContent = '✅ 正常';
+                document.getElementById('version').textContent = d.version.split('-')[0];
+                document.getElementById('chat').innerHTML = '<div class="message bot"><div class="meta">AI 助理</div>您好！我是 AI 訂房助理。請使用上方快速按鈕或輸入您的問題。</div>';
+            } catch {
+                document.getElementById('status').textContent = '❌ 離線';
+                document.getElementById('chat').innerHTML = '<div class="message bot">⚠️ 無法連接服務，請檢查網路或稍後再試。</div>';
+            }
+        }
+
+        // 發送測試
+        async function test(msg) {
+            const input = document.getElementById('input');
+            const text = msg || input.value.trim();
+            if (!text) return;
+
+            add('user', text);
+            input.value = '';
+
+            const btn = document.getElementById('btn');
+            btn.disabled = true;
+            btn.textContent = '思考中...';
+
+            try {
+                const r = await fetch(`${API}/api/ai/chat`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: text})
+                });
+                const d = await r.json();
+                add('bot', d.message);
+                count++;
+                document.getElementById('count').textContent = count;
+            } catch {
+                add('bot', '❌ 回應失敗，請重試');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '發送';
+            }
+        }
+
+        // 添加訊息
+        function add(type, text) {
+            const chat = document.getElementById('chat');
+            const div = document.createElement('div');
+            div.className = 'message ' + type;
+            const time = new Date().toLocaleTimeString('zh-TW', {hour: '2-digit', minute: '2-digit'});
+            const label = type === 'user' ? '您' : 'AI 助理';
+            div.innerHTML = `<div class="meta">${label} • ${time}</div>${text}`;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        init();
+    </script>
+</body>
+</html>
+HTMLEOF
+
+echo "   ✅ 測試頁面已創建: test-pm.html"
+
+# 3. 啟動服務器
+echo ""
+echo "3️⃣ 啟動服務器..."
+python3 -m http.server 8000 > server.log 2>&1 &
+SERVER_PID=$!
+sleep 2
+
+# 4. 驗證服務器
+if curl -s http://localhost:8000 > /dev/null 2>&1; then
+    echo "   ✅ 服務器啟動成功 (PID: $SERVER_PID)"
+else
+    echo "   ❌ 服務器啟動失敗"
+    exit 1
+fi
+
+echo ""
+echo "=========================================="
+echo "✅ 測試環境已就緒！"
+echo "=========================================="
+echo ""
+echo "📱 請在瀏覽器訪問:"
+echo "   http://localhost:8000/test-pm.html"
+echo ""
+echo "🎯 測試功能:"
+echo "   • 點擊快速測試按鈕"
+echo "   • 輸入自定義問題"
+echo "   • 查看 AI 回應"
+echo ""
+echo "🛑 停止服務器:"
+echo "   kill $SERVER_PID"
+echo ""
+
+# 保存 PID 供後續使用
+echo $SERVER_PID > .server.pid
+echo "💾 服務器 PID 已保存到 .server.pid"
+
