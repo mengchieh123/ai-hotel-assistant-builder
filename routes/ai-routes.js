@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const aiService = require('../services/mock-ai-service');
 
-// POST /api/ai/chat - 處理聊天請求
 router.post('/chat', async (req, res) => {
   try {
     const { message, sessionId } = req.body;
@@ -14,7 +13,6 @@ router.post('/chat', async (req, res) => {
       });
     }
     
-    // 調用正確的方法
     const response = await aiService.processMessage(message, sessionId || 'default');
     
     res.json({
