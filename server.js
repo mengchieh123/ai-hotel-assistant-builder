@@ -38,7 +38,7 @@ app.get('/health', (req, res) => {
 });
 
 // 聊天端點 - 使用增強版 AI
-app.post('/chat', (req, res) => {
+app.post('/chat', async (req, res) => {
     const { message } = req.body;
     
     if (!message) {
@@ -48,7 +48,7 @@ app.post('/chat', (req, res) => {
     try {
         console.log(`👤 用戶查詢: ${message}`);
         const startTime = Date.now();
-        const response = enhancedAI.generateResponse(message);
+        const response = await enhancedAI.processMessage(message);
         const processingTime = Date.now() - startTime;
         
         console.log(`�� AI 回應 (${processingTime}ms): ${response.substring(0, 100)}...`);
