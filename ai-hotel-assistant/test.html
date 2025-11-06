@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏨 AI 飯店助理測試</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #2d3748;
+            margin-bottom: 8px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #718096;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+        
+        .status {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status.connected {
+            background: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+        
+        .status.error {
+            background: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #fc8181;
+        }
+        
+        .status.loading {
+            background: #feebc8;
+            color: #7c2d12;
+            border: 1px solid #fbd38d;
+        }
+        
+        .guest-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #4a5568;
+            margin-bottom: 6px;
+        }
+        
+        input, select {
+            padding: 10px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .chat-box {
+            height: 400px;
+            overflow-y: auto;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            background: #f7fafc;
+        }
+        
+        .message {
+            margin-bottom: 16px;
+            display: flex;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .message.user {
+            justify-content: flex-end;
+        }
+        
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+        
+        .user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .ai .message-content {
+            background: white;
+            color: #2d3748;
+            border: 2px solid #e2e8f0;
+            border-bottom-left-radius: 4px;
+        }
+        
+        .message-label {
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            opacity: 0.8;
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 12px;
+        }
+        
+        #messageInput {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 15px;
+        }
+        
+        button {
+            padding: 12px 32px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 15px;
+            transition: all 0.2s;
+        }
+        
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .quick-questions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        
+        .quick-btn {
+            padding: 8px 16px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #4a5568;
+            transition: all 0.2s;
+        }
+        
+        .quick-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+            transform: translateY(-2px);
+        }
+        
+        .loading-dots {
+            display: inline-flex;
+            gap: 4px;
+        }
+        
+        .loading-dots span {
+            width: 6px;
+            height: 6px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏨 AI 飯店助理</h1>
+        <p class="subtitle">由 Ollama (Qwen2.5 7B) 驅動的智能訂房助手</p>
+        
+        <div id="status" class="status loading">
+            <span>⏳</span>
+            <span>正在連接服務...</span>
+        </div>
+        
+        <div class="guest-info">
+            <div class="form-group">
+                <label>客戶姓名</label>
+                <input type="text" id="guestName" placeholder="例：王小明">
+            </div>
+            <div class="form-group">
+                <label>房型</label>
+                <select id="roomType">
+                    <option value="">請選擇</option>
+                    <option value="標準雙人房">標準雙人房</option>
+                    <option value="豪華雙人房">豪華雙人房</option>
+                    <option value="家庭四人房">家庭四人房</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>入住日期</label>
+                <input type="date" id="checkIn">
+            </div>
+            <div class="form-group">
+                <label>退房日期</label>
+                <input type="date" id="checkOut">
+            </div>
+        </div>
+        
+        <div class="quick-questions">
+            <button class="quick-btn" onclick="sendQuickQuestion('請問有哪些房型？')">房型查詢</button>
+            <button class="quick-btn" onclick="sendQuickQuestion('週末有優惠嗎？')">優惠資訊</button>
+            <button class="quick-btn" onclick="sendQuickQuestion('飯店有什麼設施？')">設施介紹</button>
+            <button class="quick-btn" onclick="sendQuickQuestion('如何辦理入住？')">入住流程</button>
+            <button class="quick-btn" onclick="sendQuickQuestion('可以延遲退房嗎？')">退房相關</button>
+        </div>
+        
+        <div id="chatBox" class="chat-box"></div>
+        
+        <div class="input-group">
+            <input 
+                type="text" 
+                id="messageInput" 
+                placeholder="輸入您的問題..."
+                onkeypress="if(event.key==='Enter') sendMessage()"
+            >
+            <button onclick="sendMessage()" id="sendBtn">發送</button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000'\;
+        const chatBox = document.getElementById('chatBox');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const status = document.getElementById('status');
+
+        // 檢查服務狀態
+        async function checkHealth() {
+            try {
+                const res = await fetch(`${API_URL}/api/health`);
+                const data = await res.json();
+                
+                if (data.status === 'ok' && data.ollamaConnected) {
+                    status.className = 'status connected';
+                    status.innerHTML = `
+                        <span>✅</span>
+                        <span>已連接到 AI 服務 (模型: ${data.currentModel})</span>
+                    `;
+                } else {
+                    status.className = 'status error';
+                    status.innerHTML = `
+                        <span>⚠️</span>
+                        <span>${data.error || '服務異常'}</span>
+                    `;
+                }
+            } catch (error) {
+                status.className = 'status error';
+                status.innerHTML = `
+                    <span>❌</span>
+                    <span>無法連接到服務器，請確保服務正在運行</span>
+                `;
+            }
+        }
+
+        // 快速問題
+        function sendQuickQuestion(question) {
+            messageInput.value = question;
+            sendMessage();
+        }
+
+        // 發送消息
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            const guestName = document.getElementById('guestName').value;
+            const roomType = document.getElementById('roomType').value;
+            const checkIn = document.getElementById('checkIn').value;
+            const checkOut = document.getElementById('checkOut').value;
+
+            // 顯示用戶消息
+            addMessage(message, 'user');
+            messageInput.value = '';
+            sendBtn.disabled = true;
+
+            // 顯示載入中
+            const loadingId = addLoadingMessage();
+
+            try {
+                const res = await fetch(`${API_URL}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message,
+                        guestName,
+                        roomType,
+                        checkIn,
+                        checkOut
+                    })
+                });
+
+                const data = await res.json();
+                
+                // 移除載入中訊息
+                removeLoadingMessage(loadingId);
+                
+                if (data.success) {
+                    addMessage(data.response, 'ai');
+                } else {
+                    addMessage('抱歉，發生錯誤: ' + data.error, 'ai');
+                }
+            } catch (error) {
+                removeLoadingMessage(loadingId);
+                addMessage('抱歉，無法連接到服務器', 'ai');
+            } finally {
+                sendBtn.disabled = false;
+                messageInput.focus();
+            }
+        }
+
+        // 添加消息到聊天框
+        function addMessage(text, type) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            
+            const label = document.createElement('div');
+            label.className = 'message-label';
+            label.textContent = type === 'user' ? '您' : 'AI 助理';
+            
+            const textNode = document.createElement('div');
+            textNode.textContent = text;
+            
+            content.appendChild(label);
+            content.appendChild(textNode);
+            div.appendChild(content);
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // 添加載入中訊息
+        function addLoadingMessage() {
+            const div = document.createElement('div');
+            div.className = 'message ai';
+            div.id = 'loading-message';
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.innerHTML = `
+                <div class="message-label">AI 助理</div>
+                <div class="loading-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            `;
+            
+            div.appendChild(content);
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return 'loading-message';
+        }
+
+        // 移除載入中訊息
+        function removeLoadingMessage(id) {
+            const element = document.getElementById(id);
+            if (element) element.remove();
+        }
+
+        // 初始化
+        checkHealth();
+        setInterval(checkHealth, 30000); // 每30秒檢查一次
+
+        // 歡迎訊息
+        setTimeout(() => {
+            addMessage('您好！我是 AI 飯店助理，很高興為您服務。請問有什麼可以幫您的嗎？', 'ai');
+        }, 500);
+    </script>
+</body>
+</html>

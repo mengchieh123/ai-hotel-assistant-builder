@@ -1,0 +1,20 @@
+# 安全清理命令（逐個確認）
+
+# 清理測試 HTML
+rm -i ultimate-test.html ai-assistant-test.html
+
+# 清理重複測試腳本
+rm -i test-*.sh wait-and-test*.sh quick-test*.sh
+
+# 清理診斷腳本
+rm -i diagnose-*.sh emergency-*.sh
+
+# 清理舊版部署腳本
+rm -i deploy-*.sh fix-*.sh force-*.sh
+
+# 保留的重要腳本：
+# - correct-deploy.sh
+# - smart-verify.sh
+# - view-railway-logs.sh
+# - pm-perspective-test.sh
+# - advanced-conversation-test.sh
