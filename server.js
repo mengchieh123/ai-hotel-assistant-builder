@@ -100,6 +100,31 @@ app.post('/chat', (req, res) => {
   }
 });
 
+// 新增 /api/booking POST 路由，回覆預訂請求
+app.post('/api/booking', (req, res) => {
+  // 假設簡單回應，您可自行完成商業邏輯
+  res.json({
+    success: true,
+    message: '已收到預訂請求',
+    requestBody: req.body,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 除錯用，列出目前所有已註冊路由
+app.get('/debug/routes', (req, res) => {
+  const routes = [];
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) {
+      routes.push({
+        path: middleware.route.path,
+        methods: Object.keys(middleware.route.methods)
+      });
+    }
+  });
+  res.json({ routes });
+});
+
 app.listen(PORT, () => {
   console.log(`AI 訂房助理服務運行於端口 ${PORT}，版本 5.4.2-FINAL`);
 });
