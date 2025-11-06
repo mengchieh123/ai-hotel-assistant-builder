@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = 8080;  // 固定設定 8080 端口
 
 app.use(cors());
 app.use(express.json());
@@ -102,7 +102,7 @@ app.post('/chat', (req, res) => {
 
 // 新增 /api/booking POST 路由，回覆預訂請求
 app.post('/api/booking', (req, res) => {
-  // 假設簡單回應，您可自行完成商業邏輯
+  // 簡單回應範例，您可補充商業邏輯
   res.json({
     success: true,
     message: '已收到預訂請求',
@@ -111,7 +111,7 @@ app.post('/api/booking', (req, res) => {
   });
 });
 
-// 除錯用，列出目前所有已註冊路由
+// 除錯用，列出註冊的所有路由
 app.get('/debug/routes', (req, res) => {
   const routes = [];
   app._router.stack.forEach((middleware) => {
