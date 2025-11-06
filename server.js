@@ -1,182 +1,159 @@
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 中間件
 app.use(cors());
 app.use(express.json());
 
-// 嘗試載入 System Prompt，如果失敗則使用簡化版
-let SYSTEM_PROMPT;
-try {
-  const promptModule = require('./prompts/system-prompt');
-  SYSTEM_PROMPT = promptModule.SYSTEM_PROMPT;
-  console.log('✅ 已載入完整 System Prompt');
-} catch (error) {
-  console.log('⚠️  使用簡化版 System Prompt');
-  SYSTEM_PROMPT = `你是專業的飯店訂房助理。請完整回答客戶的所有問題，包括價格、優惠、政策等。使用結構化格式回答。`;
-}
-
-// Ollama 配置
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434'\;
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
-
-// 健康檢查端點
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '5.3.0-COMPLEX-DIALOGUE',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    version: '5.3.2-PURE-JS',
+    timestamp: new Date().toISOString()
   });
 });
 
-// 根路徑
 app.get('/', (req, res) => {
-  res.json({
-    message: 'AI 訂房助理 API',
-    version: '5.3.0-COMPLEX-DIALOGUE',
-    endpoints: {
-      health: '/health',
-      chat: '/chat (POST)'
-    }
-  });
+  res.json({ message: 'AI 訂房助理 API v5.3.2 - Pure JavaScript' });
 });
 
-// 檢查 Ollama 連接
-async function checkOllamaConnection() {
+app.post('/chat', (req, res) => {
   try {
-    const response = await fetch(`${OLLAMA_URL}/api/tags`, {
-      signal: AbortSignal.timeout(3000)
-    });
-    if (response.ok) {
-      console.log('✅ Ollama 連接成功');
-      return true;
-    }
-  } catch (error) {
-    console.log('⚠️  Ollama 未連接，將使用模擬模式');
-  }
-  return false;
-}
-
-// 模擬 AI 回應（當 Ollama 不可用時）
-function getMockResponse(message, context) {
-  const { guestName, checkIn, checkOut, memberType } = context;
-  
-  // 簡單的關鍵字匹配回應
-  if (/過年|春節|4晚|會員|小孩|高樓層/i.test(message)) {
-    return `${guestName || '您好'}！我已經了解您的需求：
-
-📅 **入住時間**
-${checkIn ? `入住日期：${checkIn}` : '過年期間'}
-${checkOut ? `退房日期：${checkOut}` : '共4晚'}
-
-🏨 **房型推薦**
-建議：豪華雙人房
-- 更寬敞舒適
-- 適合長住
-
-💰 **價格資訊**
-基礎房價：3,800元/晚
-春節期間加價：500元/晚
-實際價格：4,300元/晚 × 4晚 = 17,200元
-
-🎫 **${memberType || '會員'}優惠**
-- 會員折扣：9折
-- 連住優惠：再減5%
-- 優惠後總價：約 14,706元
-
-👶 **兒童政策**
-5歲以下不占床：完全免費
-
-🏢 **房間安排**
-- 可安排高樓層（15樓以上）
-- 選擇安靜房間
-
-是否需要協助您完成預訂？`;
-  }
-  
-  // 簡單問候
-  if (/你好|您好|hi|hello/i.test(message)) {
-    return `${guestName || '您好'}！歡迎使用訂房服務。我可以協助您查詢房型、價格、優惠等資訊。請問有什麼需要幫忙的嗎？`;
-  }
-  
-  // 房型查詢
-  if (/房型|房間/i.test(message)) {
-    return `我們提供以下房型：
-- 標準雙人房：2,800元/晚
-- 豪華雙人房：3,800元/晚
-- 家庭四人房：5,200元/晚
-
-週末加價500元/晚。請問您需要哪種房型？`;
-  }
-  
-  // 默認回應
-  return `感謝您的詢問。關於「${message.substring(0, 50)}${message.length > 50 ? '...' : ''}」，我會為您查詢相關資訊。請稍等片刻。`;
-}
-
-// 聊天端點
-app.post('/chat', async (req, res) => {
-  try {
-    const { message, guestName, checkIn, checkOut, roomType, memberType } = req.body;
+    const { message, guestName, checkIn, checkOut, memberType } = req.body;
     
     if (!message || message.trim() === '') {
       return res.status(400).json({ 
-        success: false,
-        error: '訊息不能為空' 
+        success: false, 
+        error: '訊息不能為空',
+        response: null 
       });
     }
 
-    console.log('📝 處理請求:', { guestName, messageLength: message.length });
+    console.log(`📝 收到請求: ${guestName || 'anonymous'} - ${message.substring(0, 50)}`);
 
-    const context = { guestName, checkIn, checkOut, roomType, memberType };
-    let aiResponse;
+    let response = '';
+    
+    // 檢測複雜查詢
+    const isComplex = /過年|春節|4晚|會員|金卡|小孩|高樓層|兒童/.test(message);
+    
+    if (isComplex) {
+      response = `${guestName || '您好'}！我已經了解您的需求，為您整理如下：
 
-    try {
-      // 嘗試連接 Ollama
-      const ollamaResponse = await fetch(`${OLLAMA_URL}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: OLLAMA_MODEL,
-          system: SYSTEM_PROMPT,
-          prompt: `客戶資訊：${JSON.stringify(context)}\n\n客戶問題：${message}`,
-          stream: false,
-          options: {
-            temperature: 0.7,
-            max_tokens: 1500
-          }
-        }),
-        signal: AbortSignal.timeout(30000) // 30秒超時
-      });
+📅 **入住時間**
+${checkIn || '過年期間'} 至 ${checkOut || '共4晚'}
 
-      if (ollamaResponse.ok) {
-        const data = await ollamaResponse.json();
-        aiResponse = data.response || getMockResponse(message, context);
-        console.log('✅ 使用 Ollama 回應');
-      } else {
-        throw new Error('Ollama API 錯誤');
-      }
-    } catch (error) {
-      // Ollama 失敗時使用模擬回應
-      console.log('⚠️  Ollama 不可用，使用模擬回應');
-      aiResponse = getMockResponse(message, context);
+🏨 **房型推薦**
+建議：豪華雙人房
+- 更寬敞舒適，適合長住
+- 視野更好，高樓層安靜
+
+💰 **價格計算**
+基礎房價（豪華雙人房）：
+- 平日價：3,800元/晚
+- 春節加價：500元/晚
+- 實際：4,300元/晚 × 4晚 = 17,200元
+
+🎫 **${memberType || '金卡會員'}優惠**
+- 會員折扣：9折
+- 連住4晚優惠：再減5%
+- 優惠後總價：17,200 × 0.9 × 0.95 = 14,706元
+
+👶 **兒童政策**
+5歲小孩：
+- ✅ 不占床完全免費
+- 可提供兒童備品
+
+🏢 **房間安排**
+- ✅ 安排高樓層（15樓以上）
+- ✅ 選擇遠離電梯的安靜房間
+
+📊 **費用總結**
+- 原價：17,200元
+- 優惠後：14,706元
+- 節省：2,494元
+
+💡 **專業建議**
+過年期間房間搶手，建議盡快確認訂房。是否需要我協助您完成預訂？`;
     }
+    else if (/你好|您好|hi|hello/i.test(message)) {
+      response = `${guestName || '您好'}！歡迎使用飯店訂房服務 🏨
+
+我可以協助您：
+✅ 查詢房型與價格
+✅ 了解會員優惠
+✅ 確認兒童政策
+✅ 安排特殊需求
+
+請問有什麼需要幫忙的嗎？`;
+    }
+    else if (/房型|房間|價格/i.test(message)) {
+      response = `我們提供以下房型：
+
+🛏️ **標準雙人房**
+- 平日：2,800元/晚
+- 週末：3,300元/晚
+
+🛏️ **豪華雙人房**
+- 平日：3,800元/晚
+- 週末：4,300元/晚
+
+🛏️ **家庭四人房**
+- 平日：5,200元/晚
+- 週末：5,700元/晚
+
+�� 會員享有額外折扣！請問您需要哪種房型？`;
+    }
+    else if (/會員|優惠|折扣/i.test(message)) {
+      response = `🎫 **會員優惠方案**
+
+💳 金卡會員：9折優惠
+💳 銀卡會員：95折優惠
+
+🎁 額外福利：
+- 連住3晚：總價再減5%
+- 連住5晚：總價再減8%
+
+請問您是會員嗎？`;
+    }
+    else if (/小孩|兒童|孩子|寶寶/i.test(message)) {
+      response = `👶 **兒童入住政策**
+
+✅ 6歲以下：不占床免費
+✅ 6-12歲：不占床半價
+✅ 12歲以上：按成人計費
+
+🎁 提供兒童備品
+請問小朋友幾歲呢？`;
+    }
+    else {
+      response = `感謝您的詢問！
+
+關於「${message.substring(0, 50)}${message.length > 50 ? '...' : ''}」，我很樂意為您提供協助。
+
+請告訴我更多細節：
+- 入住日期
+- 房型偏好
+- 人數
+- 特殊需求
+
+這樣我能為您提供更精準的建議！`;
+    }
+
+    console.log(`✅ 生成回應長度: ${response.length}`);
 
     res.json({
       success: true,
-      response: aiResponse,
+      response: response,
+      message: response,
       metadata: {
         guestName: guestName || null,
         checkIn: checkIn || null,
         checkOut: checkOut || null,
-        mode: 'production',
-        responseLength: aiResponse.length
+        memberType: memberType || null,
+        responseLength: response.length
       },
-      version: '5.3.0-COMPLEX-DIALOGUE',
+      version: '5.3.2-PURE-JS',
       timestamp: new Date().toISOString()
     });
 
@@ -185,34 +162,25 @@ app.post('/chat', async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: '處理請求時發生錯誤',
+      response: null,
       details: error.message
     });
   }
 });
 
-// 啟動伺服器
-const server = app.listen(PORT, '0.0.0.0', async () => {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🏨 AI 訂房助理伺服器');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`版本: 5.3.0-COMPLEX-DIALOGUE`);
-  console.log(`埠號: ${PORT}`);
-  console.log(`環境: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`狀態: ✅ 運行中`);
-  console.log(`時間: ${new Date().toLocaleString('zh-TW')}`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  
-  // 檢查 Ollama 連接
-  await checkOllamaConnection();
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: '找不到該端點'
+  });
 });
 
-// 優雅關閉
-process.on('SIGTERM', () => {
-  console.log('收到 SIGTERM 信號，正在關閉伺服器...');
-  server.close(() => {
-    console.log('伺服器已關閉');
-    process.exit(0);
-  });
+app.listen(PORT, '0.0.0.0', () => {
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🏨 AI 訂房助理 v5.3.2');
+  console.log(`埠號: ${PORT}`);
+  console.log('狀態: ✅ 就緒 (Pure JavaScript)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
 
 module.exports = app;
