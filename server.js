@@ -1,48 +1,59 @@
 const express = require('express');
 const cors = require('cors');
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 app.use(cors());
 app.use(express.json());
 
+// 從日期或訊息中計算入住晚數
+function calculateNights(checkIn, checkOut, message) {
+  if (checkIn && checkOut) {
+    const startDate = new Date(checkIn);
+    const endDate = new Date(checkOut);
+    const diffTime = endDate.getTime() - startDate.getTime();
+    const nights = Math.round(diffTime / (1000 * 3600 * 24));
+    return nights > 0 ? nights : 1;
+  }
+
+  const nightMatch = message.match(/(\d+)[天晚]/);
+  if (nightMatch) {
+    const n = parseInt(nightMatch[1], 10);
+    return n > 0 ? n : 1;
+  }
+
+  return 1;
+}
+
+// 價格計算
+function calculatePrice(nights, memberType, specialDate) {
+  const basePrice = 3800;
+  const holidaySurcharge = specialDate ? 500 : 0;
+  const totalBasePrice = (basePrice + holidaySurcharge) * nights;
+
+  let discountRate = 1;
+  if (memberType === '金卡會員') discountRate = 0.9;
+  else if (memberType === '銀卡會員') discountRate = 0.95;
+
+  const discountedPrice = Math.round(totalBasePrice * discountRate);
+
+  return { basePrice, holidaySurcharge, totalBasePrice, discountRate, discountedPrice };
+}
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '5.4.0-DETAILED-RESPONSE',
+    version: '5.4.2-FINAL',
     timestamp: new Date().toISOString()
   });
 });
 
-function calculatePrice(checkIn, checkOut, memberType, specialDate) {
-  const oneDay = 24 * 60 * 60 * 1000;
-  let nights = 4;
-  if (checkIn && checkOut) {
-    nights = Math.round((new Date(checkOut) - new Date(checkIn)) / oneDay);
-  }
-  const basePrice = 3800;
-  const holidaySurcharge = specialDate ? 500 : 0;
-  const totalBasePrice = (basePrice + holidaySurcharge) * nights;
-  let discount = 1;
-  if (memberType === '金卡會員') discount = 0.9;
-  else if (memberType === '銀卡會員') discount = 0.95;
-  const discountedPrice = Math.round(totalBasePrice * discount);
-  return {
-    nights,
-    basePrice,
-    holidaySurcharge,
-    totalBasePrice,
-    discountRate: discount,
-    discountedPrice
-  };
-}
-
 app.post('/chat', (req, res) => {
   try {
     const { message, guestName, checkIn, checkOut, memberType, specialRequest } = req.body;
-    
+
     if (!message || message.trim() === '') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         error: '訊息不能為空',
         response: null
@@ -50,28 +61,31 @@ app.post('/chat', (req, res) => {
     }
 
     const isSpecialDate = /聖誕節|12月25日/.test(message);
-    const calc = calculatePrice(checkIn, checkOut, memberType, isSpecialDate);
+    const nights = calculateNights(checkIn, checkOut, message);
+    const pricing = calculatePrice(nights, memberType, isSpecialDate);
 
     const responseLines = [];
 
     responseLines.push(`${guestName || '您好'}，感謝您的訂房需求。`);
-    responseLines.push(`您預計入住 ${calc.nights} 晚，基礎房價為 ${calc.basePrice} 元/晚，${isSpecialDate ? '包含聖誕節加價 ' + calc.holidaySurcharge + ' 元/晚，' : ''}總計 ${calc.totalBasePrice} 元。`);
-    responseLines.push(`會員 ${memberType || '非會員'}，享有折扣 ${((1 - calc.discountRate) * 100).toFixed(0)}%，優惠後價格為 ${calc.discountedPrice} 元。`);
-
+    responseLines.push(`您預計入住 ${nights} 晚（${checkIn || '未指定起始日期'} 至 ${checkOut || '未指定結束日期'}）。`);
+    if (isSpecialDate) {
+      responseLines.push(`包含聖誕節加價每晚 ${pricing.holidaySurcharge} 元。`);
+    }
+    responseLines.push(`基礎房價為 ${pricing.basePrice} 元/晚，總計 ${pricing.totalBasePrice} 元。`);
+    responseLines.push(`會員等級：${memberType || '非會員'}，享有折扣 ${(1 - pricing.discountRate) * 100}% ，折後價格為 ${pricing.discountedPrice} 元。`);
     if (specialRequest && specialRequest.trim() !== '') {
       responseLines.push(`特殊要求：${specialRequest}。`);
     }
-
     responseLines.push('兒童政策：6歲以下不占床免費，6-12歲不占床半價。');
     responseLines.push('房間安排：可安排高樓層安靜房間。');
-    responseLines.push('如需進一步協助，請隨時告知！');
+    responseLines.push('如需更多協助，請隨時告知！');
 
     const response = responseLines.join('\n');
 
     res.json({
       success: true,
       response,
-      version: '5.4.0-DETAILED-RESPONSE',
+      version: '5.4.2-FINAL',
       timestamp: new Date().toISOString()
     });
 
@@ -87,5 +101,5 @@ app.post('/chat', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AI 訂房助理服務運行於端口 ${PORT}，版本 v5.4.0-DETAILED-RESPONSE`);
+  console.log(`AI 訂房助理服務運行於端口 ${PORT}，版本 5.4.2-FINAL`);
 });
