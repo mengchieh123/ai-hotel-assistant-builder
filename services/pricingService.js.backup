@@ -1,0 +1,29 @@
+const promotions = require('../config/promotions.json');
+
+function calculateNights(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 1;
+  const start = new Date(checkIn);
+  const end = new Date(checkOut);
+  const diff = end - start;
+  const nights = diff / (1000 * 3600 * 24);
+  return Math.max(1, Math.round(nights));
+}
+
+function calculatePrice(nights, memberType, isSpecialDate) {
+  const basePrice = promotions.basePrice;
+  const holidaySurcharge = isSpecialDate ? promotions.holidaySurcharge : 0;
+  const totalBasePrice = (basePrice + holidaySurcharge) * nights;
+
+  let discountRate = 1;
+  if (memberType === '金卡會員') discountRate = 0.9;
+  else if (memberType === '銀卡會員') discountRate = 0.95;
+
+  const discountedPrice = Math.round(totalBasePrice * discountRate);
+
+  return { basePrice, holidaySurcharge, totalBasePrice, discountRate, discountedPrice };
+}
+
+module.exports = {
+  calculateNights,
+  calculatePrice
+};

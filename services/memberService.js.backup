@@ -1,0 +1,9 @@
+function getMemberLevel(memberType) {
+  const levels = ['非會員', '銀卡會員', '金卡會員'];
+  if (levels.includes(memberType)) return memberType;
+  return '非會員';
+}
+
+module.exports = {
+  getMemberLevel
+};
