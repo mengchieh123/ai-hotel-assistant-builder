@@ -1,7 +1,7 @@
 {
   "name": "ai-hotel-assistant",
   "version": "5.4.0",
-  "description": "AI Hotel Assistant Service with Enhanced Pricing Calculation",
+  "description": "AI Hotel Assistant Service with Modular Business Logic",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
