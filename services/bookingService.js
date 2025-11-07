@@ -12,17 +12,19 @@ class BookingService {
         nights,
         roomType,
         guestCount = 1,
-        guestName,
+        guestName = '待提供',  // 添加預設值
         contactInfo,
         specialRequests = [],
         memberLevel = 'none',
         promoCode
       } = bookingData;
 
+      // 修正驗證邏輯 - 只驗證真正必要的欄位
       if (!checkInDate || !nights || !roomType) {
         throw new Error('缺少必要欄位: checkInDate, nights, roomType');
       }
 
+      // 生成訂房ID
       this.bookingCount++;
       const bookingId = `BKG-${Date.now()}-${this.bookingCount.toString().padStart(6, '0')}`;
 
@@ -32,7 +34,7 @@ class BookingService {
         nights,
         roomType,
         guestCount,
-        guestName: guestName || '未提供',
+        guestName,  // 使用預設值
         contactInfo: contactInfo || '未提供',
         specialRequests,
         memberLevel,
@@ -42,6 +44,7 @@ class BookingService {
         updatedAt: new Date().toISOString()
       };
 
+      // 儲存訂房
       this.bookings.set(bookingId, booking);
       
       console.log(`✅ 訂房建立成功: ${bookingId}`);
