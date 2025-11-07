@@ -1,0 +1,17 @@
+{
+  "basePrice": 3800,
+  "holidaySurcharge": 500,
+  "discounts": {
+    "members": {
+      "gold": 0.9,
+      "silver": 0.95,
+      "none": 1
+    },
+    "senior": 0.85,
+    "extraBedFee": 800,
+    "childPolicy": {
+      "below6NoBed": 0,
+      "6to12HalfBed": 0.5
+    }
+  }
+}
