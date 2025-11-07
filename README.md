@@ -1,122 +1,133 @@
-AI 酒店訂房助理 - 增強版 v5.0.0﻿
+以下是針對您目前 AI Hotel Assistant 專案的完整版專業 README.md 文件範本，涵蓋專案介紹、架構說明、安裝部署指引、版本控制、測試流程及常見問題，方便團隊與使用者理解與操作：
 
-📋 項目概覽﻿
-AI 酒店訂房助理是一個基於多層次意圖識別的智能訂房系統，整合了本地 AI 模型與雲端部署，提供完整的酒店預訂對話服務。系統支援繁體中文界面，並提供完整的 Postman 測試集合。
+AI Hotel Assistant
+[![License: MIT](https://img.shields.io/badge(https://opensource.org/licenseshttps://github.com/mengchieh123/ai-hotel-assistant-builder/actions/workflows/node.js(https://github.com/mengchieh123/ai-hotel-assistant-builder 目錄
 
-🚀 線上服務﻿
-主服務: https://psychic-spoon-p4wgg4x6g5vc6vg5.github.dev
-健康檢查: https://psychic-spoon-p4wgg4x6g5vc6vg5.github.dev/health
-聊天 API: https://psychic-spoon-p4wgg4x6g5vc6vg5.github.dev/api/ai/chat
+專案介紹
 
-📊 當前狀態﻿
+專案架構
 
-項目	狀態	版本	核心 AI 引擎
-生產環境運行	✅	5.0.0-ENHANCED-ASYNC	多層次意圖識別、增強版 v5
-部署平台	✅	Railway + GitHub Codespaces	自動化部署、異步處理
-🏗️ 系統架構﻿
-用戶請求 (text) → Express 路由 (/api/ai/chat)
-→ Enhanced AI Service (async)
-→ 多層次意圖識別（主意圖、實體提取、個性化回應）
-→ JSON 格式回應
+環境安裝
 
-🎯 快速開始﻿
+運行與部署
 
-環境要求﻿
+版本控制與協作
 
-Node.js 18+
+測試方法
 
-Ollama（本地部署 AI 模型），內存≥8GB
+錯誤排除
 
-本地開發﻿
+貢獻
+
+授權
+
+專案介紹
+AI Hotel Assistant 是一個多模組分層設計的酒店訂房助理系統。
+本系統針對 OTA 平台，結合訂房計算、房態監控、會員服務、促銷管理、支付處理與合規檢查等關鍵功能，採用 Node.js 架構，提供高擴展性與維護便利性的服務層。
+
+專案架構
+text
+/services                    # 業務邏輯分模組
+  ├── bookingService.js       # 訂房服務
+  ├── roomStatusService.js    # 房態監控
+  ├── pricingService.js       # 價格策略計算
+  ├── memberService.js        # 會員系統
+  ├── promotionService.js     # 促銷管理
+  ├── paymentService.js       # 支付處理
+  ├── invoiceService.js       # 發票作業
+  ├── complianceService.js    # 合規檢查
+  ├── localizationService.js  # 多語系本地化功能
+  └── index.js                # 統一匯出服務模組
+server.js                    # 服務入口與路由中樞
+package.json                 # 專案依賴與啟動腳本
+README.md                    # 專案說明文件（本檔）
+.gitignore                  # Git 忽略文件
+環境安裝
+前置條件
+
+Node.js v14 以上
+
+npm 或 yarn
+
+Git
+
+安裝步驟
+
+Clone 專案
 
 bash
-git clone https://github.com/mengchieh123/ai-hotel-assistant-builder.git  
-cd ai-hotel-assistant-builder  
-npm install  
-curl -fsSL https://ollama.ai/install.sh | sh  
-ollama pull qwen2.5:7b  
-npm start  
-open http://localhost:3000  
-生產部署﻿
-Railway 自動化部署，推送到 main 分支即可觸發：
+git clone https://github.com/mengchieh123/ai-hotel-assistant-builder.git
+cd ai-hotel-assistant-builder
+安裝依賴
 
 bash
-git add .  
-git commit -m "feat: 新增功能"  
-git push origin main  
-railway up --detach  
-📡 API 文檔﻿
+npm install
+確認 services 目錄結構完整，index.js 正確匯出服務模組。
 
-核心端點：
+運行與部署
+本地運行
 
-GET /health — 回應狀態、版本、特性
+bash
+npm start
+系統默認執行 server.js，服務模組由 ./services/index.js 導出。
 
-GET /rooms — 房型列表
+部署建議
 
-POST /api/ai/chat — 聊天對話（異步多層意圖識別）
+避免忽略服務資料夾，確保 services/ 含所有模組及 index.js 一起推送。
 
-POST /chat — 與 /api/ai/chat 等效，兼容舊端點
+部署平台（Railway、Heroku等）確保運行目錄為專案根目錄。
 
-🧪 Postman 測試集合﻿
-環境 Base URL: https://psychic-spoon-p4wgg4x6g5vc6vg5.github.dev
-內含健康檢查、房型查詢、會員優惠、意圖識別測試
+若為容器部署（Docker），Dockerfile 複製專案檔案時務必包含 services。
 
-📋 產品經理測試點﻿
+啟動日誌調試
 
-測試項目	目的	測試方法與檢查內容
-系統健康檢查	確保服務線上正常，無故障	GET /health，檢查返回 status 為"服務運行中"、版本號
-房型列表檢查	房型數據完整、價格合理	GET /rooms，確認 success=true，並列出至少三種房型
-AI 基本回應測試	AI 能對簡單問候和查詢提供合理回應	POST /api/ai/chat，使用簡單訊息（如"你好"）檢查回應文字
-複雜多重需求測試	支持同時處理多個用戶請求的複雜對話	POST /api/ai/chat，複合訊息（如入住、會員、小孩、樓層等）檢查回答完整度
-會員優惠測試	檢測會員折扣權益是否正確實施	查詢會員優惠關鍵詞，判斷回應中是否包含相關折扣與規則
-兒童政策測試	確認兒童入住收費與免費政策的準確描述	提問兒童相關問題，判斷回應是否完整覆蓋免費/半價年齡段
-異常輸入與錯誤處理	確保對空訊息和錯誤輸入能正確回應並提示錯誤	空字串 POST 請求，返回錯誤狀態 400 與合理錯誤訊息
-🧰 開發人員手冊﻿
+server.js 可加入環境檢查：
 
-專案結構
+js
+const { execSync } = require('child_process');
+console.log('Working directory:', process.cwd());
+console.log('Services:', execSync('ls -la ./services').toString());
+版本控制與協作
+預設遠端分支為 main，請執行前常取下最新代碼
+
+bash
+git pull origin main
+合併衝突時，請手動修正 Git 衝突標記
 
 text
-ai-hotel-assistant-builder/  
-├── server.js            # 主服務器入口，Express 路由實現  
-├── package.json         # 依賴與啟動腳本  
-├── prompts/             # 系統提示語模板  
-├── public/              # 前端靜態資源（聊天界面）  
-├── tests/               # 測試腳本及 Postman 集合  
-├── README.md            # 專案說明文檔  
-├── services/            # AI服務邏輯與意圖識別實現  
-├── utils/               # 工具與輔助函數  
-└── docs/                # 專案文檔與設計說明  
-主要工作流程
+<<<<<<< HEAD
+// 本地代碼
+=======
+// 遠端代碼
+>>>>>>> main
+合併完畢後提交，以保持乾淨歷史
 
-用戶發送請求至 /api/ai/chat
+bash
+git add .
+git commit -m "fix: resolve merge conflicts"
+git push origin main
+測試方法
+測試腳本待開發中，建議依專案未來版本加入：
 
-後端透過 Enhanced AI Service 處理，採用異步 async/await 邏輯
+單元測試（Unit Test）
 
-多層次意圖識別分析，抽取用戶需求實體資訊（日期、會員等）
+集成測試（Integration Test）
 
-根據識別結果生成個性化回應
+端到端測試（E2E）
 
-將結構化結果以 JSON 格式返回
+可配合 Jest、Mocha 等框架實現自動化測試。
 
-版本管理
+錯誤排除
+問題描述	解決建議
+Node.js 找不到模組 './services'	確認 services 目錄與 index.js 已推送部署
+啟動時發生合併衝突標記錯誤（SyntaxError: '<<'）	手動編輯 server.js，清除合併衝突標記
+推送時遭拒（non-fast-forward）	先 git pull 拉取遠端最新，再合併推送
+貢獻
+歡迎 Fork 專案，提交 PR，協助新增功能、優化性能和修復錯誤。
 
-使用 Git，嚴格跟蹤提交與分支管理
+請遵守開發規範，並詳述每次修改內容。
 
-通過標籤（tag）標示版本
+授權
+本專案遵循 MIT 授權條款，詳細參考 LICENSE。
 
-持續更新 Postman 測試，確保新功能回歸測試通過
-
-錯誤偵測與日誌
-
-集成 Railway CLI 日誌輸出，實時監控服務狀態
-
-將錯誤詳細信息記錄於日誌，方便追蹤
-
-📞 聯絡方式﻿
-項目負責: mengchieh123
-問題反饋: GitHub issues
-
-📝 最終更新﻿
-2025-11-06 10:20 CST
-
-本文件將隨專案迭代持續更新，確保產品經理與開發團隊同步最新狀態和流程﻿
+如需客製化說明、部署文檔或測試規劃協助，請隨時提出。
