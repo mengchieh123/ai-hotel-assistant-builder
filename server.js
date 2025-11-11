@@ -537,7 +537,7 @@ app.post('/chat', async (req, res) => {
             reply = '我們提供金卡、銀卡會員優惠，請問您想了解哪種會員權益？';
           } else if (/附近|周邊|景點|好玩|旅遊|觀光|推薦|哪裡玩|有什麼好玩的/.test(lowerMessage)) {
             session.step = 'attractions_init';
-            reply = '🏞️ 想了解酒店附近的好玩景點嗎！請問您對什麼類型的景點感興趣？\n（例如：美食餐廳、購物中心、自然景觀、文化古蹟、夜市、便利商店）';
+            reply = '🏞️ 想了解酒店附近的好玩景點嗎？請問您對什麼類型的景點感興趣？\n（例如：美食餐廳、購物中心、自然景觀、文化古蹟、夜市小吃、便利商店）';
           } else {
             reply = '您好！請問需要什麼服務？例如：訂房、查詢價格、取消訂單、會員服務、附近景點查詢等等。';
           }
@@ -564,6 +564,96 @@ app.post('/chat', async (req, res) => {
             reply = '請輸入正確格式的入住日期，例如 2024-12-25。';
           }
           break;
+
+        case 'nights':
+          const nightsNum = parseInt(message);
+          if (!isNaN(nightsNum) && nightsNum > 0 && nightsNum <= 30) {
+            session.data.nights = nightsNum;
+            session.step = 'guests';
+            reply = `已記錄入住 ${nightsNum} 晚，請問入住人數有多少？`;
+          } else {
+            reply = '請輸入有效的住宿天數（1-30晚）';
+          }
+          break;
+
+        case 'guests':
+          const guestsNum = parseInt(message);
+          if (!isNaN(guestsNum) && guestsNum > 0 && guestsNum <= 10) {
+            session.data.guestCount = guestsNum;
+            session.step = 'confirm';
+            reply = 
+              `入住人數已記錄為 ${guestsNum} 位。請確認訂房資料：\n` + 
+              `房型: ${session.data.roomType}\n` +
+              `入住日期: ${session.data.checkInDate}\n` +
+              `住宿天數: ${session.data.nights}\n` +
+              `入住人數: ${guestsNum}\n\n` +
+              `是否確定要訂房？（是/否）`;
+          } else {
+            reply = '請輸入合適的入住人數（1-10位）';
+          }
+          break;
+
+        case 'confirm':
+          if (/是|確定|好/.test(lowerMessage)) {
+            const bookingBody = {
+              checkInDate: session.data.checkInDate,
+              nights: session.data.nights,
+              roomType: session.data.roomType,
+              guestCount: session.data.guestCount
+            };
+            try {
+              const bookingResult = await bookingService.createBooking(bookingBody);
+              if (bookingResult.success) {
+                session.step = 'completed';
+                session.data.bookingReference = bookingResult.bookingId;
+                reply = `訂房成功！訂單編號：${bookingResult.bookingId}，感謝您的光臨。`;
+              } else {
+                reply = '訂房失敗，請稍後再試。';
+              }
+            } catch (err) {
+              reply = '系統錯誤，請稍後再試。';
+              console.error('Booking failed:', err);
+            }
+          } else if (/不|否|取消/.test(lowerMessage)) {
+            session.step = 'init';
+            session.data = {};
+            reply = '訂房已取消，如需其他協助請告訴我。';
+          } else {
+            reply = '請回覆「是」確認訂房，或「否」取消。';
+          }
+          break;
+
+        case 'completed':
+          reply = `您已完成訂房，訂單編號：${session.data.bookingReference}。有需要可以繼續查詢。`;
+          break;
+
+        default:
+          reply = '系統錯誤，請稍後再試或聯繫客服。';
+          session.step = 'init';
+          session.data = {};
+          break;
+      }
+    }
+
+    if (wasFixed) saveSessions();
+
+    res.json({
+      success: true,
+      response: reply,
+      sessionData: session.data,
+      currentStep: session.step
+    });
+
+  } catch (error) {
+    console.error('❌ 聊天處理錯誤:', error);
+    res.status(500).json({
+      success: false,
+      error: '聊天處理失敗',
+      message: error.message
+    });
+  }
+});
+
 
         case 'attractions_init':
           const attractionTypes = {
