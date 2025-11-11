@@ -1,3 +1,10 @@
+#!/bin/bash
+
+echo "🔧 修復 bookingService.js 中的錯誤..."
+echo "==================================="
+
+# 檢查並修復 bookingService.js
+cat > services/bookingService.js << 'EOM'
 // 訂房服務 - 最終修復版本
 const pricingService = require('./pricingService');
 const roomStatusService = require('./roomStatusService');
@@ -279,3 +286,64 @@ class BookingService {
 }
 
 module.exports = new BookingService();
+EOM
+
+echo "✅ bookingService.js 修復完成"
+
+# 測試修復結果
+echo ""
+echo "🧪 測試修復後的訂房流程..."
+cat > test-booking-final.js << 'EOM'
+console.log("🧪 最終訂房流程測試...");
+
+try {
+    const bookingService = require('./services/bookingService');
+    
+    console.log("1. 測試完整訂房流程...");
+    const bookingData = {
+        checkInDate: "2025-02-14",
+        nights: 2,
+        roomType: "豪華雙人房",
+        guestCount: 2,
+        guestName: "測試用戶",
+        memberLevel: "standard"
+    };
+    
+    const result = bookingService.createBooking(bookingData);
+    console.log("📝 訂房結果:", result);
+    
+    if (result.success) {
+        console.log("✅ 訂房成功!");
+        console.log("   訂單號:", result.bookingId);
+        console.log("   狀態:", result.bookingDetails.status);
+        console.log("   總價:", result.bookingDetails.pricing.totalPrice);
+        
+        // 測試查詢訂單
+        console.log("\\n2. 測試訂單查詢...");
+        const queryResult = bookingService.getBooking(result.bookingId);
+        console.log("�� 查詢結果:", queryResult.success ? '成功' : '失敗');
+        
+        // 測試訂單列表
+        console.log("\\n3. 測試訂單列表...");
+        const listResult = bookingService.listBookings();
+        console.log("📊 訂單數量:", listResult.count);
+        
+    } else {
+        console.log("❌ 訂房失敗:");
+        console.log("   錯誤:", result.error);
+        console.log("   訊息:", result.message);
+        if (result.issues) {
+            console.log("   問題:", result.issues);
+        }
+    }
+    
+} catch (error) {
+    console.log("❌ 測試失敗:", error.message);
+}
+EOM
+
+node test-booking-final.js
+rm -f test-booking-final.js
+
+echo ""
+echo "✅ bookingService 修復完成"

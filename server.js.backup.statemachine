@@ -1,0 +1,185 @@
+const express = require('express');
+const cors = require('cors');
+const { SessionManager } = require('./booking-state-machine');
+
+const app = express();
+const PORT = process.env.PORT || 8080;
+const sessionManager = new SessionManager();
+
+app.use(cors());
+app.use(express.json());
+
+console.log('🚀 AI訂房助理 - 狀態機版本 5.5.0 啟動...');
+
+// 導入現有服務
+let bookingService, pricingService, memberService;
+try {
+  bookingService = require('./services/bookingService');
+  console.log('✅ bookingService 載入成功');
+} catch (error) {
+  console.log('�� 使用內建 bookingService');
+  bookingService = {
+    async createBooking(bookingData) {
+      return { success: true, bookingId: 'BKG-' + Date.now() };
+    }
+  };
+}
+
+try {
+  pricingService = require('./services/pricingService');
+  console.log('✅ pricingService 載入成功');
+} catch (error) {
+  console.log('�� 使用內建 pricingService');
+  pricingService = {
+    calculateRoomPrice(roomType, nights) {
+      const rates = { '豪華雙人房': 3600, '標準雙人房': 2800 };
+      const basePrice = (rates[roomType] || 2800) * nights;
+      return { success: true, pricing: { totalPrice: basePrice } };
+    }
+  };
+}
+
+try {
+  memberService = require('./services/memberService');
+  console.log('✅ memberService 載入成功');
+} catch (error) {
+  console.log('🔄 使用內建 memberService');
+  memberService = {
+    async calculatePoints(amount) {
+      return { success: true, points: Math.floor(amount / 100) };
+    }
+  };
+}
+
+// 健康檢查
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    service: 'AI Hotel Assistant',
+    version: '5.5.0-STATEMACHINE',
+    sessions: sessionManager.sessions.size,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 狀態機聊天端點
+app.post('/chat', async (req, res) => {
+  try {
+    const { message, sessionId = 'session-' + Date.now() } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ 
+        success: false,
+        error: '訊息不能為空' 
+      });
+    }
+
+    const session = sessionManager.getSession(sessionId);
+    const result = await session.processUserInput(message);
+
+    res.json({
+      success: true,
+      response: result.response,
+      state: result.state,
+      sessionId: sessionId,
+      context: session.context
+    });
+
+  } catch (error) {
+    console.error('Chat error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '處理請求時發生錯誤' 
+    });
+  }
+});
+
+// 保持原有API端點 (向後兼容)
+app.post('/api/booking', async (req, res) => {
+  try {
+    const { checkInDate, nights, roomType, guestCount = 1 } = req.body;
+    
+    if (!checkInDate || !nights || !roomType) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少必要資訊'
+      });
+    }
+
+    const priceResult = pricingService.calculateRoomPrice(roomType, nights);
+    const bookingResult = await bookingService.createBooking(req.body);
+
+    const response = {
+      success: true,
+      message: '訂房成功！',
+      bookingReference: bookingResult.bookingId,
+      bookingDetails: { 
+        checkIn: checkInDate, 
+        nights, 
+        roomType, 
+        guests: guestCount 
+      },
+      pricing: priceResult.pricing,
+      timestamp: new Date().toISOString()
+    };
+
+    res.json(response);
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '訂房處理失敗',
+      error: error.message
+    });
+  }
+});
+
+// 會話管理
+app.get('/api/sessions/stats', (req, res) => {
+  const stats = {
+    totalSessions: sessionManager.sessions.size,
+    activeSessions: Array.from(sessionManager.sessions.values()).length
+  };
+  
+  res.json({ success: true, stats });
+});
+
+app.get('/api/booking/session/:sessionId', (req, res) => {
+  try {
+    const session = sessionManager.getSession(req.params.sessionId);
+    res.json({
+      success: true,
+      data: {
+        sessionId: session.sessionId,
+        state: session.currentState,
+        context: session.context
+      }
+    });
+  } catch (error) {
+    res.status(404).json({
+      success: false,
+      error: '會話不存在'
+    });
+  }
+});
+
+app.get('/', (req, res) => {
+  res.json({
+    service: 'AI Hotel Assistant - 狀態機版本',
+    version: '5.5.0-STATEMACHINE',
+    status: 'operational',
+    sessionCount: sessionManager.sessions.size,
+    endpoints: [
+      'POST /chat - 狀態機對話',
+      'POST /api/booking - 傳統訂房API', 
+      'GET /health - 健康檢查',
+      'GET /api/sessions/stats - 會話統計'
+    ]
+  });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ 服務運行在端口 ${PORT}`);
+  console.log(`🎯 狀態機系統: 已啟用`);
+  console.log(`📊 載入服務: 完成`);
+});

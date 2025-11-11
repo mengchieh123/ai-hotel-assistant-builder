@@ -1,51 +1,53 @@
-// services/invoiceService.js
-// invoice 服務
-class invoiceService {
-  constructor() {
-    this.serviceName = 'invoiceService.js';
-    this.initialized = false;
-  }
-
-  async initialize() {
-    if (this.initialized) return;
+// 發票服務
+class InvoiceService {
+    generateInvoice(bookingData, paymentData) {
+        const { bookingId, customerInfo, bookingDetails, pricing } = bookingData;
+        
+        const invoice = {
+            invoiceNumber: 'INV-' + Date.now(),
+            issueDate: new Date().toISOString().split('T')[0],
+            bookingId: bookingId,
+            customer: {
+                name: customerInfo.name,
+                email: customerInfo.email,
+                phone: customerInfo.phone
+            },
+            items: [
+                {
+                    description: `${bookingDetails.roomType} - ${bookingDetails.nights}晚`,
+                    quantity: 1,
+                    unitPrice: pricing.basePrice,
+                    amount: pricing.basePrice
+                }
+            ],
+            subtotal: pricing.basePrice,
+            tax: pricing.tax || Math.round(pricing.basePrice * 0.05),
+            total: pricing.totalPrice,
+            paymentMethod: paymentData.method,
+            paymentStatus: paymentData.status
+        };
+        
+        invoice.grandTotal = invoice.subtotal + invoice.tax;
+        
+        return {
+            success: true,
+            invoice: invoice
+        };
+    }
     
-    console.log(`[${this.serviceName}] 初始化...`);
-    // TODO: 初始化邏輯
-    this.initialized = true;
-  }
-
-  async process(data) {
-    await this.initialize();
-    
-    console.log(`[${this.serviceName}] 處理請求:`, data);
-    
-    // TODO: 實作業務邏輯
-    const result = {
-      success: true,
-      service: this.serviceName,
-      timestamp: new Date().toISOString(),
-      data: data
-    };
-    
-    return result;
-  }
-
-  async validate(input) {
-    return {
-      valid: true,
-      errors: [],
-      service: this.serviceName
-    };
-  }
-
-  async getStatus() {
-    return {
-      service: this.serviceName,
-      status: 'active',
-      initialized: this.initialized,
-      timestamp: new Date().toISOString()
-    };
-  }
+    formatInvoiceForPrint(invoice) {
+        return {
+            header: `發票號碼: ${invoice.invoiceNumber}`,
+            issueDate: `開立日期: ${invoice.issueDate}`,
+            customer: `客戶: ${invoice.customer.name}`,
+            items: invoice.items.map(item => 
+                `${item.description} x${item.quantity} $${item.amount}`
+            ).join('\n'),
+            summary: `小計: $${invoice.subtotal}\n稅金: $${invoice.tax}\n總計: $${invoice.grandTotal}`,
+            payment: `支付方式: ${invoice.paymentMethod}`
+        };
+    }
 }
 
-module.exports = new invoiceService();
+// 正確導出類別實例
+module.exports = new InvoiceService();

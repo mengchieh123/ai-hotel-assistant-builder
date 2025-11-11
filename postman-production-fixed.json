@@ -1,0 +1,418 @@
+{
+  "info": {
+    "name": "AI Hotel Assistant - Production Tests (Fixed)",
+    "description": "Fixed test suite for production with correct parameters",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "🔧 Environment Setup",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "pm.collectionVariables.set(\"baseUrl\", \"https://ai-hotel-assistant-builder-production.up.railway.app\");",
+              "console.log(\"Production URL: \" + pm.collectionVariables.get(\"baseUrl\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "�� State Machine Tests (Recommended - No 400 Errors)",
+      "item": [
+        {
+          "name": "TC-SM-001: Complete Chinese Booking Flow",
+          "item": [
+            {
+              "name": "Step 1: Start Booking (Chinese)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"我想訂房\",\n  \"sessionId\": \"prod-chinese-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            },
+            {
+              "name": "Step 2: Select Room (Chinese)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"豪華雙人房\",\n  \"sessionId\": \"prod-chinese-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            },
+            {
+              "name": "Step 3: Provide Date",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"2025-02-14\",\n  \"sessionId\": \"prod-chinese-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "TC-SM-002: English Conversation",
+          "item": [
+            {
+              "name": "Step 1: Start (English)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"I want to book a room\",\n  \"sessionId\": \"prod-english-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            },
+            {
+              "name": "Step 2: Select Room (English)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"deluxe room\",\n  \"sessionId\": \"prod-english-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "TC-SM-003: Japanese Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"予約したい\",\n  \"sessionId\": \"prod-japanese-001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chat",
+              "host": ["{{baseUrl}}"],
+              "path": ["chat"]
+            }
+          }
+        },
+        {
+          "name": "TC-SM-004: Korean Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"예약하고 싶어요\",\n  \"sessionId\": \"prod-korean-001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chat",
+              "host": ["{{baseUrl}}"],
+              "path": ["chat"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📋 Traditional API Tests (Fixed Parameters)",
+      "item": [
+        {
+          "name": "TC-API-001: 1 Night - Chinese",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"checkInDate\": \"2025-02-14\",\n  \"nights\": 1,\n  \"roomType\": \"豪華雙人房\",\n  \"guestCount\": 2,\n  \"guestName\": \"王小明\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/booking",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "booking"]
+            }
+          }
+        },
+        {
+          "name": "TC-API-002: 30 Nights - Chinese",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"checkInDate\": \"2025-03-01\",\n  \"nights\": 30,\n  \"roomType\": \"標準雙人房\",\n  \"guestCount\": 2,\n  \"guestName\": \"長期住宿用戶\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/booking",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "booking"]
+            }
+          }
+        },
+        {
+          "name": "TC-API-003: English Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"checkInDate\": \"2025-02-15\",\n  \"nights\": 3,\n  \"roomType\": \"deluxe\",\n  \"guestCount\": 2,\n  \"guestName\": \"John Smith\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/booking",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "booking"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "⚡ Load & Performance Tests",
+      "item": [
+        {
+          "name": "TC-LOAD-001: High Frequency State Machine",
+          "item": [
+            {
+              "name": "Request 1",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"test 1\",\n  \"sessionId\": \"load-test-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            },
+            {
+              "name": "Request 2",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"test 2\",\n  \"sessionId\": \"load-test-002\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            },
+            {
+              "name": "Request 3",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"test 3\",\n  \"sessionId\": \"load-test-003\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "TC-LOAD-002: Mixed Load Test",
+          "item": [
+            {
+              "name": "State Machine Request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"mixed load\",\n  \"sessionId\": \"mixed-load-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/chat",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["chat"]
+                }
+              }
+            },
+            {
+              "name": "Traditional API Request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"checkInDate\": \"2025-02-20\",\n  \"nights\": 2,\n  \"roomType\": \"豪華雙人房\",\n  \"guestCount\": 2,\n  \"guestName\": \"負載測試\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/booking",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "booking"]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📊 Analytics & Monitoring",
+      "item": [
+        {
+          "name": "Session Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sessions", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://ai-hotel-assistant-builder-production.up.railway.app",
+      "type": "string"
+    }
+  ]
+}

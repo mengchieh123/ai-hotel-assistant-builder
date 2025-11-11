@@ -1,90 +1,66 @@
 const hotelData = {
-  hotelInfo: {
-    name: "台北晶華酒店",
-    stars: 5,
-    phone: "+886-2-2523-8000"
-  },
-
   roomTypes: [
     {
-      id: "deluxe",
-      name: "豪華客房",
-      size: "35平方公尺",
-      capacity: { adults: 2, children: 1 },
-      basePrice: 8800,
-      breakfastIncluded: false,
-      breakfastPrice: 650
+      id: 'standard',
+      name: '標準房',
+      basePrice: 2200,
+      maxGuests: 2,
+      minNights: 1,
+      maxNights: 30,
+      minRooms: 1,
+      maxRooms: 5,
+      available: true
     },
     {
-      id: "executive",
-      name: "行政客房",
-      size: "42平方公尺",
-      capacity: { adults: 2, children: 1 },
-      basePrice: 12800,
-      breakfastIncluded: true,
-      breakfastPrice: 0
+      id: 'deluxe',
+      name: '豪華房', 
+      basePrice: 2800,
+      maxGuests: 3,
+      minNights: 1,
+      maxNights: 30,
+      minRooms: 1,
+      maxRooms: 4,
+      available: true
     },
     {
-      id: "suite",
-      name: "套房",
-      size: "68平方公尺",
-      capacity: { adults: 3, children: 2 },
-      basePrice: 18800,
-      breakfastIncluded: true,
-      breakfastPrice: 0
+      id: 'suite',
+      name: '套房',
+      basePrice: 4500,
+      maxGuests: 4,
+      minNights: 2,
+      maxNights: 14,
+      minRooms: 1,
+      maxRooms: 3,
+      available: true
     },
     {
-      id: "presidential",
-      name: "總統套房",
-      size: "120平方公尺",
-      capacity: { adults: 4, children: 2 },
-      basePrice: 38800,
-      breakfastIncluded: true,
-      breakfastPrice: 0
+      id: 'family',
+      name: '家庭房',
+      basePrice: 3800,
+      maxGuests: 5,
+      minNights: 1,
+      maxNights: 30,
+      minRooms: 1,
+      maxRooms: 2,
+      available: true
     }
   ],
-
-  pricingRules: {
-    extraBed: {
-      price: 1200
-    },
-    childPolicy: {
-      freeAge: 6,
-      childBedPrice: 800,
-      adultBedPrice: 1200
-    },
-    longStayDiscount: [
-      { nights: 3, discount: 5, description: "住3晚享95折" },
-      { nights: 5, discount: 10, description: "住5晚享9折" },
-      { nights: 7, discount: 15, description: "住7晚享85折" }
-    ]
+  
+  globalRestrictions: {
+    maxTotalRooms: 10,
+    advanceBookingDays: 180,
+    minCheckInHours: 24
   },
-
-  promotions: [
-    {
-      id: "earlybird",
-      name: "早鳥優惠",
-      description: "提前30天預訂享85折",
-      discount: 15
-    }
+  
+  blackoutDates: [
+    '2024-02-09', '2024-02-10', '2024-02-11', // 春節
+    '2024-04-04', '2024-04-05', '2024-04-06', // 清明節
+    '2024-06-08', '2024-06-09', '2024-06-10'  // 端午節
   ],
-
-  addons: [
-    {
-      id: "breakfast",
-      name: "早餐券",
-      price: 650
-    },
-    {
-      id: "airport",
-      name: "機場接送",
-      price: 1500
-    },
-    {
-      id: "parking",
-      name: "停車位",
-      price: 500
-    }
+  
+  noCheckoutDates: [
+    '2024-02-08', // 除夕前一天
+    '2024-12-31'  // 跨年夜
   ]
 };
 
