@@ -492,7 +492,7 @@ app.get('/api/attractions/details/:name', (req, res) => {
   }
 });
 
-// 更新後的聊天對話 API
+// 修復後的聊天對話 API - 完整的 switch 語句
 app.post('/chat', async (req, res) => {
   try {
     const { message, sessionId = 'default-session' } = req.body;
@@ -537,7 +537,7 @@ app.post('/chat', async (req, res) => {
             reply = '我們提供金卡、銀卡會員優惠，請問您想了解哪種會員權益？';
           } else if (/附近|周邊|景點|好玩|旅遊|觀光|推薦|哪裡玩|有什麼好玩的/.test(lowerMessage)) {
             session.step = 'attractions_init';
-            reply = '🏞️ 想了解酒店附近的好玩景點嗎？請問您對什麼類型的景點感興趣？\n（例如：美食餐廳、購物中心、自然景觀、文化古蹟、夜市小吃、便利商店）';
+            reply = '🏞️ 想了解酒店附近的好玩景點嗎！請問您對什麼類型的景點感興趣？\n（例如：美食餐廳、購物中心、自然景觀、文化古蹟、夜市、便利商店）';
           } else {
             reply = '您好！請問需要什麼服務？例如：訂房、查詢價格、取消訂單、會員服務、附近景點查詢等等。';
           }
@@ -566,94 +566,76 @@ app.post('/chat', async (req, res) => {
           break;
 
         case 'nights':
-          const nightsNum = parseInt(message);
-          if (!isNaN(nightsNum) && nightsNum > 0 && nightsNum <= 30) {
-            session.data.nights = nightsNum;
+          const nights = parseInt(message);
+          if (nights > 0 && nights <= 30) {
+            session.data.nights = nights;
             session.step = 'guests';
-            reply = `已記錄入住 ${nightsNum} 晚，請問入住人數有多少？`;
+            reply = `已設定住宿 ${nights} 晚！請問有幾位旅客？`;
           } else {
-            reply = '請輸入有效的住宿天數（1-30晚）';
+            reply = '請輸入有效的住宿天數（1-30天）';
           }
           break;
 
         case 'guests':
-          const guestsNum = parseInt(message);
-          if (!isNaN(guestsNum) && guestsNum > 0 && guestsNum <= 10) {
-            session.data.guestCount = guestsNum;
+          const guests = parseInt(message);
+          if (guests > 0 && guests <= 6) {
+            session.data.guestCount = guests;
             session.step = 'confirm';
-            reply = 
-              `入住人數已記錄為 ${guestsNum} 位。請確認訂房資料：\n` + 
-              `房型: ${session.data.roomType}\n` +
-              `入住日期: ${session.data.checkInDate}\n` +
-              `住宿天數: ${session.data.nights}\n` +
-              `入住人數: ${guestsNum}\n\n` +
-              `是否確定要訂房？（是/否）`;
+            
+            // 計算總價
+            const priceResult = pricingService.calculateRoomPrice(
+              session.data.roomType, 
+              session.data.nights, 
+              session.data.guestCount
+            );
+            
+            session.data.totalPrice = priceResult.pricing.totalPrice;
+            
+            reply = `👥 旅客數: ${guests} 位\n\n` +
+                    `📋 訂房摘要：\n` +
+                    `• 房型: ${session.data.roomType === 'standard' ? '標準雙人房' : session.data.roomType === 'deluxe' ? '豪華雙人房' : '套房'}\n` +
+                    `• 入住: ${session.data.checkInDate}\n` +
+                    `• 住宿: ${session.data.nights} 晚\n` +
+                    `• 旅客: ${session.data.guestCount} 位\n` +
+                    `• 總價: ${session.data.totalPrice} TWD\n\n` +
+                    `請回覆「確認」完成訂房，或「取消」重新開始。`;
           } else {
-            reply = '請輸入合適的入住人數（1-10位）';
+            reply = '請輸入有效的旅客人數（1-6位）';
           }
           break;
 
         case 'confirm':
-          if (/是|確定|好/.test(lowerMessage)) {
-            const bookingBody = {
+          if (/確認|是的|確定|ok|yes|完成訂房/.test(lowerMessage)) {
+            // 創建訂單
+            const bookingData = {
               checkInDate: session.data.checkInDate,
               nights: session.data.nights,
               roomType: session.data.roomType,
-              guestCount: session.data.guestCount
+              guestCount: session.data.guestCount,
+              totalPrice: session.data.totalPrice
             };
-            try {
-              const bookingResult = await bookingService.createBooking(bookingBody);
-              if (bookingResult.success) {
-                session.step = 'completed';
-                session.data.bookingReference = bookingResult.bookingId;
-                reply = `訂房成功！訂單編號：${bookingResult.bookingId}，感謝您的光臨。`;
-              } else {
-                reply = '訂房失敗，請稍後再試。';
-              }
-            } catch (err) {
-              reply = '系統錯誤，請稍後再試。';
-              console.error('Booking failed:', err);
-            }
-          } else if (/不|否|取消/.test(lowerMessage)) {
+            
+            const bookingResult = await bookingService.createBooking(bookingData);
+            
+            session.step = 'completed';
+            session.data.bookingId = bookingResult.bookingId;
+            
+            reply = `🎉 訂房成功！\n\n` +
+                    `📄 訂單編號: ${bookingResult.bookingId}\n` +
+                    `• 房型: ${session.data.roomType === 'standard' ? '標準雙人房' : session.data.roomType === 'deluxe' ? '豪華雙人房' : '套房'}\n` +
+                    `• 入住: ${session.data.checkInDate}\n` +
+                    `• 住宿: ${session.data.nights} 晚\n` +
+                    `• 旅客: ${session.data.guestCount} 位\n` +
+                    `• 總價: ${session.data.totalPrice} TWD\n\n` +
+                    `感謝您的預訂！需要其他服務嗎？`;
+          } else if (/取消|不要了|重新開始/.test(lowerMessage)) {
             session.step = 'init';
             session.data = {};
-            reply = '訂房已取消，如需其他協助請告訴我。';
+            reply = '訂房已取消。請問需要什麼其他服務？';
           } else {
-            reply = '請回覆「是」確認訂房，或「否」取消。';
+            reply = '請回覆「確認」完成訂房，或「取消」重新開始。';
           }
           break;
-
-        case 'completed':
-          reply = `您已完成訂房，訂單編號：${session.data.bookingReference}。有需要可以繼續查詢。`;
-          break;
-
-        default:
-          reply = '系統錯誤，請稍後再試或聯繫客服。';
-          session.step = 'init';
-          session.data = {};
-          break;
-      }
-    }
-
-    if (wasFixed) saveSessions();
-
-    res.json({
-      success: true,
-      response: reply,
-      sessionData: session.data,
-      currentStep: session.step
-    });
-
-  } catch (error) {
-    console.error('❌ 聊天處理錯誤:', error);
-    res.status(500).json({
-      success: false,
-      error: '聊天處理失敗',
-      message: error.message
-    });
-  }
-});
-
 
         case 'attractions_init':
           const attractionTypes = {
@@ -692,6 +674,7 @@ app.post('/chat', async (req, res) => {
           reply = '系統錯誤，請稍後再試或聯繫客服。';
       }
     }
+    
     if (wasFixed) saveSessions();
     res.json({
       success: true,
