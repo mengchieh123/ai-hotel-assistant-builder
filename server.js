@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// 根路徑處理 - 新增這個重要路由！
+// 根路徑處理
 app.get('/', (req, res) => {
   res.json({
     message: '🏨 AI 訂房助理 API 服務',
@@ -40,7 +40,7 @@ app.get('/', (req, res) => {
 
 console.log('🚀 啟動 AI 訂房助理服務...');
 
-// 服務模組導入優化
+// 服務模組
 function loadService(serviceName, fallbackImplementation) {
   try {
     const service = require(`./services/${serviceName}`);
@@ -52,28 +52,23 @@ function loadService(serviceName, fallbackImplementation) {
   }
 }
 
-// 導入服務模組
 const bookingService = loadService('bookingService', {
   async createBooking(bookingData) {
-    return { 
-      success: true, 
-      bookingId: 'BKG-' + Date.now(),
-      ...bookingData 
-    };
+    return { success: true, bookingId: 'BKG-' + Date.now(), ...bookingData };
   },
   async cancelBooking(bookingId) {
-    return { 
-      success: true, 
-      bookingId, 
-      status: 'cancelled', 
+    return {
+      success: true,
+      bookingId,
+      status: 'cancelled',
       refundAmount: 0,
       cancelledAt: new Date().toISOString()
     };
   },
   async getBooking(bookingId) {
-    return { 
-      success: true, 
-      bookingId, 
+    return {
+      success: true,
+      bookingId,
       status: 'confirmed',
       roomType: '標準雙人房',
       checkInDate: '2024-01-01',
@@ -86,50 +81,37 @@ const bookingService = loadService('bookingService', {
 
 const pricingService = loadService('pricingService', {
   calculateRoomPrice(roomType, nights = 1, guestCount = 2, memberLevel = 'none') {
-    const rates = { 
-      standard: 2200, 
-      deluxe: 2800, 
-      suite: 4500 
-    };
+    const rates = { standard: 2200, deluxe: 2800, suite: 4500 };
     const basePrice = (rates[roomType] || rates.standard) * nights;
     const extraGuestFee = guestCount > 2 ? (guestCount - 2) * 500 : 0;
     const totalPrice = basePrice + extraGuestFee;
-    
-    return { 
-      success: true, 
-      pricing: { 
-        basePrice, 
+
+    return {
+      success: true,
+      pricing: {
+        basePrice,
         extraGuestFee,
         subtotal: basePrice,
         discountRate: 0,
-        discountAmount: 0, 
-        totalPrice, 
+        discountAmount: 0,
+        totalPrice,
         currency: 'TWD',
-        roomName: roomType 
-      } 
+        roomName: roomType
+      }
     };
   },
   applyPromotion(pricing, promoCode) {
-    return { 
-      success: true, 
-      pricing: { ...pricing, finalPrice: pricing.totalPrice } 
-    };
+    return { success: true, pricing: { ...pricing, finalPrice: pricing.totalPrice } };
   },
   calculateRefund(totalPrice, cancellationPolicy = 'standard') {
     const refundRate = cancellationPolicy === 'flexible' ? 0.9 : 0.8;
-    return { 
-      success: true, 
-      refundAmount: Math.floor(totalPrice * refundRate) 
-    };
+    return { success: true, refundAmount: Math.floor(totalPrice * refundRate) };
   }
 });
 
 const memberService = loadService('memberService', {
   async calculatePoints(amount) {
-    return { 
-      success: true, 
-      points: Math.floor(amount / 100) 
-    };
+    return { success: true, points: Math.floor(amount / 100) };
   },
   async getMemberBenefits(level) {
     const benefits = {
@@ -138,68 +120,27 @@ const memberService = loadService('memberService', {
       gold: { discount: 0.15, description: '金卡會員' },
       platinum: { discount: 0.2, description: '白金會員' }
     };
-    return { 
-      success: true, 
-      benefits: benefits[level] || benefits.none 
-    };
+    return { success: true, benefits: benefits[level] || benefits.none };
   }
 });
 
-// 景點服務導入
+// 景點服務
 let attractionsService;
 try {
   const AttractionsService = require('./services/attractionsService');
   attractionsService = new AttractionsService();
   console.log('✅ attractionsService 導入成功');
-} catch (error) {
-  console.log('🔄 使用內建 attractionsService');
+} catch {
   attractionsService = {
     recommendByType(type, maxDistance = 200) {
       const mockData = {
-        food: [
-          { 
-            name: '鼎泰豐', 
-            distance: '150m', 
-            type: '餐廳', 
-            rating: 4.8, 
-            description: '知名小籠包專賣店',
-            address: '台北市大安區信義路二段194號',
-            openingHours: '10:00-21:00',
-            priceLevel: '$$'
-          }
-        ],
-        shopping: [
-          { 
-            name: '新光三越', 
-            distance: '100m', 
-            type: '購物', 
-            rating: 4.5, 
-            description: '大型百貨公司' 
-          }
-        ],
-        nature: [
-          { 
-            name: '大安森林公園', 
-            distance: '200m', 
-            type: '公園', 
-            rating: 4.9, 
-            description: '都市中的綠洲' 
-          }
-        ]
+        food: [{ name: '鼎泰豐', distance: '150m', type: '餐廳', rating: 4.8, description: '知名小籠包專賣店', address: '台北市大安區信義路二段194號', openingHours: '10:00-21:00', priceLevel: '$$'}],
+        shopping: [{ name: '新光三越', distance: '100m', type: '購物', rating: 4.5, description: '大型百貨公司'}],
+        nature: [{ name: '大安森林公園', distance: '200m', type: '公園', rating: 4.9, description: '都市中的綠洲'}]
       };
       const attractions = mockData[type] || [];
-      const filtered = attractions.filter(attr => {
-        const distance = parseInt(attr.distance);
-        return distance <= maxDistance;
-      });
-      
-      return { 
-        success: true, 
-        type,
-        maxDistance: `${maxDistance}公尺`,
-        attractions: filtered,
-        count: filtered.length 
-      };
+      const filtered = attractions.filter(a => parseInt(a.distance) <= maxDistance);
+      return { success: true, type, maxDistance: `${maxDistance}公尺`, attractions: filtered, count: filtered.length };
     },
     searchAttractions(keyword, maxDistance = 200) {
       const allAttractions = [
@@ -207,20 +148,8 @@ try {
         { name: '林東芳牛肉麵', distance: '180m', type: '餐廳', rating: 4.6, description: '老字號牛肉麵' },
         { name: '新光三越', distance: '100m', type: '購物', rating: 4.5, description: '大型百貨公司' }
       ];
-      
-      const results = allAttractions.filter(attr => 
-        attr.name.includes(keyword) || 
-        attr.description.includes(keyword) ||
-        attr.type.includes(keyword)
-      );
-      
-      return {
-        success: true,
-        keyword,
-        maxDistance: `${maxDistance}公尺`,
-        attractions: results,
-        count: results.length
-      };
+      const results = allAttractions.filter(a => a.name.includes(keyword) || a.description.includes(keyword) || a.type.includes(keyword));
+      return { success: true, keyword, maxDistance: `${maxDistance}公尺`, attractions: results, count: results.length };
     },
     getAllNearby(maxDistance = 200) {
       const allAttractions = [
@@ -228,54 +157,22 @@ try {
         { name: '新光三越', distance: '100m', type: '購物', rating: 4.5 },
         { name: '大安森林公園', distance: '200m', type: '公園', rating: 4.9 }
       ];
-      
-      return {
-        success: true,
-        maxDistance: `${maxDistance}公尺`,
-        attractions: allAttractions,
-        count: allAttractions.length
-      };
+      return { success: true, maxDistance: `${maxDistance}公尺`, attractions: allAttractions, count: allAttractions.length };
     },
     getAttractionDetails(name) {
       const attractions = {
-        '鼎泰豐': {
-          name: '鼎泰豐',
-          distance: '150m',
-          type: '餐廳',
-          rating: 4.8,
-          description: '知名小籠包專賣店',
-          address: '台北市大安區信義路二段194號',
-          openingHours: '10:00-21:00',
-          priceLevel: '$$',
-          features: ['小籠包', '炒飯', '點心'],
-          contact: '02-2321-4848'
-        }
+        '鼎泰豐': { name: '鼎泰豐', distance: '150m', type: '餐廳', rating: 4.8, description: '知名小籠包專賣店', address: '台北市大安區信義路二段194號', openingHours: '10:00-21:00', priceLevel: '$$', features: ['小籠包', '炒飯', '點心'], contact: '02-2321-4848' }
       };
-      
       const attraction = attractions[name];
-      if (attraction) {
-        return { success: true, attraction };
-      } else {
-        return { success: false, error: '找不到該景點' };
-      }
+      if (attraction) return { success: true, attraction }; else return { success: false, error: '找不到該景點' };
     },
     getCategories() {
-      return {
-        success: true,
-        categories: {
-          'food': '美食餐廳',
-          'shopping': '購物中心',
-          'nature': '自然景觀',
-          'culture': '文化古蹟',
-          'nightmarket': '夜市小吃',
-          'convenience': '便利商店'
-        }
-      };
+      return { success: true, categories: { food: '美食餐廳', shopping: '購物中心', nature: '自然景觀', culture: '文化古蹟', nightmarket: '夜市小吃', convenience: '便利商店' } };
     }
   };
-}
+};
 
-// 會話管理系統
+// 會話管理
 const sessions = new Map();
 const SESSION_FILE = path.join(__dirname, 'sessions.json');
 
@@ -285,7 +182,6 @@ function loadSessions() {
       const data = fs.readFileSync(SESSION_FILE, 'utf8');
       const savedSessions = JSON.parse(data);
       console.log(`📂 從文件加載會話: ${savedSessions.length} 個會話`);
-      
       for (const [sessionId, sessionData] of savedSessions) {
         sessions.set(sessionId, sessionData);
       }
@@ -310,15 +206,9 @@ function saveSessions() {
 
 function getOrCreateSession(sessionId) {
   if (!sessions.has(sessionId)) {
-    sessions.set(sessionId, { 
-      step: 'init', 
-      data: {},
-      createdAt: new Date().toISOString(),
-      lastActive: new Date().toISOString()
-    });
+    sessions.set(sessionId, { step: 'init', data: {}, createdAt: new Date().toISOString(), lastActive: new Date().toISOString() });
     saveSessions();
   }
-  
   const session = sessions.get(sessionId);
   session.lastActive = new Date().toISOString();
   return session;
@@ -332,33 +222,29 @@ function validateAndFixSession(session, sessionId) {
     session.data = {};
     return true;
   }
-  
   if (session.step === 'confirm' && (!session.data.roomType || !session.data.checkInDate || !session.data.nights)) {
     session.step = 'init';
     session.data = {};
     return true;
   }
-  
   if ((session.step === 'cancel_confirm' || session.step === 'cancel_completed') && !session.data.cancelBookingId) {
     session.step = 'init';
     session.data = {};
     return true;
   }
-  
   if (!validSteps.includes(session.step)) {
     session.step = 'init';
     session.data = {};
     return true;
   }
-  
   return false;
 }
 
+// 清理過期會話
 function cleanupExpiredSessions() {
   const now = new Date();
   const expirationTime = 30 * 60 * 1000;
   let cleanedCount = 0;
-  
   for (const [sessionId, session] of sessions.entries()) {
     const sessionTime = new Date(session.lastActive || session.createdAt || now);
     if (now - sessionTime > expirationTime) {
@@ -366,7 +252,6 @@ function cleanupExpiredSessions() {
       cleanedCount++;
     }
   }
-  
   if (cleanedCount > 0) {
     console.log(`🗑️ 總共清理了 ${cleanedCount} 個過期會話`);
     saveSessions();
@@ -402,43 +287,27 @@ app.get('/api/sessions/stats', (req, res) => {
       attractions_init: 0, attractions_details: 0, attractions_search: 0
     }
   };
-  
   for (const session of sessions.values()) {
     if (sessionStats.sessionsByStep[session.step] !== undefined) {
       sessionStats.sessionsByStep[session.step]++;
     }
   }
-  
-  res.json({ 
-    success: true, 
-    stats: sessionStats,
-    timestamp: new Date().toISOString()
-  });
+  res.json({ success: true, stats: sessionStats, timestamp: new Date().toISOString() });
 });
 
 // 會話管理API
 app.get('/api/sessions/:sessionId', (req, res) => {
   const { sessionId } = req.params;
   const session = sessions.get(sessionId);
-  
   if (!session) {
     return res.status(404).json({ success: false, error: '會話不存在' });
   }
-  
-  res.json({
-    success: true,
-    sessionId,
-    step: session.step,
-    data: session.data,
-    createdAt: session.createdAt,
-    lastActive: session.lastActive
-  });
+  res.json({ success: true, sessionId, step: session.step, data: session.data, createdAt: session.createdAt, lastActive: session.lastActive });
 });
 
 // 重置會話API
 app.delete('/api/sessions/:sessionId', (req, res) => {
   const { sessionId } = req.params;
-  
   if (sessions.has(sessionId)) {
     sessions.delete(sessionId);
     saveSessions();
@@ -452,17 +321,9 @@ app.delete('/api/sessions/:sessionId', (req, res) => {
 app.get('/api/sessions/backup', (req, res) => {
   try {
     saveSessions();
-    res.json({
-      success: true,
-      message: `會話已備份，共 ${sessions.size} 個會話`,
-      backupFile: SESSION_FILE
-    });
+    res.json({ success: true, message: `會話已備份，共 ${sessions.size} 個會話`, backupFile: SESSION_FILE });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: '備份失敗',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: '備份失敗', message: error.message });
   }
 });
 
@@ -470,36 +331,12 @@ app.get('/api/sessions/backup', (req, res) => {
 app.post('/api/price', (req, res) => {
   try {
     const { roomType, nights = 1, guestCount = 2 } = req.body;
-    
-    if (!roomType) {
-      return res.status(400).json({ 
-        success: false, 
-        error: '請提供房型參數' 
-      });
-    }
-
+    if (!roomType) return res.status(400).json({ success: false, error: '請提供房型參數' });
     const priceResult = pricingService.calculateRoomPrice(roomType, nights, guestCount);
-    const roomNames = { 
-      standard: '標準雙人房', 
-      deluxe: '豪華雙人房', 
-      suite: '套房' 
-    };
-
-    res.json({
-      success: true,
-      roomType: roomNames[roomType] || roomType,
-      nights,
-      guestCount,
-      pricing: priceResult.pricing,
-      timestamp: new Date().toISOString()
-    });
-    
+    const roomNames = { standard: '標準雙人房', deluxe: '豪華雙人房', suite: '套房' };
+    res.json({ success: true, roomType: roomNames[roomType] || roomType, nights, guestCount, pricing: priceResult.pricing, timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      error: '價格查詢失敗', 
-      message: error.message 
-    });
+    res.status(500).json({ success: false, error: '價格查詢失敗', message: error.message });
   }
 });
 
@@ -507,41 +344,14 @@ app.post('/api/price', (req, res) => {
 app.post('/api/cancel-booking', async (req, res) => {
   try {
     const { bookingId } = req.body;
-    
-    if (!bookingId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: '請提供訂單編號' 
-      });
-    }
-
+    if (!bookingId) return res.status(400).json({ success: false, error: '請提供訂單編號' });
     const bookingResult = await bookingService.getBooking(bookingId);
-    if (!bookingResult.success) {
-      return res.status(404).json({ 
-        success: false, 
-        error: '訂單不存在' 
-      });
-    }
-
+    if (!bookingResult.success) return res.status(404).json({ success: false, error: '訂單不存在' });
     const refundResult = pricingService.calculateRefund(bookingResult.totalPrice);
     const cancelResult = await bookingService.cancelBooking(bookingId);
-
-    res.json({
-      success: true,
-      message: '訂單取消成功',
-      bookingId: cancelResult.bookingId,
-      status: cancelResult.status,
-      refundAmount: refundResult.refundAmount,
-      originalAmount: bookingResult.totalPrice,
-      timestamp: new Date().toISOString()
-    });
-    
+    res.json({ success: true, message: '訂單取消成功', bookingId: cancelResult.bookingId, status: cancelResult.status, refundAmount: refundResult.refundAmount, originalAmount: bookingResult.totalPrice, timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      error: '取消訂單失敗', 
-      message: error.message 
-    });
+    res.status(500).json({ success: false, error: '取消訂單失敗', message: error.message });
   }
 });
 
@@ -549,38 +359,13 @@ app.post('/api/cancel-booking', async (req, res) => {
 app.post('/api/booking', async (req, res) => {
   try {
     const { checkInDate, nights, roomType, guestCount = 1, guestName, memberLevel, promoCode } = req.body;
-    
-    if (!checkInDate || !nights || !roomType) {
-      return res.status(400).json({ 
-        success: false, 
-        message: '缺少必要資訊：入住日期、住宿天數、房型' 
-      });
-    }
-
+    if (!checkInDate || !nights || !roomType) return res.status(400).json({ success: false, message: '缺少必要資訊：入住日期、住宿天數、房型' });
     const price = pricingService.calculateRoomPrice(roomType, nights, guestCount, memberLevel);
     const promo = pricingService.applyPromotion(price.pricing, promoCode);
     const booking = await bookingService.createBooking(req.body);
-
-    res.json({
-      success: true,
-      message: '訂房成功！',
-      bookingReference: booking.bookingId,
-      bookingDetails: { 
-        checkIn: checkInDate, 
-        nights, 
-        roomType, 
-        guests: guestCount,
-        guestName 
-      },
-      pricing: promo.pricing,
-      timestamp: new Date().toISOString()
-    });
+    res.json({ success: true, message: '訂房成功！', bookingReference: booking.bookingId, bookingDetails: { checkIn: checkInDate, nights, roomType, guests: guestCount, guestName }, pricing: promo.pricing, timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: '訂房處理失敗', 
-      error: error.message 
-    });
+    res.status(500).json({ success: false, message: '訂房處理失敗', error: error.message });
   }
 });
 
@@ -589,68 +374,34 @@ app.get('/api/attractions/nearby', (req, res) => {
   try {
     const { type, maxDistance = 200 } = req.query;
     let result;
-    
     if (type) {
       result = attractionsService.recommendByType(type, parseInt(maxDistance));
     } else {
       result = attractionsService.getAllNearby(parseInt(maxDistance));
     }
-    
-    res.json({
-      success: true,
-      ...result,
-      timestamp: new Date().toISOString()
-    });
+    res.json({ success: true, ...result, timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: '景點查詢失敗',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: '景點查詢失敗', message: error.message });
   }
 });
 
 app.get('/api/attractions/search', (req, res) => {
   try {
     const { keyword, maxDistance = 200 } = req.query;
-    
-    if (!keyword) {
-      return res.status(400).json({
-        success: false,
-        error: '請提供搜索關鍵字'
-      });
-    }
-    
+    if (!keyword) return res.status(400).json({ success: false, error: '請提供搜索關鍵字' });
     const result = attractionsService.searchAttractions(keyword, parseInt(maxDistance));
-    
-    res.json({
-      success: true,
-      ...result,
-      timestamp: new Date().toISOString()
-    });
+    res.json({ success: true, ...result, timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: '搜索失敗',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: '搜索失敗', message: error.message });
   }
 });
 
 app.get('/api/attractions/categories', (req, res) => {
   try {
     const result = attractionsService.getCategories();
-    res.json({
-      success: true,
-      ...result,
-      timestamp: new Date().toISOString()
-    });
+    res.json({ success: true, ...result, timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: '獲取分類失敗',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: '獲取分類失敗', message: error.message });
   }
 });
 
@@ -658,61 +409,46 @@ app.get('/api/attractions/details/:name', (req, res) => {
   try {
     const { name } = req.params;
     const result = attractionsService.getAttractionDetails(name);
-    
-    if (!result.success) {
-      return res.status(404).json(result);
-    }
-    
-    res.json({
-      success: true,
-      ...result,
-      timestamp: new Date().toISOString()
-    });
+    if (!result.success) return res.status(404).json(result);
+    res.json({ success: true, ...result, timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: '獲取詳細資訊失敗',
-      message: error.message
-    });
+    res.status(500).json({ success: false, error: '獲取詳細資訊失敗', message: error.message });
   }
 });
 
-// 聊天對話 API
+// 更新後的聊天對話 API
 app.post('/chat', async (req, res) => {
   try {
     const { message, sessionId = 'default-session' } = req.body;
-    
+
     if (!message) {
-      return res.status(400).json({
-        success: false,
-        error: '請提供訊息內容'
-      });
+      return res.status(400).json({ success: false, error: '請提供訊息內容' });
     }
 
     const session = getOrCreateSession(sessionId);
     const wasFixed = validateAndFixSession(session, sessionId);
-    
+
     let reply = '';
     const lowerMessage = message.toLowerCase();
 
-    // 價格查詢意圖
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
     if (/價格|價錢|多少錢|查詢價格|房價|報價/.test(lowerMessage)) {
       let roomType = 'standard';
       if (/標準/.test(lowerMessage)) roomType = 'standard';
       else if (/豪華/.test(lowerMessage)) roomType = 'deluxe';
       else if (/套房/.test(lowerMessage)) roomType = 'suite';
-      
+
       const priceResult = pricingService.calculateRoomPrice(roomType, 1, 2);
       const roomNames = { standard: '標準雙人房', deluxe: '豪華雙人房', suite: '套房' };
-      
+
       reply = `💰 ${roomNames[roomType]}價格：\n` +
-              `• 平日價格: ${priceResult.pricing.basePrice} TWD/晚\n` +
-              `• 住宿1晚總價: ${priceResult.pricing.totalPrice} TWD\n` +
-              `• 貨幣: ${priceResult.pricing.currency}\n\n` +
-              `需要為您預訂嗎？`;
-      
+        `• 平日價格: ${priceResult.pricing.basePrice} TWD/晚\n` +
+        `• 住宿1晚總價: ${priceResult.pricing.totalPrice} TWD\n` +
+        `• 貨幣: ${priceResult.pricing.currency}\n\n` +
+        `需要為您預訂嗎？`;
+
     } else {
-      // 原有的對話邏輯
       switch (session.step) {
         case 'init':
           if (/訂房|預訂|預定|訂房間|我要訂|想訂/.test(lowerMessage)) {
@@ -731,6 +467,28 @@ app.post('/chat', async (req, res) => {
           }
           break;
 
+        case 'room':
+          if (/標準|豪華|套房/.test(lowerMessage)) {
+            const roomMap = { '標準': 'standard', '豪華': 'deluxe', '套房': 'suite' };
+            const matchedKey = Object.keys(roomMap).find(k => lowerMessage.includes(k));
+            session.data.roomType = roomMap[matchedKey] || 'standard';
+            session.step = 'date';
+            reply = `您選擇的是 ${matchedKey} 房型。請告訴我入住日期（格式：YYYY-MM-DD）`;
+          } else {
+            reply = '請選擇有效的房型：標準雙人房、豪華雙人房或套房。';
+          }
+          break;
+
+        case 'date':
+          if (dateRegex.test(message)) {
+            session.data.checkInDate = message;
+            session.step = 'nights';
+            reply = '入住日期已記錄。請問您要入住幾晚？';
+          } else {
+            reply = '請輸入正確格式的入住日期，例如 2024-12-25。';
+          }
+          break;
+
         case 'attractions_init':
           const attractionTypes = {
             '美食': 'food', '餐廳': 'food', '吃的': 'food', '食物': 'food',
@@ -740,15 +498,10 @@ app.post('/chat', async (req, res) => {
             '夜市': 'nightmarket', '小吃': 'nightmarket', '夜市小吃': 'nightmarket',
             '便利': 'convenience', '便利商店': 'convenience', '超市': 'convenience', '商店': 'convenience'
           };
-          
-          const matchedType = Object.keys(attractionTypes).find(key => 
-            lowerMessage.includes(key)
-          );
-          
+          const matchedType = Object.keys(attractionTypes).find(key => lowerMessage.includes(key));
           if (matchedType) {
             const typeKey = attractionTypes[matchedType];
             const result = attractionsService.recommendByType(typeKey, 200);
-            
             if (result.attractions.length > 0) {
               let replyText = `🏞️ 酒店${result.maxDistance}內的${matchedType}推薦：\n\n`;
               result.attractions.forEach((attr, index) => {
@@ -757,7 +510,6 @@ app.post('/chat', async (req, res) => {
                 replyText += `   📍 ${attr.description}\n\n`;
               });
               replyText += `需要了解某個景點的詳細資訊嗎？或者想查詢其他類型的景點？`;
-              
               session.step = 'attractions_details';
               session.data.lastAttractionType = typeKey;
               session.data.lastAttractions = result.attractions;
@@ -770,98 +522,23 @@ app.post('/chat', async (req, res) => {
           }
           break;
 
-        // 其他 case 保持不變...
         default:
           reply = '系統錯誤，請稍後再試或聯繫客服。';
       }
     }
-
-    if (wasFixed) {
-      saveSessions();
-    }
-
-    res.json({ 
-      success: true, 
-      response: reply, 
+    if (wasFixed) saveSessions();
+    res.json({
+      success: true,
+      response: reply,
       sessionData: session.data,
       currentStep: session.step
     });
-
   } catch (error) {
     console.error('❌ 聊天處理錯誤:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       error: '聊天處理失敗',
-      message: error.message 
+      message: error.message
     });
   }
-});
-
-// 404 處理
-app.use('*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    error: '路由不存在',
-    path: req.originalUrl,
-    method: req.method,
-    availableEndpoints: [
-      'GET /',
-      'GET /health', 
-      'POST /chat',
-      'POST /api/price',
-      'POST /api/booking',
-      'POST /api/cancel-booking',
-      'GET /api/attractions/nearby',
-      'GET /api/attractions/search',
-      'GET /api/attractions/categories',
-      'GET /api/attractions/details/:name',
-      'GET /api/sessions/stats',
-      'GET /api/sessions/:sessionId',
-      'DELETE /api/sessions/:sessionId',
-      'GET /api/sessions/backup'
-    ]
-  });
-});
-
-// 全局錯誤處理
-app.use((err, req, res, next) => {
-  console.error('❌ 服務器錯誤:', err);
-  res.status(500).json({ 
-    success: false, 
-    error: '伺服器內部錯誤',
-    message: err.message 
-  });
-});
-
-// 啟動服務 - 關鍵修改！
-const HOST = '0.0.0.0'; // 允許外部訪問
-app.listen(PORT, HOST, () => {
-  console.log(`✅ 服務已啟動，監聽 ${HOST}:${PORT}`);
-  console.log(`🔧 本地訪問: http://localhost:${PORT}`);
-  console.log(`🌐 外部訪問: http://YOUR_CODESPACE_URL:${PORT}`);
-  console.log(`📊 當前會話數量: ${sessions.size}`);
-  console.log('\n🎯 可用端點:');
-  console.log('  GET  /                    - API 資訊');
-  console.log('  GET  /health              - 健康檢查');
-  console.log('  POST /chat                - 聊天對話');
-  console.log('  POST /api/price           - 價格查詢');
-  console.log('  POST /api/booking         - 直接訂房');
-  console.log('  POST /api/cancel-booking  - 取消訂單');
-  console.log('  GET  /api/attractions/*   - 景點服務');
-  console.log('  GET  /api/sessions/*      - 會話管理');
-});
-
-// 優雅關閉處理
-process.on('SIGINT', () => {
-  console.log('\n💾 保存會話並關閉服務...');
-  saveSessions();
-  console.log('👋 服務已關閉');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('\n💾 保存會話並關閉服務...');
-  saveSessions();
-  console.log('👋 服務已關閉');
-  process.exit(0);
 });
