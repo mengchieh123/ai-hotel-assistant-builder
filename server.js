@@ -5,6 +5,41 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// ==================== 進程信號處理 ====================
+console.log('🔧 初始化信號處理...');
+
+// 處理容器信號
+process.on('SIGTERM', () => {
+  console.log('📦 收到 SIGTERM 信號，優雅關閉中...');
+  saveSessions();
+  setTimeout(() => {
+    console.log('👋 服務已優雅關閉');
+    process.exit(0);
+  }, 1000);
+});
+
+process.on('SIGINT', () => {
+  console.log('📦 收到 SIGINT 信號，優雅關閉中...');
+  saveSessions();
+  setTimeout(() => {
+    console.log('👋 服務已優雅關閉');
+    process.exit(0);
+  }, 1000);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('💥 未捕獲異常:', error);
+  saveSessions();
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 未處理的 Promise 拒絕:', reason);
+});
+
+// ==================== 服務就緒狀態 ====================
+let serverReady = false;
+
 // 中間件配置
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -16,6 +51,7 @@ app.get('/', (req, res) => {
     message: '🏨 AI 訂房助理 API 服務',
     version: '5.5.0',
     timestamp: new Date().toISOString(),
+    status: serverReady ? 'ready' : 'starting',
     endpoints: {
       health: '/health',
       chat: '/chat (POST)',
@@ -170,7 +206,8 @@ try {
       return { success: true, categories: { food: '美食餐廳', shopping: '購物中心', nature: '自然景觀', culture: '文化古蹟', nightmarket: '夜市小吃', convenience: '便利商店' } };
     }
   };
-};
+  console.log('🔄 使用內建 attractionsService');
+}
 
 // 會話管理
 const sessions = new Map();
@@ -264,15 +301,54 @@ setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // ==================== API 路由 ====================
 
-// 健康檢查
+// 改進的健康檢查
 app.get('/health', (req, res) => {
+  if (!serverReady) {
+    return res.status(503).json({
+      status: 'starting',
+      message: '服務啟動中...',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // 快速響應健康檢查
+  res.set('Connection', 'close');
   res.json({ 
     status: 'healthy', 
     service: 'AI Hotel Assistant', 
     version: '5.5.0',
     activeSessions: sessions.size,
     timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
     features: ['booking', 'pricing', 'cancellation', 'attractions', 'chat']
+  });
+});
+
+// 存活檢查
+app.get('/live', (req, res) => {
+  res.set('Connection', 'close');
+  res.json({ 
+    status: 'alive', 
+    timestamp: new Date().toISOString(),
+    service: 'AI Hotel Assistant'
+  });
+});
+
+// 就緒檢查
+app.get('/ready', (req, res) => {
+  if (!serverReady) {
+    return res.status(503).json({
+      status: 'starting',
+      message: '服務啟動中...',
+      timestamp: new Date().toISOString()
+    });
+  }
+  res.set('Connection', 'close');
+  res.json({ 
+    status: 'ready', 
+    timestamp: new Date().toISOString(),
+    service: 'AI Hotel Assistant'
   });
 });
 
@@ -541,4 +617,77 @@ app.post('/chat', async (req, res) => {
       message: error.message
     });
   }
+});
+
+// 404 處理
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: '路由不存在',
+    path: req.originalUrl,
+    method: req.method,
+    availableEndpoints: [
+      'GET /',
+      'GET /health', 
+      'GET /live',
+      'GET /ready',
+      'POST /chat',
+      'POST /api/price',
+      'POST /api/booking',
+      'POST /api/cancel-booking',
+      'GET /api/attractions/nearby',
+      'GET /api/attractions/search',
+      'GET /api/attractions/categories',
+      'GET /api/attractions/details/:name',
+      'GET /api/sessions/stats',
+      'GET /api/sessions/:sessionId',
+      'DELETE /api/sessions/:sessionId',
+      'GET /api/sessions/backup'
+    ]
+  });
+});
+
+// 全局錯誤處理
+app.use((err, req, res, next) => {
+  console.error('❌ 服務器錯誤:', err);
+  res.status(500).json({ 
+    success: false, 
+    error: '伺服器內部錯誤',
+    message: err.message 
+  });
+});
+
+// ==================== 服務啟動 ====================
+const HOST = '0.0.0.0';
+const server = app.listen(PORT, HOST, () => {
+  console.log(`✅ 服務已啟動，監聽 ${HOST}:${PORT}`);
+  console.log(`🔧 健康檢查網址: http://${HOST}:${PORT}/health`);
+  console.log(`🔧 存活檢查網址: http://${HOST}:${PORT}/live`);
+  console.log(`🔧 就緒檢查網址: http://${HOST}:${PORT}/ready`);
+  
+  // 設置服務就緒標誌
+  setTimeout(() => {
+    serverReady = true;
+    console.log('🎯 服務完全就緒，接受請求');
+    console.log(`📊 當前會話數量: ${sessions.size}`);
+    
+    console.log('\n🎯 可用端點:');
+    console.log('  GET  /                    - API 資訊');
+    console.log('  GET  /health              - 健康檢查');
+    console.log('  GET  /live                - 存活檢查');
+    console.log('  GET  /ready               - 就緒檢查');
+    console.log('  POST /chat                - 聊天對話');
+    console.log('  POST /api/price           - 價格查詢');
+    console.log('  POST /api/booking         - 直接訂房');
+    console.log('  POST /api/cancel-booking  - 取消訂單');
+    console.log('  GET  /api/attractions/*   - 景點服務');
+    console.log('  GET  /api/sessions/*      - 會話管理');
+  }, 3000);
+}).on('error', (err) => {
+  console.error('❌ 服務啟動失敗:', err.message);
+  process.exit(1);
+});
+
+server.on('listening', () => {
+  console.log('📡 服務正在監聽端口:', PORT);
 });
