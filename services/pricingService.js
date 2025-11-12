@@ -36,23 +36,23 @@ class PricingService {
         throw new Error('住宿人數至少為1人');
       }
 
-      // 基本房價
+      // 基礎房價
       const basePrice = room.basePrice * nights;
-      
+
       // 超過最大入住人數額外費用（不含小孩）
       const extraGuests = Math.max(0, guestCount - room.maxGuests);
       const extraGuestFee = extraGuests * 500 * nights;
-      
+
       // 小孩加價，每位小孩每晚300元
       const childExtraFee = childrenCount * 300 * nights;
 
       // 小計
       const subtotal = basePrice + extraGuestFee + childExtraFee;
-      
+
       // 會員折扣
       const discountRate = this.memberDiscounts[memberLevel] || 0;
       const discountAmount = subtotal * discountRate;
-      
+
       // 老人折扣，每位老人5%
       const seniorDiscountRate = 0.05;
       const seniorDiscountAmount = subtotal * seniorDiscountRate * seniorCount;
@@ -63,7 +63,7 @@ class PricingService {
       return {
         success: true,
         pricing: {
-          basePrice: basePrice,
+          basePrice,
           extraGuestFee,
           childExtraFee,
           subtotal,
@@ -78,10 +78,7 @@ class PricingService {
       };
 
     } catch (error) {
-      return {
-        success: false,
-        error: error.message
-      };
+      return { success: false, error: error.message };
     }
   }
 
@@ -132,25 +129,16 @@ class PricingService {
       };
 
     } catch (error) {
-      return {
-        success: false,
-        error: error.message
-      };
+      return { success: false, error: error.message };
     }
   }
 
   getAvailableRoomTypes() {
-    return {
-      success: true,
-      roomTypes: this.roomRates
-    };
+    return { success: true, roomTypes: this.roomRates };
   }
 
   getPromotions() {
-    return {
-      success: true,
-      promotions: this.promotions
-    };
+    return { success: true, promotions: this.promotions };
   }
 }
 
