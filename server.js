@@ -5,7 +5,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// ==================== 導入新的聊天服務 ====================
+// ==================== 導入服務模組 ====================
 const chatService = require('./services/chatService');
 
 // ==================== 進程信號處理 ====================
@@ -230,6 +230,49 @@ const memberService = loadService('memberService', {
     return { success: true, benefits: benefits[level] || benefits.none };
   }
 });
+
+// 需求檢測服務 - 內建實現
+const RequirementDetector = {
+  async detectAllRequirements(message) {
+    const requirements = {
+      accessibility: {
+        wheelchair: /輪椅|無障礙|行動不便/.test(message),
+        elevator: /電梯|升降機/.test(message),
+        braille: /盲人|點字/.test(message)
+      },
+      family: {
+        children: /兒童|小孩|寶寶|嬰兒/.test(message),
+        extraBed: /加床|嬰兒床/.test(message),
+        familyRoom: /家庭房|親子/.test(message)
+      },
+      special: {
+        smoking: /吸煙|抽煙|吸菸/.test(message),
+        pet: /寵物|狗|貓/.test(message),
+        view: /海景|山景|景觀/.test(message)
+      },
+      service: {
+        breakfast: /早餐|餐點/.test(message),
+        parking: /停車|車位/.test(message),
+        wifi: /網路|wifi|上網/.test(message)
+      }
+    };
+
+    const mainPoints = [];
+    if (requirements.accessibility.wheelchair) mainPoints.push('無障礙需求');
+    if (requirements.family.children) mainPoints.push('兒童相關');
+    if (requirements.special.smoking) mainPoints.push('吸煙需求');
+    if (requirements.service.breakfast) mainPoints.push('早餐服務');
+
+    return {
+      summary: {
+        hasSpecialRequirements: mainPoints.length > 0,
+        mainPoints: mainPoints,
+        requirementCount: mainPoints.length
+      },
+      details: requirements
+    };
+  }
+};
 
 // 景點服務
 let attractionsService;
@@ -461,8 +504,8 @@ setInterval(cleanupExpiredSessions, 60 * 60 * 1000); // 每小時清理一次
 
 // ==================== API 路由 ====================
 
-// 使用新的聊天服務
-app.use('/chat', chatService);
+// 使用新的聊天服務 - 修復版
+app.use(chatService);
 
 // 改進的健康檢查
 app.get('/health', (req, res) => {
