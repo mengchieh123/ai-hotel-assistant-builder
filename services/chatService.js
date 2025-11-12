@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-// ==================== 新增：智能問答服務 ====================
+// ==================== 智能問答服務 ====================
 class QAService {
   static handleQuestion(message, sessionData = {}) {
     const lowerMessage = message.toLowerCase();
@@ -182,21 +182,21 @@ class RequirementDetector {
         level: 'normal'
       },
       accessible: {
-        required: /(无障碍|残障|轮椅|行动不便)/i.test(message)
+        required: /(無障礙|殘障|輪椅|行動不便)/i.test(message)
       },
       family: {
-        children: /(小孩|儿童|孩子|小朋友|婴儿)/i.test(message),
-        extraBed: /(加床|婴儿床)/i.test(message)
+        children: /(小孩|兒童|孩子|小朋友|嬰兒)/i.test(message),
+        extraBed: /(加床|嬰兒床)/i.test(message)
       },
       service: {
-        parking: /(停车|车位)/i.test(message),
+        parking: /(停車|車位)/i.test(message),
         breakfast: /(早餐|用餐)/i.test(message)
       }
     };
   }
 }
 
-// ==================== 回應生成器 - 重構版 ====================
+// ==================== 回應生成器 ====================
 class ResponseGenerator {
   static generateResponse(message, session) {
     const lowerMessage = message.toLowerCase();
@@ -205,14 +205,14 @@ class ResponseGenerator {
 
     switch (session.step) {
       case 'init':
-        // ========== 優先處理智能問答 ==========
+        // 優先處理智能問答
         const qaAnswer = QAService.handleQuestion(message);
         if (qaAnswer) {
           reply = qaAnswer;
-          break; // 直接回答，不進入其他流程
+          break;
         }
 
-        // ========== 優先處理複雜多需求情境 ==========
+        // 處理複雜多需求情境
         
         // 1. 家庭旅遊複雜需求
         if (/(\d+).*大人.*(\d+).*小孩|家庭|嬰兒|老人|長者|加床|公園|餐廳|停車/.test(lowerMessage)) {
