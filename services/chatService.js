@@ -205,6 +205,13 @@ class ResponseGenerator {
 
     switch (session.step) {
       case 'init':
+        // ========== 優先處理智能問答 ==========
+        const qaAnswer = QAService.handleQuestion(message);
+        if (qaAnswer) {
+          reply = qaAnswer;
+          break; // 直接回答，不進入其他流程
+        }
+
         // ========== 優先處理複雜多需求情境 ==========
         
         // 1. 家庭旅遊複雜需求
@@ -273,8 +280,8 @@ class ResponseGenerator {
           reply = '請問您要取消哪筆訂單？請提供訂單編號。';
         
         } else if (/會員|優惠|折扣|促銷/.test(lowerMessage)) {
-          const qaAnswer = QAService.handleQuestion(message);
-          reply = qaAnswer || '我們提供金卡、銀卡會員優惠，請問您想了解哪種會員權益？';
+          const memberQaAnswer = QAService.handleQuestion(message);
+          reply = memberQaAnswer || '我們提供金卡、銀卡會員優惠，請問您想了解哪種會員權益？';
         
         } else if (/附近|周邊|景點|好玩|旅遊|觀光/.test(lowerMessage)) {
           reply = '🏞️ 附近推薦景點：\n' +
@@ -284,8 +291,7 @@ class ResponseGenerator {
                   '需要詳細資訊嗎？';
         
         } else {
-          const qaAnswer = QAService.handleQuestion(message);
-          reply = qaAnswer || '您好！請問需要什麼服務？例如：訂房、查詢價格、取消訂單、會員服務、附近景點查詢等等。';
+          reply = '您好！請問需要什麼服務？例如：訂房、查詢價格、取消訂單、會員服務、附近景點查詢等等。';
         }
         break;
 
