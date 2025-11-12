@@ -1,12 +1,19 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
+const fs = require('fs/promises'); // 使用 promise 版本的 fs
 const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 // ==================== 載入對話流程配置 ====================
-const dialogFlow = require('./config/dialog-flow.json'); // 請確保此文件存在並符合格式
+let dialogFlow;
+try {
+  dialogFlow = require('./config/dialog-flow.json');
+  console.log('✅ 載入對話流程配置成功');
+} catch (error) {
+  console.error('❌ 載入對話流程配置失敗:', error.message);
+  process.exit(1);
+}
 
 // 會話狀態管理（sessionId -> { step, data }）
 const sessions = new Map();
@@ -19,7 +26,15 @@ const chatService = require('./services/chatService');
 console.log('🔧 初始化信號處理...');
 
 // 處理容器信號
-// (省略，保持你原有的 SIGTERM、SIGINT、uncaughtException 處理)
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+process.on('uncaughtException', (error) => {
+  console.error('💥 未捕獲異常:', error);
+  saveSessions().then(() => process.exit(1));
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('💥 未處理的 Promise 拒絕:', reason);
+});
 
 // ==================== 服務就緒狀態 ====================
 let serverReady = false;
@@ -36,14 +51,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// 基本路由與其他服務模組代碼參考你現有版本，不重複貼出
-
-// 會話管理（增補：結合 dialog-flow.json 驅動狀態轉換與回覆）
-
-function loadSessions() {
+// ==================== 會話管理 ====================
+async function loadSessions() {
   try {
-    if (fs.existsSync(SESSION_FILE)) {
-      const data = fs.readFileSync(SESSION_FILE, 'utf8');
+    const exists = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
+    if (exists) {
+      const data = await fs.readFile(SESSION_FILE, 'utf8');
       const savedSessions = JSON.parse(data);
       console.log(`📂 從文件加載會話: ${savedSessions.length} 個會話`);
       for (const [sessionId, sessionData] of savedSessions) {
@@ -58,10 +71,10 @@ function loadSessions() {
   }
 }
 
-function saveSessions() {
+async function saveSessions() {
   try {
     const sessionsArray = Array.from(sessions.entries());
-    fs.writeFileSync(SESSION_FILE, JSON.stringify(sessionsArray, null, 2));
+    await fs.writeFile(SESSION_FILE, JSON.stringify(sessionsArray, null, 2));
     console.log(`💾 會話已保存: ${sessions.size} 個會話`);
   } catch (error) {
     console.error('❌ 保存會話失敗:', error.message);
@@ -76,31 +89,54 @@ function getOrCreateSession(sessionId) {
       createdAt: new Date().toISOString(), 
       lastActive: new Date().toISOString() 
     });
-    saveSessions();
+    saveSessions().catch(console.error);
   }
   const session = sessions.get(sessionId);
   session.lastActive = new Date().toISOString();
   return session;
 }
 
-// 依據流程文件取得當前狀態配置
+// 取得當前狀態配置
 function getStateConfig(step) {
   return dialogFlow.states[step] || dialogFlow.states['init'];
 }
 
-// 從用戶輸入決定下一狀態（示範可依照意圖識別擴充）
+// 根據用戶輸入決定下一狀態（示範簡單）
 function determineNextState(currentState, userMessage) {
-  // 優先示範，根據意圖判斷可放在此
-  // 目前簡單帶過，直接使用流程檔 next_state
   const stateConfig = getStateConfig(currentState);
   return stateConfig.next_state || 'init';
 }
 
-// 產生回覆訊息（你也可以依意圖及槽位做更複雜的生成）
+// 產生回覆
 function generateReply(step) {
   const stateConfig = getStateConfig(step);
   return stateConfig.prompt || "抱歉，無法處理您的請求。";
 }
+
+// 優雅關閉處理
+async function gracefulShutdown() {
+  console.log('📦 收到終止信號，優雅關閉中...');
+  await saveSessions();
+  console.log('👋 服務已優雅關閉');
+  process.exit(0);
+}
+
+// ==================== 健康檢查路由 ====================
+app.get('/health', (req, res) => {
+  if (!serverReady) {
+    return res.status(503).json({
+      status: 'starting',
+      message: '服務啟動中...',
+      timestamp: new Date().toISOString()
+    });
+  }
+  res.json({ 
+    status: 'healthy', 
+    service: 'AI Hotel Assistant', 
+    version: '7.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // ==================== 聊天接口 ====================
 app.post('/chat', async (req, res) => {
@@ -112,20 +148,14 @@ app.post('/chat', async (req, res) => {
 
     const session = getOrCreateSession(sessionId);
 
-    // 使用對話流程驅動狀態轉換和回覆
     const currentStep = session.step;
-    
-    // 這裡可以放你的意圖識別、槽位填充邏輯，示意先跳過
-    // 更新狀態
     const nextStep = determineNextState(currentStep, message);
     session.step = nextStep;
 
-    // 產生回覆
     const reply = generateReply(nextStep);
 
-    // 更新 session 保存
     sessions.set(sessionId, session);
-    saveSessions();
+    await saveSessions();
 
     res.json({
       success: true,
@@ -141,23 +171,26 @@ app.post('/chat', async (req, res) => {
 });
 
 // ==================== 其他 API 路由保持不變 ====================
-// (省略，保持你現有的價格、訂房、取消訂房、景點、會員等服務 API)
+// 這裡可以保留你原有的價格、訂房、取消訂房、景點、會員等 API 路由和函數
 
 // ==================== 啟動伺服器 ====================
-app.listen(PORT, () => {
-  console.log(`\n🎉 AI 訂房助理服務已啟動！`);
-  console.log(`📍 服務地址: http://localhost:${PORT}`);
-  console.log(`⏰ 啟動時間: ${new Date().toISOString()}`);
-  console.log(`📊 初始會話數: ${sessions.size}`);
-  console.log(`🔧 服務狀態: 啟動完成\n`);
+(async () => {
+  await loadSessions();
 
-  serverReady = true;
-});
+  app.listen(PORT, () => {
+    console.log(`\n🎉 AI 訂房助理服務已啟動！`);
+    console.log(`📍 服務地址: http://localhost:${PORT}`);
+    console.log(`⏰ 啟動時間: ${new Date().toISOString()}`);
+    console.log(`📊 初始會話數: ${sessions.size}`);
+    console.log(`🔧 服務狀態: 啟動完成\n`);
 
-// 優雅關閉處理
-process.on('beforeExit', () => {
+    serverReady = true;
+  });
+})();
+
+process.on('beforeExit', async () => {
   console.log('🔄 服務即將關閉，保存會話數據...');
-  saveSessions();
+  await saveSessions();
 });
 
 module.exports = app;
