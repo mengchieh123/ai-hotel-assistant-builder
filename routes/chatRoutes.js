@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 
+console.log('🚨 加載完全修復版本的聊天路由');
+
 // ==================== 智能問答服務 ====================
 class QAService {
   static handleQuestion(message, sessionData = {}) {
