@@ -1,4 +1,3 @@
-// 訂房服務 - 最終修復版本
 const pricingService = require('./pricingService');
 const roomStatusService = require('./roomStatusService');
 const complianceService = require('./complianceService');
@@ -9,14 +8,11 @@ class BookingService {
         this.bookingCounter = 1000;
     }
 
-    /**
-     * 偵測是否訊息包含小孩或老人詢問
-     */
     static needChildInfo(message, bookingData = {}) {
-        // BookingData 設計可根據實際需求補充 children/senior 資料
         return (message.includes('小孩') || message.includes('兒童') ||
                 (bookingData.children && bookingData.children.length > 0));
     }
+
     static needSeniorInfo(message, bookingData = {}) {
         return (message.includes('老人') || message.includes('年長者') || message.includes('長者') ||
                 (bookingData.seniors && bookingData.seniors.length > 0));
@@ -24,7 +20,6 @@ class BookingService {
 
     async createBooking(bookingData, message = '') {
         try {
-            // 0. 偵測小孩年齡/年長者優惠
             if (BookingService.needChildInfo(message, bookingData) && !bookingData.childAges) {
                 return {
                     success: false,
@@ -42,7 +37,6 @@ class BookingService {
 
             const { checkInDate, nights, roomType, guestCount, guestName, memberLevel, promoCode, childAges, seniorAges } = bookingData;
 
-            // 1. 基本參數檢查
             if (!checkInDate || !nights || !roomType || !guestCount || !guestName) {
                 return {
                     success: false,
@@ -51,7 +45,6 @@ class BookingService {
                 };
             }
 
-            // 2. 合規檢查
             const complianceCheck = complianceService.validateBookingCompliance({
                 guestCount,
                 roomType,
@@ -68,7 +61,6 @@ class BookingService {
                 };
             }
 
-            // 3. 檢查房態
             const availability = roomStatusService.checkAvailability(roomType, checkInDate, checkInDate, 1);
             if (!availability.available) {
                 return {
@@ -79,7 +71,7 @@ class BookingService {
                 };
             }
 
-            // 4. 計算價格 - 加入小孩/長者的分級邏輯
+            // 傳入childAges及seniorAges協助價格計算
             const priceResult = pricingService.calculateRoomPrice(roomType, nights, guestCount, memberLevel, { childAges, seniorAges });
             if (!priceResult.success) {
                 return {
@@ -90,7 +82,6 @@ class BookingService {
                 };
             }
 
-            // 5. 套用促銷（如果有的話）
             let finalPricing = priceResult.pricing;
             if (promoCode) {
                 try {
@@ -104,11 +95,9 @@ class BookingService {
                     }
                 } catch (promoError) {
                     console.log("⚠️ 促銷代碼處理失敗:", promoError.message);
-                    // 促銷失敗不影響主要訂房流程
                 }
             }
 
-            // 6. 建立訂單
             const bookingId = 'BKG-' + this.bookingCounter++;
             const booking = {
                 bookingId,
@@ -131,11 +120,9 @@ class BookingService {
 
             this.bookings.set(bookingId, booking);
 
-            // 7. 鎖定房間
             const blockResult = roomStatusService.blockRooms(roomType, 1, bookingId);
             if (!blockResult.success) {
                 console.log("⚠️ 房間鎖定失敗:", blockResult.error);
-                // 房間鎖定失敗，但訂單仍然建立
             }
 
             console.log("✅ 訂房成功建立:", bookingId);
@@ -157,8 +144,150 @@ class BookingService {
         }
     }
 
-    // 其他 getBooking, cancelBooking, updateBooking, listBookings 內容同您原來的版本
+    async getBooking(bookingId) {
+        try {
+            const booking = this.bookings.get(bookingId);
+            if (!booking) {
+                return {
+                    success: false,
+                    error: '訂單不存在',
+                    message: '找不到指定的訂單'
+                };
+            }
+            return {
+                success: true,
+                booking
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: '查詢訂單失敗',
+                message: error.message
+            };
+        }
+    }
 
+    async cancelBooking(bookingId) {
+        try {
+            const booking = this.bookings.get(bookingId);
+            if (!booking) {
+                return {
+                    success: false,
+                    error: '訂單不存在',
+                    message: '找不到指定的訂單'
+                };
+            }
+
+            if (booking.status === 'cancelled') {
+                return {
+                    success: false,
+                    error: '訂單已取消',
+                    message: '此訂單已經取消'
+                };
+            }
+
+            booking.status = 'cancelled';
+            booking.cancelledAt = new Date().toISOString();
+
+            const releaseResult = roomStatusService.releaseRooms(bookingId);
+            if (!releaseResult.success) {
+                console.log("⚠️ 房間釋放失敗:", releaseResult.error);
+            }
+
+            if (booking.paymentStatus === 'paid') {
+                try {
+                    const paymentService = require('./paymentService');
+                    const refundResult = await paymentService.refundPayment(booking.paymentId, booking.pricing.totalPrice);
+                    if (refundResult.success) {
+                        booking.paymentStatus = 'refunded';
+                    }
+                } catch (refundError) {
+                    console.log("⚠️ 退款處理失敗:", refundError.message);
+                }
+            }
+
+            return {
+                success: true,
+                message: '訂單取消成功',
+                booking
+            };
+
+        } catch (error) {
+            return {
+                success: false,
+                error: '取消訂單失敗',
+                message: error.message
+            };
+        }
+    }
+
+    async updateBooking(bookingId, updates) {
+        try {
+            const booking = this.bookings.get(bookingId);
+            if (!booking) {
+                return {
+                    success: false,
+                    error: '訂單不存在',
+                    message: '找不到指定的訂單'
+                };
+            }
+
+            const allowedUpdates = ['guestCount', 'specialRequests'];
+            const updatedFields = {};
+
+            for (const [key, value] of Object.entries(updates)) {
+                if (allowedUpdates.includes(key)) {
+                    booking.customer[key] = value;
+                    updatedFields[key] = value;
+                }
+            }
+
+            booking.updatedAt = new Date().toISOString();
+
+            return {
+                success: true,
+                message: '訂單更新成功',
+                updatedFields,
+                booking
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: '更新訂單失敗',
+                message: error.message
+            };
+        }
+    }
+
+    listBookings(filter = {}) {
+        try {
+            const allBookings = Array.from(this.bookings.values());
+            
+            let filteredBookings = allBookings;
+            
+            if (filter.status) {
+                filteredBookings = filteredBookings.filter(b => b.status === filter.status);
+            }
+            
+            if (filter.customerName) {
+                filteredBookings = filteredBookings.filter(b => 
+                    b.customer.name && b.customer.name.includes(filter.customerName)
+                );
+            }
+
+            return {
+                success: true,
+                count: filteredBookings.length,
+                bookings: filteredBookings
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: '查詢訂單列表失敗',
+                message: error.message
+            };
+        }
+    }
 }
 
 module.exports = new BookingService();
