@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs/promises'); // 使用 promise 版本的 fs
+const fs = require('fs/promises');
 const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -19,13 +19,8 @@ try {
 const sessions = new Map();
 const SESSION_FILE = path.join(__dirname, 'sessions.json');
 
-// ==================== 導入服務模組 ====================
-const chatService = require('./services/chatService');
-
 // ==================== 進程信號處理 ====================
 console.log('🔧 初始化信號處理...');
-
-// 處理容器信號
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 process.on('uncaughtException', (error) => {
@@ -83,11 +78,11 @@ async function saveSessions() {
 
 function getOrCreateSession(sessionId) {
   if (!sessions.has(sessionId)) {
-    sessions.set(sessionId, { 
-      step: 'init', // 初始狀態
-      data: {}, 
-      createdAt: new Date().toISOString(), 
-      lastActive: new Date().toISOString() 
+    sessions.set(sessionId, {
+      step: 'init',
+      data: {},
+      createdAt: new Date().toISOString(),
+      lastActive: new Date().toISOString()
     });
     saveSessions().catch(console.error);
   }
@@ -101,44 +96,63 @@ function getStateConfig(step) {
   return dialogFlow.states[step] || dialogFlow.states['init'];
 }
 
-// 根據用戶輸入決定下一狀態（示範簡單）
-function determineNextState(currentState, userMessage) {
-  const stateConfig = getStateConfig(currentState);
-  return stateConfig.next_state || 'init';
-}
+// 意圖偵測和槽位抽取
+function detectIntentAndEntities(message) {
+  const lowerMsg = message.toLowerCase();
+  let intent = null;
+  let entities = {};
 
-// 產生回覆
-function generateReply(step) {
-  const stateConfig = getStateConfig(step);
-  return stateConfig.prompt || "抱歉，無法處理您的請求。";
-}
-
-// 優雅關閉處理
-async function gracefulShutdown() {
-  console.log('📦 收到終止信號，優雅關閉中...');
-  await saveSessions();
-  console.log('👋 服務已優雅關閉');
-  process.exit(0);
-}
-
-// ==================== 健康檢查路由 ====================
-app.get('/health', (req, res) => {
-  if (!serverReady) {
-    return res.status(503).json({
-      status: 'starting',
-      message: '服務啟動中...',
-      timestamp: new Date().toISOString()
-    });
+  // 範例意圖判斷：依據訊息內容判斷意圖並提取槽位
+  if (/標準雙人房|豪華雙人房|套房/.test(lowerMsg)) {
+    intent = 'select_room_type';
+    const match = lowerMsg.match(/標準雙人房|豪華雙人房|套房/);
+    entities.roomType = match ? match[0] : null;
+  } else if (/訂房|預訂|預定/.test(lowerMsg)) {
+    intent = 'book_room';
+  } else if (/優惠|促銷|折扣/.test(lowerMsg)) {
+    intent = 'ask_promotion';
+  } else if (/取消|退訂/.test(lowerMsg)) {
+    intent = 'cancel_booking';
+  } else {
+    intent = 'general_inquiry';
   }
-  res.json({ 
-    status: 'healthy', 
-    service: 'AI Hotel Assistant', 
-    version: '7.0.0',
-    timestamp: new Date().toISOString()
-  });
-});
 
-// ==================== 聊天接口 ====================
+  return { intent, entities };
+}
+
+// 根據意圖決定下一狀態與回覆
+function decideStateAndReply(intent, entities, session) {
+  let nextStep = session.step;
+  let reply = '';
+
+  switch (intent) {
+    case 'select_room_type':
+      session.data.roomType = entities.roomType;
+      nextStep = 'check_booking_details';
+      reply = `您選擇的是 ${entities.roomType}，請問您打算訂多少間房間，入住多久？`;
+      break;
+    case 'book_room':
+      nextStep = 'check_booking_details';
+      reply = '請問您打算訂多少間房間，入住多久？';
+      break;
+    case 'ask_promotion':
+      nextStep = 'handle_promotion_query';
+      reply = '請問您想了解哪一類優惠？長者優惠、企業優惠或其他？';
+      break;
+    case 'cancel_booking':
+      nextStep = 'cancel_init';
+      reply = '請提供訂單編號，我們將為您處理取消訂房。';
+      break;
+    default:
+      nextStep = 'init';
+      reply = getStateConfig(nextStep).prompt;
+      break;
+  }
+
+  return { nextStep, reply };
+}
+
+// 聊天接口
 app.post('/chat', async (req, res) => {
   try {
     const { message, sessionId } = req.body;
@@ -148,11 +162,13 @@ app.post('/chat', async (req, res) => {
 
     const session = getOrCreateSession(sessionId);
 
-    const currentStep = session.step;
-    const nextStep = determineNextState(currentStep, message);
-    session.step = nextStep;
+    // 意圖與槽位偵測
+    const { intent, entities } = detectIntentAndEntities(message);
 
-    const reply = generateReply(nextStep);
+    // 根據意圖決定狀態及回覆
+    const { nextStep, reply } = decideStateAndReply(intent, entities, session);
+
+    session.step = nextStep;
 
     sessions.set(sessionId, session);
     await saveSessions();
@@ -170,10 +186,35 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-// ==================== 其他 API 路由保持不變 ====================
-// 這裡可以保留你原有的價格、訂房、取消訂房、景點、會員等 API 路由和函數
+// 健康檢查接口
+app.get('/health', (req, res) => {
+  if (!serverReady) {
+    return res.status(503).json({
+      status: 'starting',
+      message: '服務啟動中...',
+      timestamp: new Date().toISOString()
+    });
+  }
+  res.json({
+    status: 'healthy',
+    service: 'AI Hotel Assistant',
+    version: '7.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
 
-// ==================== 啟動伺服器 ====================
+// 優雅關閉
+async function gracefulShutdown() {
+  console.log('📦 收到終止信號，優雅關閉中...');
+  await saveSessions();
+  console.log('👋 服務已優雅關閉');
+  process.exit(0);
+}
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+// 啟動伺服器
 (async () => {
   await loadSessions();
 
@@ -187,10 +228,5 @@ app.post('/chat', async (req, res) => {
     serverReady = true;
   });
 })();
-
-process.on('beforeExit', async () => {
-  console.log('🔄 服務即將關閉，保存會話數據...');
-  await saveSessions();
-});
 
 module.exports = app;
