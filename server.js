@@ -19,7 +19,7 @@ try {
 const sessions = new Map();
 const SESSION_FILE = path.join(__dirname, 'sessions.json');
 
-// ==================== 進程信號處理 ====================
+// ==================== 進程信號與優雅關閉 ====================
 console.log('🔧 初始化信號處理...');
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
@@ -34,19 +34,18 @@ process.on('unhandledRejection', (reason) => {
 // ==================== 服務就緒狀態 ====================
 let serverReady = false;
 
-// 中間件配置
+// 中間件
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// 請求日誌中間件
+// 請求日誌
 app.use((req, res, next) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] ${req.method} ${req.path}`, req.body || req.query);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`, req.body || req.query);
   next();
 });
 
-// ==================== 會話管理 ====================
+// ==================== 會話操作函數 ====================
 async function loadSessions() {
   try {
     const exists = await fs.access(SESSION_FILE).then(() => true).catch(() => false);
@@ -91,18 +90,12 @@ function getOrCreateSession(sessionId) {
   return session;
 }
 
-// 取得當前狀態配置
-function getStateConfig(step) {
-  return dialogFlow.states[step] || dialogFlow.states['init'];
-}
-
-// 意圖偵測和槽位抽取
+// ==================== 意圖與槽位偵測 ====================
 function detectIntentAndEntities(message) {
   const lowerMsg = message.toLowerCase();
   let intent = null;
   let entities = {};
 
-  // 範例意圖判斷：依據訊息內容判斷意圖並提取槽位
   if (/標準雙人房|豪華雙人房|套房/.test(lowerMsg)) {
     intent = 'select_room_type';
     const match = lowerMsg.match(/標準雙人房|豪華雙人房|套房/);
@@ -120,7 +113,7 @@ function detectIntentAndEntities(message) {
   return { intent, entities };
 }
 
-// 根據意圖決定下一狀態與回覆
+// ==================== 對話邏輯決定與回覆生成 ====================
 function decideStateAndReply(intent, entities, session) {
   let nextStep = session.step;
   let reply = '';
@@ -145,14 +138,14 @@ function decideStateAndReply(intent, entities, session) {
       break;
     default:
       nextStep = 'init';
-      reply = getStateConfig(nextStep).prompt;
+      reply = dialogFlow.states[nextStep]?.prompt || '您好，歡迎使用 AI 訂房助理！請問您需要什麼幫助？';
       break;
   }
 
   return { nextStep, reply };
 }
 
-// 聊天接口
+// ==================== 聊天接口 ====================
 app.post('/chat', async (req, res) => {
   try {
     const { message, sessionId } = req.body;
@@ -161,13 +154,8 @@ app.post('/chat', async (req, res) => {
     }
 
     const session = getOrCreateSession(sessionId);
-
-    // 意圖與槽位偵測
     const { intent, entities } = detectIntentAndEntities(message);
-
-    // 根據意圖決定狀態及回覆
     const { nextStep, reply } = decideStateAndReply(intent, entities, session);
-
     session.step = nextStep;
 
     sessions.set(sessionId, session);
@@ -186,7 +174,7 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-// 健康檢查接口
+// ==================== 健康檢查接口 ====================
 app.get('/health', (req, res) => {
   if (!serverReady) {
     return res.status(503).json({
@@ -203,7 +191,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 優雅關閉
+// ==================== 優雅關閉 ====================
 async function gracefulShutdown() {
   console.log('📦 收到終止信號，優雅關閉中...');
   await saveSessions();
@@ -214,7 +202,7 @@ async function gracefulShutdown() {
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
-// 啟動伺服器
+// ==================== 啟動伺服器 ====================
 (async () => {
   await loadSessions();
 
