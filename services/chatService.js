@@ -97,168 +97,311 @@ class QAService {
              `• 緊急呼叫系統`;
     }
     
+    // 長住優惠
+    if (/長住|長期|月租|住.*月|住.*週/.test(lowerMessage)) {
+      return `🏠 長住優惠：\n` +
+             `• 7-13晚：房價9折\n` +
+             `• 14-29晚：房價85折\n` +
+             `• 30晚以上：房價7折\n` +
+             `• 免費每周清潔服務\n` +
+             `• 免費mini bar補充`;
+    }
+    
+    // 團體優惠
+    if (/(\d+).*間|團體|多人|公司|企業/.test(lowerMessage)) {
+      const roomMatch = message.match(/(\d+).*間/);
+      const roomCount = roomMatch ? parseInt(roomMatch[1]) : 1;
+      
+      let discountInfo = '';
+      if (roomCount >= 3 && roomCount <= 5) discountInfo = '• 3-5間：房價95折\n';
+      if (roomCount >= 6 && roomCount <= 10) discountInfo = '• 6-10間：房價9折 + 免費接駁\n';
+      if (roomCount > 10) discountInfo = '• 11間以上：房價85折 + 免費會議室\n';
+      
+      return `🎉 團體訂房優惠：\n\n` +
+             `📊 ${roomCount}間房間優惠：\n` +
+             discountInfo +
+             `\n🎁 團體額外服務：\n` +
+             `• 專屬接待\n` +
+             `• 彈性付款\n` +
+             `• 客製化服務`;
+    }
+    
     return null;
   }
 }
 
-// ==================== 原有功能保持不變 ====================
+// ==================== 會話管理 ====================
+const sessions = new Map();
 
-// 模擬外部機器學習意圖識別服務
-async function mlIntentRecognition(message) {
-  // 模擬異步 API 呼叫，自行替換為實際 ML 服務接口
-  // 返回意圖清單示例
-  if (message.match(/(预订|订房|预约)/)) return ['booking'];
-  if (message.match(/(查询|了解|价格)/)) return ['inquiry'];
-  // ...更多判斷
-  return ['general_inquiry'];
+function getOrCreateSession(sessionId) {
+  if (!sessions.has(sessionId)) {
+    sessions.set(sessionId, {
+      step: 'init',
+      data: {},
+      createdAt: new Date().toISOString(),
+      lastActive: new Date().toISOString()
+    });
+  }
+  const session = sessions.get(sessionId);
+  session.lastActive = new Date().toISOString();
+  return session;
 }
 
+// ==================== 價格計算服務 ====================
+const pricingService = {
+  calculateRoomPrice(roomType, nights = 1, guestCount = 2, memberLevel = 'none') {
+    const rates = { standard: 2200, deluxe: 2800, suite: 4500 };
+    const basePrice = (rates[roomType] || rates.standard) * nights;
+    const extraGuestFee = guestCount > 2 ? (guestCount - 2) * 500 * nights : 0;
+    
+    const discountRates = { none: 0, silver: 0.05, gold: 0.1, platinum: 0.15 };
+    const discount = discountRates[memberLevel] || 0;
+    const discountAmount = basePrice * discount;
+    
+    const subtotal = basePrice + extraGuestFee;
+    const totalPrice = subtotal - discountAmount;
+
+    return {
+      basePrice,
+      extraGuestFee,
+      subtotal,
+      discountRate: discount * 100,
+      discountAmount,
+      totalPrice,
+      currency: 'TWD'
+    };
+  }
+};
+
+// ==================== 需求檢測服務 ====================
 class RequirementDetector {
   static async detectAllRequirements(message) {
-    const mlIntents = await mlIntentRecognition(message);
-
     return {
       symbolCount: {
         count: (message.match(/[.!?,;:!！？，；：]/g) || []).length,
-        level: this.analyzeSymbolDensity(message)
+        level: 'normal'
       },
       accessible: {
-        required: /(无障碍|残障|轮椅|行动不便|残疾人|无障碍设施|坡道|扶手)/i.test(message),
-        urgency: this.detectAccessibilityUrgency(message),
-        type: this.detectAccessibilityType(message)
+        required: /(无障碍|残障|轮椅|行动不便)/i.test(message)
       },
-      vegetarian: {
-        required: /(素食|不吃肉|蔬菜|素食主义|全素|蛋奶素| vegan|vegetarian)/i.test(message),
-        type: this.detectVegetarianType(message),
-        strictness: this.detectDietStrictness(message)
+      family: {
+        children: /(小孩|儿童|孩子|小朋友|婴儿)/i.test(message),
+        extraBed: /(加床|婴儿床)/i.test(message)
       },
-      special: {
-        allergy: this.detectAllergies(message),
-        religious: this.detectReligiousNeeds(message),
-        medical: this.detectMedicalNeeds(message)
-      },
-      intent: mlIntents,
-      sentiment: this.analyzeSentiment(message)
-    };
-  }
-
-  // 其他輔助方法保持不變
-  static analyzeSymbolDensity(message) {
-    const density = (message.match(/[.!?,;:!！？，；：]/g) || []).length / message.length;
-    if (density > 0.1) return 'high';
-    if (density > 0.05) return 'medium';
-    return 'low';
-  }
-
-  static detectAccessibilityUrgency(message) {
-    if (/(紧急|急需|马上|立刻)/i.test(message)) return 'urgent';
-    return 'normal';
-  }
-
-  static detectAccessibilityType(message) {
-    const types = ['轮椅', '坡道', '无障碍设施', '扶手'];
-    for (const type of types) {
-      if (new RegExp(type, 'i').test(message)) return type;
-    }
-    return null;
-  }
-
-  static detectVegetarianType(message) {
-    if (/(全素|vegan)/i.test(message)) return 'vegan';
-    if (/(蛋奶素|vegetarian)/i.test(message)) return 'vegetarian';
-    return null;
-  }
-
-  static detectDietStrictness(message) {
-    if (/(严格|严禁)/i.test(message)) return 'strict';
-    return 'normal';
-  }
-
-  static detectAllergies(message) {
-    const allergies = [];
-    if (/花生/i.test(message)) allergies.push('peanut');
-    if (/海鲜|海產/i.test(message)) allergies.push('seafood');
-    return allergies.length > 0 ? allergies : null;
-  }
-
-  static detectReligiousNeeds(message) {
-    if (/清真|穆斯林/i.test(message)) return 'halal';
-    if (/犹太/i.test(message)) return 'kosher';
-    return null;
-  }
-
-  static detectMedicalNeeds(message) {
-    if (/糖尿病/i.test(message)) return 'diabetes';
-    if (/高血压/i.test(message)) return 'hypertension';
-    return null;
-  }
-
-  static analyzeSentiment(message) {
-    if (/(好|赞|满意|喜欢)/i.test(message)) return 'positive';
-    if (/(差|抱怨|不满|失望)/i.test(message)) return 'negative';
-    return 'neutral';
-  }
-}
-
-class ResponseGenerator {
-  static generateResponse(message, requirements) {
-    // 先檢查智能問答
-    const qaAnswer = QAService.handleQuestion(message);
-    if (qaAnswer) {
-      return {
-        fullResponse: qaAnswer,
-        mainResponse: qaAnswer,
-        specialNeeds: [],
-        followUp: ['請問還有其他問題嗎？'],
-        metadata: {
-          requirementsDetected: ['qa_service'],
-          priority: 'normal',
-          responseType: 'qa'
-        }
-      };
-    }
-
-    // 原有邏輯保持不變
-    let mainResponse = "感謝您的詢問，我們會盡快處理您的需求。";
-    let specialNeeds = [];
-    let followUp = [];
-
-    if (requirements.accessible.required) {
-      specialNeeds.push('無障礙需求');
-    }
-    if (requirements.vegetarian.required) {
-      specialNeeds.push('素食需求');
-    }
-    if (requirements.special.allergy && requirements.special.allergy.length > 0) {
-      specialNeeds.push(`過敏原：${requirements.special.allergy.join(', ')}`);
-    }
-
-    if (requirements.intent.includes('booking')) {
-      mainResponse = "請提供入住日期和房型，我們協助您完成預訂。";
-    } else if (requirements.intent.includes('inquiry')) {
-      mainResponse = "請問您想了解哪些服務或價格資訊？";
-    }
-
-    if (requirements.symbolCount.level === 'high') {
-      followUp.push("您的訊息較長，請確認是否需要分段說明。");
-    }
-
-    return {
-      fullResponse: [mainResponse, specialNeeds.join('; ')].filter(Boolean).join('\n'),
-      mainResponse,
-      specialNeeds,
-      followUp,
-      metadata: {
-        requirementsDetected: Object.keys(requirements),
-        priority: requirements.accessible.urgency === 'urgent' ? 'high' : 'normal',
-        responseType: 'requirement_based'
+      service: {
+        parking: /(停车|车位)/i.test(message),
+        breakfast: /(早餐|用餐)/i.test(message)
       }
     };
   }
 }
 
-// ==================== 路由處理保持不變 ====================
+// ==================== 回應生成器 - 重構版 ====================
+class ResponseGenerator {
+  static generateResponse(message, session) {
+    const lowerMessage = message.toLowerCase();
+    let reply = '';
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
+    switch (session.step) {
+      case 'init':
+        // ========== 優先處理複雜多需求情境 ==========
+        
+        // 1. 家庭旅遊複雜需求
+        if (/(\d+).*大人.*(\d+).*小孩|家庭|嬰兒|老人|長者|加床|公園|餐廳|停車/.test(lowerMessage)) {
+          const adultMatch = message.match(/(\d+).*大人/);
+          const childMatch = message.match(/(\d+).*小孩/);
+          const adultCount = adultMatch ? parseInt(adultMatch[1]) : 2;
+          const childCount = childMatch ? parseInt(childMatch[1]) : 0;
+          
+          reply = `🎉 歡迎家庭旅遊！已了解您的需求：\n\n` +
+                  `👨‍👩‍👧‍👦 家庭成員：\n` +
+                  `• ${adultCount}位大人${childCount > 0 ? ` + ${childCount}位小孩` : ''}\n\n` +
+                  `💰 相關優惠說明：\n` +
+                  `• 兒童政策：6歲以下免費，6-12歲每晚300 TWD\n` +
+                  `• 長者優惠：65歲以上房價9折\n` +
+                  `• 加床服務：500 TWD/晚\n` +
+                  `• 家庭房推薦：可容納2大2小，更舒適\n\n` +
+                  `🏞️ 周邊設施：\n` +
+                  `• 公園：大安森林公園（200m）\n` +
+                  `• 餐廳：鼎泰豐、林東芳牛肉麵\n` +
+                  `• 停車：免費地下停車場\n\n` +
+                  `📋 建議選擇「家庭房」或「相連客房」\n` +
+                  `是否需要為您開始訂房流程？`;
+          session.step = 'room';
+        
+        // 2. 團體訂房需求
+        } else if (/(\d+).*間|團體|多人|公司|企業|團體優惠/.test(lowerMessage)) {
+          const roomMatch = message.match(/(\d+).*間/);
+          const roomCount = roomMatch ? parseInt(roomMatch[1]) : 1;
+          
+          reply = `🎉 團體訂房專屬優惠！\n\n` +
+                  `🏨 ${roomCount}間房間優惠：\n` +
+                  `• 3-5間：房價95折\n` +
+                  `• 6-10間：房價9折 + 免費接駁\n` +
+                  `• 11間以上：房價85折 + 免費會議室\n\n` +
+                  `請提供入住日期開始訂房流程！`;
+          session.step = 'date';
+        
+        // 3. 長住優惠需求
+        } else if (/(\d+).*晚|長住|長期|月租|住.*月/.test(lowerMessage)) {
+          const nightMatch = message.match(/(\d+).*晚/);
+          const nights = nightMatch ? parseInt(nightMatch[1]) : 1;
+          
+          let longStayDiscount = '';
+          if (nights >= 7) longStayDiscount = '• 住7晚以上：房價9折\n';
+          if (nights >= 14) longStayDiscount = '• 住14晚以上：房價85折\n';
+          if (nights >= 30) longStayDiscount = '• 住30晚以上：房價7折 + 免費洗衣服務\n';
+          
+          reply = `🏠 長住優惠資訊：\n\n` +
+                  `📅 住宿${nights}晚優惠：\n` +
+                  longStayDiscount +
+                  `\n🎁 長住額外服務：\n` +
+                  `• 每周房間清潔\n` +
+                  `• 免費mini bar補充\n` +
+                  `• 專屬長住客服\n\n` +
+                  `請選擇房型開始預訂！`;
+          session.step = 'room';
+        
+        // 4. 標準流程
+        } else if (/訂房|預訂|預定|訂房間|我要訂|想訂/.test(lowerMessage)) {
+          session.step = 'room';
+          reply = '🏨 歡迎使用 AI 訂房助理！請問需要哪種房型？（標準雙人房/豪華雙人房/套房）';
+        
+        } else if (/取消|取消訂單|取消預訂|退訂/.test(lowerMessage)) {
+          session.step = 'cancel_init';
+          reply = '請問您要取消哪筆訂單？請提供訂單編號。';
+        
+        } else if (/會員|優惠|折扣|促銷/.test(lowerMessage)) {
+          const qaAnswer = QAService.handleQuestion(message);
+          reply = qaAnswer || '我們提供金卡、銀卡會員優惠，請問您想了解哪種會員權益？';
+        
+        } else if (/附近|周邊|景點|好玩|旅遊|觀光/.test(lowerMessage)) {
+          reply = '🏞️ 附近推薦景點：\n' +
+                  '• 鼎泰豐 (150m) - 知名小籠包\n' +
+                  '• 新光三越 (100m) - 購物中心\n' +
+                  '• 大安森林公園 (200m) - 自然景觀\n\n' +
+                  '需要詳細資訊嗎？';
+        
+        } else {
+          const qaAnswer = QAService.handleQuestion(message);
+          reply = qaAnswer || '您好！請問需要什麼服務？例如：訂房、查詢價格、取消訂單、會員服務、附近景點查詢等等。';
+        }
+        break;
+
+      case 'room':
+        if (/標準|豪華|套房/.test(lowerMessage)) {
+          const roomMap = { '標準': 'standard', '豪華': 'deluxe', '套房': 'suite' };
+          const matchedKey = Object.keys(roomMap).find(k => lowerMessage.includes(k));
+          session.data.roomType = roomMap[matchedKey] || 'standard';
+          session.step = 'date';
+          reply = `您選擇的是 ${matchedKey} 房型。請告訴我入住日期（格式：YYYY-MM-DD）`;
+        } else {
+          reply = '請選擇有效的房型：標準雙人房、豪華雙人房或套房。';
+        }
+        break;
+
+      case 'date':
+        if (dateRegex.test(message)) {
+          session.data.checkInDate = message;
+          session.step = 'nights';
+          reply = '入住日期已記錄。請問您要入住幾晚？';
+        } else {
+          reply = '請輸入正確格式的入住日期，例如 2024-12-25。';
+        }
+        break;
+
+      case 'nights':
+        const nights = parseInt(message);
+        if (nights > 0 && nights <= 30) {
+          session.data.nights = nights;
+          session.step = 'guests';
+          reply = `已設定住宿 ${nights} 晚！請問有幾位旅客？`;
+        } else {
+          reply = '請輸入有效的住宿天數（1-30天）';
+        }
+        break;
+
+      case 'guests':
+        const guests = parseInt(message);
+        if (guests > 0 && guests <= 6) {
+          session.data.guestCount = guests;
+          session.step = 'confirm';
+          
+          // 計算總價
+          const priceResult = pricingService.calculateRoomPrice(
+            session.data.roomType, 
+            session.data.nights, 
+            session.data.guestCount
+          );
+          
+          session.data.totalPrice = priceResult.totalPrice;
+          session.data.priceDetail = priceResult;
+          
+          reply = `👥 旅客數: ${guests} 位\n\n` +
+                  `📋 訂房摘要：\n` +
+                  `• 房型: ${session.data.roomType === 'standard' ? '標準雙人房' : session.data.roomType === 'deluxe' ? '豪華雙人房' : '套房'}\n` +
+                  `• 入住: ${session.data.checkInDate}\n` +
+                  `• 住宿: ${session.data.nights} 晚\n` +
+                  `• 旅客: ${session.data.guestCount} 位\n` +
+                  `• 總價: ${session.data.totalPrice} TWD\n\n` +
+                  `請回覆「確認」完成訂房，或「取消」重新開始。`;
+        } else {
+          reply = '請輸入有效的旅客人數（1-6位）';
+        }
+        break;
+
+      case 'confirm':
+        if (/確認|是的|確定|ok|yes|完成訂房/.test(lowerMessage)) {
+          // 創建訂單
+          const bookingId = 'BKG-' + Date.now();
+          session.data.bookingId = bookingId;
+          session.step = 'completed';
+          
+          reply = `🎉 訂房成功！\n\n` +
+                  `📄 訂單編號: ${bookingId}\n` +
+                  `• 房型: ${session.data.roomType === 'standard' ? '標準雙人房' : session.data.roomType === 'deluxe' ? '豪華雙人房' : '套房'}\n` +
+                  `• 入住: ${session.data.checkInDate}\n` +
+                  `• 住宿: ${session.data.nights} 晚\n` +
+                  `• 旅客: ${session.data.guestCount} 位\n` +
+                  `• 總價: ${session.data.totalPrice} TWD\n\n` +
+                  `感謝您的預訂！需要其他服務嗎？`;
+        } else if (/取消|不要了|重新開始/.test(lowerMessage)) {
+          session.step = 'init';
+          session.data = {};
+          reply = '訂房已取消。請問需要什麼其他服務？';
+        } else {
+          // 在確認階段也處理問答
+          const qaAnswer = QAService.handleQuestion(message, session.data);
+          if (qaAnswer) {
+            reply = qaAnswer + '\n\n📋 您的訂房摘要：\n' +
+              `• 房型: ${session.data.roomType === 'standard' ? '標準雙人房' : session.data.roomType === 'deluxe' ? '豪華雙人房' : '套房'}\n` +
+              `• 入住: ${session.data.checkInDate}\n` +
+              `• 住宿: ${session.data.nights} 晚\n` +
+              `• 旅客: ${session.data.guestCount} 位\n` +
+              `• 總價: ${session.data.totalPrice} TWD\n\n` +
+              `請回覆「確認」完成訂房，或「取消」重新開始。`;
+          } else {
+            reply = '請回覆「確認」完成訂房，或「取消」重新開始。';
+          }
+        }
+        break;
+
+      default:
+        session.step = 'init';
+        reply = '會話已重置。請問需要什麼服務？';
+        break;
+    }
+
+    return {
+      reply,
+      step: session.step,
+      sessionData: session.data
+    };
+  }
+}
+
+// ==================== 路由處理 ====================
 router.post('/chat', async (req, res) => {
   try {
     const { message, sessionId = 'default' } = req.body;
@@ -272,39 +415,31 @@ router.post('/chat', async (req, res) => {
 
     console.log('收到消息:', message);
 
+    const session = getOrCreateSession(sessionId);
     const requirements = await RequirementDetector.detectAllRequirements(message);
-    console.log('检测到需求:', JSON.stringify(requirements, null, 2));
-
-    const response = ResponseGenerator.generateResponse(message, requirements);
+    const response = ResponseGenerator.generateResponse(message, session);
 
     console.log('Chat Request:', {
       sessionId,
       message,
-      requirementsDetected: response.metadata.requirementsDetected,
-      priority: response.metadata.priority,
-      responseType: response.metadata.responseType
+      step: session.step,
+      requirements: requirements.family.children ? '有兒童需求' : '無特殊需求'
     });
 
     res.json({
       success: true,
-      response: response.fullResponse,
-      detailedResponse: {
-        main: response.mainResponse,
-        specialNeeds: response.specialNeeds,
-        followUpQuestions: response.followUp
-      },
-      requirements: {
-        symbolCount: requirements.symbolCount.count,
-        accessible: requirements.accessible.required,
-        vegetarian: requirements.vegetarian.required,
-        allergies: requirements.special.allergy,
-        urgent: requirements.accessible.urgency === 'urgent'
-      },
-      metadata: {
-        ...response.metadata,
-        timestamp: new Date().toISOString(),
-        sessionId
-      }
+      reply: response.reply,
+      sessionId: sessionId,
+      step: response.step,
+      requirements: requirements.family.children ? {
+        summary: {
+          hasSpecialRequirements: true,
+          mainPoints: ['兒童相關'],
+          requirementCount: 1
+        },
+        details: requirements
+      } : null,
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {
@@ -319,20 +454,38 @@ router.post('/chat', async (req, res) => {
 router.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    version: '3.1', // 版本更新
+    version: '4.0',
     timestamp: new Date().toISOString(),
     features: [
-      'symbol_count_detection',
-      'accessibility_need_detection', 
-      'vegetarian_detection',
-      'allergy_detection',
-      'religious_diet_detection',
-      'medical_diet_detection',
-      'sentiment_analysis',
-      'intent_recognition (ML integration)',
-      'smart_qa_service' // 新增功能
-    ]
+      'smart_qa_service',
+      'booking_workflow', 
+      'family_travel_detection',
+      'group_booking_detection',
+      'long_stay_detection',
+      'requirement_analysis',
+      'session_management'
+    ],
+    activeSessions: sessions.size
   });
 });
+
+// 清理過期會話
+setInterval(() => {
+  const now = new Date();
+  const expirationTime = 30 * 60 * 1000; // 30分鐘
+  let cleanedCount = 0;
+  
+  for (const [sessionId, session] of sessions.entries()) {
+    const sessionTime = new Date(session.lastActive);
+    if (now - sessionTime > expirationTime) {
+      sessions.delete(sessionId);
+      cleanedCount++;
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`🗑️ 清理了 ${cleanedCount} 個過期會話`);
+  }
+}, 60 * 60 * 1000); // 每小時清理一次
 
 module.exports = router;
