@@ -307,34 +307,51 @@ class RequirementDetector {
   }
 }
 
-// ==================== 回應生成器 - 重構版 ====================
+// ==================== 回應生成器 - 修復完整版 ====================
 class ResponseGenerator {
   static generateResponse(message, session) {
     const lowerMessage = message.toLowerCase();
     let reply = '';
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
+    console.log(`🔍 [DEBUG] 當前步驟: ${session.step}, 訊息: "${message}"`);
+
     switch (session.step) {
       case 'init':
+        // 先檢查是否為直接訂房指令（最高優先級）
+        if (/標準|豪華|套房/.test(lowerMessage)) {
+          const roomMap = { '標準': 'standard', '豪華': 'deluxe', '套房': 'suite' };
+          const matchedKey = Object.keys(roomMap).find(k => lowerMessage.includes(k));
+          session.data.roomType = roomMap[matchedKey] || 'standard';
+          session.step = 'date';
+          reply = `🏨 您選擇的是 ${matchedKey} 房型。請告訴我入住日期（格式：YYYY-MM-DD）`;
+          break;
+        }
+
+        // 然後處理智能問答
         const qaAnswer = QAService.handleQuestion(message);
         if (qaAnswer) {
           reply = qaAnswer;
           break;
         }
+
+        // 處理其他初始意圖
         if (/附近|周邊|景點|好玩|旅遊|觀光/.test(lowerMessage)) {
           reply = '🏞️ 附近推薦景點：\n' +
                   '• 鼎泰豐 (150m) - 知名小籠包\n' +
                   '• 新光三越 (100m) - 購物中心\n' +
                   '• 大安森林公園 (200m) - 自然景觀\n\n' +
                   '需要詳細資訊嗎？';
-          session.step = 'attractions_init';
           break;
         }
+
         if (/訂房|預訂|預定|訂房間|我要訂|想訂/.test(lowerMessage)) {
           session.step = 'room';
           reply = '🏨 歡迎使用 AI 訂房助理！請問需要哪種房型？（標準雙人房/豪華雙人房/套房）';
           break;
         }
+
+        // 默認回應
         reply = '您好！請問需要什麼服務？例如：訂房、查詢價格、取消訂單、會員服務、附近景點查詢等等。';
         break;
 
@@ -346,7 +363,13 @@ class ResponseGenerator {
           session.step = 'date';
           reply = `您選擇的是 ${matchedKey} 房型。請告訴我入住日期（格式：YYYY-MM-DD）`;
         } else {
-          reply = '請選擇有效的房型：標準雙人房、豪華雙人房或套房。';
+          // 在房型選擇階段也允許問答
+          const qaAnswer = QAService.handleQuestion(message);
+          if (qaAnswer) {
+            reply = qaAnswer + '\n\n🏨 請選擇房型：標準雙人房、豪華雙人房或套房';
+          } else {
+            reply = '請選擇有效的房型：標準雙人房、豪華雙人房或套房。';
+          }
         }
         break;
 
@@ -354,9 +377,15 @@ class ResponseGenerator {
         if (dateRegex.test(message)) {
           session.data.checkInDate = message;
           session.step = 'nights';
-          reply = '入住日期已記錄。請問您要入住幾晚？';
+          reply = '📅 入住日期已記錄。請問您要入住幾晚？';
         } else {
-          reply = '請輸入正確格式的入住日期，例如 2024-12-25。';
+          // 在日期輸入階段也允許問答
+          const qaAnswer = QAService.handleQuestion(message);
+          if (qaAnswer) {
+            reply = qaAnswer + '\n\n📅 請輸入入住日期（格式：YYYY-MM-DD）';
+          } else {
+            reply = '請輸入正確格式的入住日期，例如 2024-12-25。';
+          }
         }
         break;
 
@@ -365,9 +394,15 @@ class ResponseGenerator {
         if (nights > 0 && nights <= 30) {
           session.data.nights = nights;
           session.step = 'guests';
-          reply = `已設定住宿 ${nights} 晚！請問有幾位旅客？`;
+          reply = `📆 已設定住宿 ${nights} 晚！請問有幾位旅客？`;
         } else {
-          reply = '請輸入有效的住宿天數（1-30天）';
+          // 在天數輸入階段也允許問答
+          const qaAnswer = QAService.handleQuestion(message);
+          if (qaAnswer) {
+            reply = qaAnswer + '\n\n📆 請輸入住宿天數（1-30天）';
+          } else {
+            reply = '請輸入有效的住宿天數（1-30天）';
+          }
         }
         break;
 
@@ -379,18 +414,27 @@ class ResponseGenerator {
           const priceResult = pricingService.calculateRoomPrice(
             session.data.roomType, 
             session.data.nights, 
-            session.data.guestCount);
+            session.data.guestCount
+          );
           session.data.totalPrice = priceResult.totalPrice;
+          session.data.priceDetail = priceResult;
+          
           reply = `👥 旅客數: ${guests} 位\n\n` +
                   `📋 訂房摘要：\n` +
-                  `• 房型: ${session.data.roomType === 'standard' ? '標準雙人房' : session.data.roomType === 'deluxe' ? '豪華雙人房' : '套房'}\n` +
+                  `• 房型: ${this.getRoomTypeName(session.data.roomType)}\n` +
                   `• 入住: ${session.data.checkInDate}\n` +
                   `• 住宿: ${session.data.nights} 晚\n` +
                   `• 旅客: ${session.data.guestCount} 位\n` +
                   `• 總價: ${session.data.totalPrice} TWD\n\n` +
                   `請回覆「確認」完成訂房，或「取消」重新開始。`;
         } else {
-          reply = '請輸入有效的旅客人數（1-6位）';
+          // 在旅客人數階段也允許問答
+          const qaAnswer = QAService.handleQuestion(message);
+          if (qaAnswer) {
+            reply = qaAnswer + '\n\n👥 請輸入旅客人數（1-6位）';
+          } else {
+            reply = '請輸入有效的旅客人數（1-6位）';
+          }
         }
         break;
 
@@ -399,9 +443,10 @@ class ResponseGenerator {
           const bookingId = 'BKG-' + Date.now();
           session.data.bookingId = bookingId;
           session.step = 'completed';
+          
           reply = `🎉 訂房成功！\n\n` +
                   `📄 訂單編號: ${bookingId}\n` +
-                  `• 房型: ${session.data.roomType === 'standard' ? '標準雙人房' : session.data.roomType === 'deluxe' ? '豪華雙人房' : '套房'}\n` +
+                  `• 房型: ${this.getRoomTypeName(session.data.roomType)}\n` +
                   `• 入住: ${session.data.checkInDate}\n` +
                   `• 住宿: ${session.data.nights} 晚\n` +
                   `• 旅客: ${session.data.guestCount} 位\n` +
@@ -412,10 +457,11 @@ class ResponseGenerator {
           session.data = {};
           reply = '訂房已取消。請問需要什麼其他服務？';
         } else {
+          // 在確認階段處理問答
           const qaAnswer = QAService.handleQuestion(message, session.data);
           if (qaAnswer) {
             reply = qaAnswer + '\n\n📋 您的訂房摘要：\n' +
-              `• 房型: ${session.data.roomType === 'standard' ? '標準雙人房' : session.data.roomType === 'deluxe' ? '豪華雙人房' : '套房'}\n` +
+              `• 房型: ${this.getRoomTypeName(session.data.roomType)}\n` +
               `• 入住: ${session.data.checkInDate}\n` +
               `• 住宿: ${session.data.nights} 晚\n` +
               `• 旅客: ${session.data.guestCount} 位\n` +
@@ -427,16 +473,42 @@ class ResponseGenerator {
         }
         break;
 
+      case 'completed':
+        // 訂房完成後的問答
+        const qaAnswer = QAService.handleQuestion(message);
+        if (qaAnswer) {
+          reply = qaAnswer + '\n\n您的訂房已完成，還有其他需要協助的嗎？';
+        } else if (/訂房|再訂|還要訂/.test(lowerMessage)) {
+          session.step = 'room';
+          session.data = {};
+          reply = '🏨 歡迎再次訂房！請問需要哪種房型？（標準雙人房/豪華雙人房/套房）';
+        } else {
+          reply = '您的訂房已完成！還有其他需要協助的嗎？';
+        }
+        break;
+
       default:
         session.step = 'init';
         reply = '會話已重置。請問需要什麼服務？';
         break;
     }
+
+    console.log(`💬 [DEBUG] 回應步驟: ${session.step}, 回應長度: ${reply.length}`);
     return {
       reply,
       step: session.step,
       sessionData: session.data
     };
+  }
+
+  // 輔助方法：獲取房型中文名稱
+  static getRoomTypeName(roomType) {
+    const roomNames = {
+      'standard': '標準雙人房',
+      'deluxe': '豪華雙人房', 
+      'suite': '套房'
+    };
+    return roomNames[roomType] || roomType;
   }
 }
 
@@ -452,14 +524,14 @@ router.post('/chat', async (req, res) => {
       });
     }
 
-    console.log('收到消息:', message);
+    console.log('📩 收到消息:', message, 'sessionId:', sessionId);
 
     const session = getOrCreateSession(sessionId);
 
     const requirements = await RequirementDetector.detectAllRequirements(message);
     const response = ResponseGenerator.generateResponse(message, session);
 
-    console.log('Chat Request:', {
+    console.log('📊 Chat Request:', {
       sessionId,
       message,
       step: session.step,
@@ -483,12 +555,50 @@ router.post('/chat', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Chat service error:', error);
+    console.error('❌ Chat service error:', error);
     res.status(500).json({
       error: '处理您的请求时出现错误',
       suggestion: '请稍后重试或联系客服'
     });
   }
 });
+
+// 健康檢查端點
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    version: '4.1',
+    timestamp: new Date().toISOString(),
+    activeSessions: sessions.size,
+    features: [
+      'smart_qa_service',
+      'booking_workflow', 
+      'family_travel_detection',
+      'group_booking_detection',
+      'long_stay_detection',
+      'requirement_analysis',
+      'session_management'
+    ]
+  });
+});
+
+// 清理過期會話
+setInterval(() => {
+  const now = new Date();
+  const expirationTime = 30 * 60 * 1000; // 30分鐘
+  let cleanedCount = 0;
+  
+  for (const [sessionId, session] of sessions.entries()) {
+    const sessionTime = new Date(session.lastActive);
+    if (now - sessionTime > expirationTime) {
+      sessions.delete(sessionId);
+      cleanedCount++;
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`🗑️ 清理了 ${cleanedCount} 個過期會話`);
+  }
+}, 60 * 60 * 1000); // 每小時清理一次
 
 module.exports = router;
