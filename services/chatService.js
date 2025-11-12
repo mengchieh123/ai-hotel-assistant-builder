@@ -40,7 +40,7 @@ class RequirementDetector {
     };
   }
 
-  // 其它函式保持不變，略...
+  // 其他輔助方法保持不變，省略...
 
   static analyzeSymbolDensity(message) {
     const density = (message.match(/[.!?,;:!！？，；：]/g) || []).length / message.length;
@@ -48,16 +48,106 @@ class RequirementDetector {
     if (density > 0.05) return 'medium';
     return 'low';
   }
-  // ...略，保留原本所有方法...
-}
 
-// ResponseGenerator 保持不變，直接用之前版本
+  static detectAccessibilityUrgency(message) {
+    // 範例實作（具體實作依需求調整）
+    if (/(紧急|急需|马上|立刻)/i.test(message)) return 'urgent';
+    return 'normal';
+  }
+
+  static detectAccessibilityType(message) {
+    // 範例實作
+    const types = ['轮椅', '坡道', '无障碍设施', '扶手'];
+    for (const type of types) {
+      if (new RegExp(type, 'i').test(message)) return type;
+    }
+    return null;
+  }
+
+  static detectVegetarianType(message) {
+    // 範例判斷
+    if (/(全素|vegan)/i.test(message)) return 'vegan';
+    if (/(蛋奶素|vegetarian)/i.test(message)) return 'vegetarian';
+    return null;
+  }
+
+  static detectDietStrictness(message) {
+    // 範例判斷
+    if (/(严格|严禁)/i.test(message)) return 'strict';
+    return 'normal';
+  }
+
+  static detectAllergies(message) {
+    // 假設偵測花生、海鮮過敏
+    const allergies = [];
+    if (/花生/i.test(message)) allergies.push('peanut');
+    if (/海鲜|海產/i.test(message)) allergies.push('seafood');
+    return allergies.length > 0 ? allergies : null;
+  }
+
+  static detectReligiousNeeds(message) {
+    // 範例判斷
+    if (/清真|穆斯林/i.test(message)) return 'halal';
+    if (/犹太/i.test(message)) return 'kosher';
+    return null;
+  }
+
+  static detectMedicalNeeds(message) {
+    // 範例判斷
+    if (/糖尿病/i.test(message)) return 'diabetes';
+    if (/高血压/i.test(message)) return 'hypertension';
+    return null;
+  }
+
+  static analyzeSentiment(message) {
+    // 簡單正向/負向判斷示例
+    if (/(好|赞|满意|喜欢)/i.test(message)) return 'positive';
+    if (/(差|抱怨|不满|失望)/i.test(message)) return 'negative';
+    return 'neutral';
+  }
+}
 
 class ResponseGenerator {
-  // ...同您先前版本，无改动...
+  static generateResponse(message, requirements) {
+    // 此處是占位範例，請依具體需求編寫回覆邏輯
+    let mainResponse = "感謝您的詢問，我們會盡快處理您的需求。";
+    let specialNeeds = [];
+    let followUp = [];
+
+    if (requirements.accessible.required) {
+      specialNeeds.push('無障礙需求');
+    }
+    if (requirements.vegetarian.required) {
+      specialNeeds.push('素食需求');
+    }
+    if (requirements.special.allergy && requirements.special.allergy.length > 0) {
+      specialNeeds.push(`過敏原：${requirements.special.allergy.join(', ')}`);
+    }
+
+    if (requirements.intent.includes('booking')) {
+      mainResponse = "請提供入住日期和房型，我們協助您完成預訂。";
+    } else if (requirements.intent.includes('inquiry')) {
+      mainResponse = "請問您想了解哪些服務或價格資訊？";
+    }
+
+    // 假如符號密度高，提示分句清楚
+    if (requirements.symbolCount.level === 'high') {
+      followUp.push("您的訊息較長，請確認是否需要分段說明。");
+    }
+
+    return {
+      fullResponse: [mainResponse, specialNeeds.join('; ')].filter(Boolean).join('\n'),
+      mainResponse,
+      specialNeeds,
+      followUp,
+      metadata: {
+        requirementsDetected: Object.keys(requirements),
+        priority: requirements.accessible.urgency === 'urgent' ? 'high' : 'normal'
+      }
+    };
+  }
 }
 
-// 入口 POST /chat 路由
 router.post('/chat', async (req, res) => {
   try {
     const { message, sessionId = 'default' } = req.body;
@@ -68,17 +158,14 @@ router.post('/chat', async (req, res) => {
         suggestion: '请提供您的查询或需求'
       });
     }
-    
+
     console.log('收到消息:', message);
 
-    // 异步调用高级需求检测，整合 ML 意图识别
     const requirements = await RequirementDetector.detectAllRequirements(message);
     console.log('检测到需求:', JSON.stringify(requirements, null, 2));
 
-    // 生成响应
     const response = ResponseGenerator.generateResponse(message, requirements);
 
-    // 日志记录
     console.log('Chat Request:', {
       sessionId,
       message,
@@ -124,7 +211,7 @@ router.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     features: [
       'symbol_count_detection',
-      'accessibility_need_detection', 
+      'accessibility_need_detection',
       'vegetarian_detection',
       'allergy_detection',
       'religious_diet_detection',
