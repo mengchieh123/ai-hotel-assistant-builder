@@ -1,52 +1,17 @@
-{
-  "states": {
-    "init": {
-      "prompt": "您好，歡迎使用 AI 訂房助理！請問您需要什麼幫助？",
-      "intents": {
-        "book_room": "check_booking_details",
-        "ask_promotion": "handle_promotion_query",
-        "general_inquiry": "handle_general_inquiry"
-      },
-      "fallback": "抱歉，我沒聽懂您的意思，可以再說一次嗎？"
-    },
-    "check_booking_details": {
-      "prompt": "請問您打算訂多少間房間，入住多久？",
-      "entities": ["room_count", "stay_duration"],
-      "next_state": "additional_requirements",
-      "fallback": "抱歉，請提供房間數量與住宿天數。"
-    },
-    "additional_requirements": {
-      "prompt": "請問您有什麼特別需求嗎？比如會議室、健身房等設施。",
-      "entities": ["meeting_room", "gym"],
-      "next_state": "confirm_booking",
-      "fallback": "請說明您的特殊需求，例如會議室或健身房。"
-    },
-    "confirm_booking": {
-      "prompt": "您訂了 {room_count} 間房，入住 {stay_duration} 天，需求包含 {meeting_room} 和 {gym}，請問是否確認訂房？",
-      "intents": {
-        "confirm": "finalize_booking",
-        "cancel": "init"
-      },
-      "fallback": "請回答確認或取消。"
-    },
-    "handle_promotion_query": {
-      "prompt": "請問您想了解哪一類優惠？長者優惠、企業優惠或其他？",
-      "entities": ["promotion_type"],
-      "next_state": "provide_promotion_info",
-      "fallback": "請說明您想了解的優惠種類。"
-    },
-    "provide_promotion_info": {
-      "action": "fetch_promotion_details",
-      "next_state": "init"
-    },
-    "finalize_booking": {
-      "action": "process_booking",
-      "prompt": "感謝您的訂房，您的訂單已確認！",
-      "next_state": "init"
-    },
-    "handle_general_inquiry": {
-      "action": "answer_general_questions",
-      "next_state": "init"
-    }
-  }
-}
+"init": {
+  "prompt": "您好，歡迎使用 AI 訂房助理！請問您需要什麼幫助？",
+  "intents": {
+    "book_room": "check_booking_details",
+    "select_room_type": "room_selection",
+    "ask_promotion": "handle_promotion_query",
+    "general_inquiry": "handle_general_inquiry"
+  },
+  "fallback": "抱歉，我沒聽懂您的意思，可以再說一次嗎？"
+},
+"room_selection": {
+  "prompt": "您選擇了房型 {roomType}，請問入住日期和住宿天數是？",
+  "entities": ["roomType", "checkInDate", "nights"],
+  "next_state": "check_booking_details",
+  "fallback": "請提供入住日期及住宿天數。"
+},
+
