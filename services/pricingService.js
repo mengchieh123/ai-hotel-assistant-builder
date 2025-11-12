@@ -1,4 +1,3 @@
-// services/pricingService.js
 class PricingService {
   constructor() {
     this.roomRates = {
@@ -22,7 +21,7 @@ class PricingService {
     };
   }
 
-  calculateRoomPrice(roomType, nights, guestCount, memberLevel = 'none') {
+  calculateRoomPrice(roomType, nights, guestCount, memberLevel = 'none', childrenCount = 0, seniorCount = 0) {
     try {
       const room = this.roomRates[roomType];
       if (!room) {
@@ -37,26 +36,41 @@ class PricingService {
         throw new Error('住宿人數至少為1人');
       }
 
+      // 基本房價
       const basePrice = room.basePrice * nights;
       
+      // 超過最大入住人數額外費用（不含小孩）
       const extraGuests = Math.max(0, guestCount - room.maxGuests);
       const extraGuestFee = extraGuests * 500 * nights;
       
-      const subtotal = basePrice + extraGuestFee;
+      // 小孩加價，每位小孩每晚300元
+      const childExtraFee = childrenCount * 300 * nights;
+
+      // 小計
+      const subtotal = basePrice + extraGuestFee + childExtraFee;
       
+      // 會員折扣
       const discountRate = this.memberDiscounts[memberLevel] || 0;
       const discountAmount = subtotal * discountRate;
       
-      const total = subtotal - discountAmount;
+      // 老人折扣，每位老人5%
+      const seniorDiscountRate = 0.05;
+      const seniorDiscountAmount = subtotal * seniorDiscountRate * seniorCount;
+
+      // 總價
+      const total = subtotal - discountAmount - seniorDiscountAmount;
 
       return {
         success: true,
         pricing: {
-          basePrice: room.basePrice * nights,
+          basePrice: basePrice,
           extraGuestFee,
+          childExtraFee,
           subtotal,
           discountRate: discountRate * 100,
           discountAmount: Math.round(discountAmount),
+          seniorDiscountRate: seniorDiscountRate * 100,
+          seniorDiscountAmount: Math.round(seniorDiscountAmount),
           totalPrice: Math.round(total),
           currency: 'TWD',
           roomName: room.name
