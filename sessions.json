@@ -1,1 +1,29 @@
-[]
+[
+  [
+    "test123",
+    {
+      "step": "init",
+      "data": {},
+      "createdAt": "2025-11-11T09:01:05.805Z",
+      "lastActive": "2025-11-11T09:01:05.805Z"
+    }
+  ],
+  [
+    "test-session-001",
+    {
+      "step": "init",
+      "data": {},
+      "createdAt": "2025-11-11T09:06:39.489Z",
+      "lastActive": "2025-11-11T09:06:39.489Z"
+    }
+  ],
+  [
+    "test-session-003",
+    {
+      "step": "init",
+      "data": {},
+      "createdAt": "2025-11-11T09:07:37.037Z",
+      "lastActive": "2025-11-11T09:07:37.037Z"
+    }
+  ]
+]
