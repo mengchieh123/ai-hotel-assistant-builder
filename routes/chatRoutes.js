@@ -307,7 +307,7 @@ class RequirementDetector {
   }
 }
 
-// ==================== 回應生成器 - 修復完整版 ====================
+// ==================== 回應生成器 - 完全修復版 ====================
 class ResponseGenerator {
   static generateResponse(message, session) {
     const lowerMessage = message.toLowerCase();
@@ -316,19 +316,23 @@ class ResponseGenerator {
 
     console.log(`🔍 [DEBUG] 當前步驟: ${session.step}, 訊息: "${message}"`);
 
+    // 在所有階段都先檢查是否為房型選擇（最高優先級）
+    if (/標準|豪華|套房/.test(lowerMessage)) {
+      const roomMap = { '標準': 'standard', '豪華': 'deluxe', '套房': 'suite' };
+      const matchedKey = Object.keys(roomMap).find(k => lowerMessage.includes(k));
+      
+      if (session.step === 'init' || session.step === 'room') {
+        session.data.roomType = roomMap[matchedKey] || 'standard';
+        session.step = 'date';
+        reply = `🏨 您選擇的是 ${matchedKey} 房型。請告訴我入住日期（格式：YYYY-MM-DD）`;
+        console.log(`✅ 直接進入房型選擇: ${matchedKey}`);
+        return { reply, step: session.step, sessionData: session.data };
+      }
+    }
+
     switch (session.step) {
       case 'init':
-        // 先檢查是否為直接訂房指令（最高優先級）
-        if (/標準|豪華|套房/.test(lowerMessage)) {
-          const roomMap = { '標準': 'standard', '豪華': 'deluxe', '套房': 'suite' };
-          const matchedKey = Object.keys(roomMap).find(k => lowerMessage.includes(k));
-          session.data.roomType = roomMap[matchedKey] || 'standard';
-          session.step = 'date';
-          reply = `🏨 您選擇的是 ${matchedKey} 房型。請告訴我入住日期（格式：YYYY-MM-DD）`;
-          break;
-        }
-
-        // 然後處理智能問答
+        // 處理智能問答
         const qaAnswer = QAService.handleQuestion(message);
         if (qaAnswer) {
           reply = qaAnswer;
@@ -356,20 +360,12 @@ class ResponseGenerator {
         break;
 
       case 'room':
-        if (/標準|豪華|套房/.test(lowerMessage)) {
-          const roomMap = { '標準': 'standard', '豪華': 'deluxe', '套房': 'suite' };
-          const matchedKey = Object.keys(roomMap).find(k => lowerMessage.includes(k));
-          session.data.roomType = roomMap[matchedKey] || 'standard';
-          session.step = 'date';
-          reply = `您選擇的是 ${matchedKey} 房型。請告訴我入住日期（格式：YYYY-MM-DD）`;
+        // 房型選擇階段的問答處理
+        const qaAnswerRoom = QAService.handleQuestion(message);
+        if (qaAnswerRoom) {
+          reply = qaAnswerRoom + '\n\n🏨 請選擇房型：標準雙人房、豪華雙人房或套房';
         } else {
-          // 在房型選擇階段也允許問答
-          const qaAnswer = QAService.handleQuestion(message);
-          if (qaAnswer) {
-            reply = qaAnswer + '\n\n🏨 請選擇房型：標準雙人房、豪華雙人房或套房';
-          } else {
-            reply = '請選擇有效的房型：標準雙人房、豪華雙人房或套房。';
-          }
+          reply = '請選擇有效的房型：標準雙人房、豪華雙人房或套房。';
         }
         break;
 
@@ -380,9 +376,9 @@ class ResponseGenerator {
           reply = '📅 入住日期已記錄。請問您要入住幾晚？';
         } else {
           // 在日期輸入階段也允許問答
-          const qaAnswer = QAService.handleQuestion(message);
-          if (qaAnswer) {
-            reply = qaAnswer + '\n\n📅 請輸入入住日期（格式：YYYY-MM-DD）';
+          const qaAnswerDate = QAService.handleQuestion(message);
+          if (qaAnswerDate) {
+            reply = qaAnswerDate + '\n\n📅 請輸入入住日期（格式：YYYY-MM-DD）';
           } else {
             reply = '請輸入正確格式的入住日期，例如 2024-12-25。';
           }
@@ -397,9 +393,9 @@ class ResponseGenerator {
           reply = `📆 已設定住宿 ${nights} 晚！請問有幾位旅客？`;
         } else {
           // 在天數輸入階段也允許問答
-          const qaAnswer = QAService.handleQuestion(message);
-          if (qaAnswer) {
-            reply = qaAnswer + '\n\n📆 請輸入住宿天數（1-30天）';
+          const qaAnswerNights = QAService.handleQuestion(message);
+          if (qaAnswerNights) {
+            reply = qaAnswerNights + '\n\n📆 請輸入住宿天數（1-30天）';
           } else {
             reply = '請輸入有效的住宿天數（1-30天）';
           }
@@ -429,9 +425,9 @@ class ResponseGenerator {
                   `請回覆「確認」完成訂房，或「取消」重新開始。`;
         } else {
           // 在旅客人數階段也允許問答
-          const qaAnswer = QAService.handleQuestion(message);
-          if (qaAnswer) {
-            reply = qaAnswer + '\n\n👥 請輸入旅客人數（1-6位）';
+          const qaAnswerGuests = QAService.handleQuestion(message);
+          if (qaAnswerGuests) {
+            reply = qaAnswerGuests + '\n\n👥 請輸入旅客人數（1-6位）';
           } else {
             reply = '請輸入有效的旅客人數（1-6位）';
           }
@@ -458,9 +454,9 @@ class ResponseGenerator {
           reply = '訂房已取消。請問需要什麼其他服務？';
         } else {
           // 在確認階段處理問答
-          const qaAnswer = QAService.handleQuestion(message, session.data);
-          if (qaAnswer) {
-            reply = qaAnswer + '\n\n📋 您的訂房摘要：\n' +
+          const qaAnswerConfirm = QAService.handleQuestion(message, session.data);
+          if (qaAnswerConfirm) {
+            reply = qaAnswerConfirm + '\n\n📋 您的訂房摘要：\n' +
               `• 房型: ${this.getRoomTypeName(session.data.roomType)}\n` +
               `• 入住: ${session.data.checkInDate}\n` +
               `• 住宿: ${session.data.nights} 晚\n` +
@@ -475,9 +471,9 @@ class ResponseGenerator {
 
       case 'completed':
         // 訂房完成後的問答
-        const qaAnswer = QAService.handleQuestion(message);
-        if (qaAnswer) {
-          reply = qaAnswer + '\n\n您的訂房已完成，還有其他需要協助的嗎？';
+        const qaAnswerCompleted = QAService.handleQuestion(message);
+        if (qaAnswerCompleted) {
+          reply = qaAnswerCompleted + '\n\n您的訂房已完成，還有其他需要協助的嗎？';
         } else if (/訂房|再訂|還要訂/.test(lowerMessage)) {
           session.step = 'room';
           session.data = {};
@@ -493,7 +489,7 @@ class ResponseGenerator {
         break;
     }
 
-    console.log(`💬 [DEBUG] 回應步驟: ${session.step}, 回應長度: ${reply.length}`);
+    console.log(`💬 [DEBUG] 回應步驟: ${session.step}, 回應: ${reply.substring(0, 100)}...`);
     return {
       reply,
       step: session.step,
@@ -567,7 +563,7 @@ router.post('/chat', async (req, res) => {
 router.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    version: '4.1',
+    version: '4.2',
     timestamp: new Date().toISOString(),
     activeSessions: sessions.size,
     features: [
