@@ -159,15 +159,6 @@ const attractionsData = {
       distance: "0.8km",
       address: "中山區八德路二段322號",
       description: "傳統牛肉麵老店，湯頭濃郁"
-    },
-    {
-      name: "阜杭豆漿",
-      type: "美食",
-      cuisine: "台灣菜", 
-      rating: 4.4,
-      distance: "1.2km",
-      address: "中正區忠孝東路一段108號",
-      description: "知名傳統早餐店，厚燒餅特別有名"
     }
   ],
   shopping: [
@@ -179,15 +170,6 @@ const attractionsData = {
       distance: "0.5km",
       address: "信義區市府路45號",
       description: "知名地標購物中心，國際精品齊全"
-    },
-    {
-      name: "新光三越信義新天地",
-      type: "購物",
-      category: "百貨公司",
-      rating: 4.5,
-      distance: "0.7km", 
-      address: "信義區松壽路9號",
-      description: "大型百貨公司，品牌眾多"
     }
   ],
   sightseeing: [
@@ -199,15 +181,6 @@ const attractionsData = {
       distance: "0.5km",
       address: "信義區市府路45號89樓",
       description: "台北地標建築，俯瞰全市美景"
-    },
-    {
-      name: "國父紀念館",
-      type: "觀光",
-      category: "文化景點",
-      rating: 4.4,
-      distance: "1.0km",
-      address: "信義區仁愛路四段505號",
-      description: "紀念國父孫中山先生，衛兵交接儀式值得一看"
     }
   ]
 };
@@ -221,13 +194,6 @@ const hotelFacilities = {
       hours: "06:00-22:00",
       description: "提供自助早餐和晚餐，可欣賞城市夜景",
       location: "頂樓"
-    },
-    {
-      name: "大廳酒吧",
-      type: "酒吧", 
-      hours: "14:00-23:00",
-      description: "提供輕食、飲料和調酒",
-      location: "一樓大廳"
     }
   ],
   recreation: [
@@ -236,20 +202,6 @@ const hotelFacilities = {
       type: "泳池",
       hours: "07:00-21:00",
       description: "25公尺溫水泳池，附設按摩池",
-      location: "三樓"
-    },
-    {
-      name: "健身中心",
-      type: "健身房",
-      hours: "24小時",
-      description: "設備齊全的健身房，有氧和重量訓練器材",
-      location: "三樓"
-    },
-    {
-      name: "三溫暖",
-      type: "水療",
-      hours: "10:00-22:00", 
-      description: "乾濕蒸氣室、烤箱",
       location: "三樓"
     }
   ],
@@ -260,20 +212,6 @@ const hotelFacilities = {
       hours: "24小時",
       description: "提供電腦、印表機、會議室租借",
       location: "二樓"
-    },
-    {
-      name: "行李寄存",
-      type: "服務",
-      hours: "24小時",
-      description: "免費行李寄存服務",
-      location: "一樓大廳"
-    },
-    {
-      name: "停車場",
-      type: "停車",
-      hours: "24小時",
-      description: "地下停車場，住客免費停車",
-      location: "地下一樓"
     }
   ]
 };
@@ -326,15 +264,13 @@ function processMessage(message, session) {
   
   // === 景點相關查詢 ===
   if (lowerMsg.includes('附近') || lowerMsg.includes('景點') || lowerMsg.includes('好玩') || 
-      lowerMsg.includes('推薦') || lowerMsg.includes('美食') || lowerMsg.includes('購物') ||
-      lowerMsg.includes('觀光')) {
+      lowerMsg.includes('推薦') || lowerMsg.includes('美食') || lowerMsg.includes('購物')) {
     return handleAttractionsQuery(lowerMsg, session);
   }
   
   // === 設施相關查詢 ===
   if (lowerMsg.includes('設施') || lowerMsg.includes('設備') || lowerMsg.includes('服務') ||
-      lowerMsg.includes('泳池') || lowerMsg.includes('健身房') || lowerMsg.includes('早餐') ||
-      lowerMsg.includes('餐廳') || lowerMsg.includes('停車')) {
+      lowerMsg.includes('泳池') || lowerMsg.includes('健身房') || lowerMsg.includes('早餐')) {
     return handleFacilitiesQuery(lowerMsg, session);
   }
   
@@ -435,18 +371,16 @@ function calculateFinalPrice(bookingData) {
   if (bookingData.nights >= 7) {
     const longStayDiscount = bookingData.nights >= 30 ? 0.3 : 
                             bookingData.nights >= 14 ? 0.2 : 0.15;
-    const discountAmount = basePrice * longStayDiscount;
-    totalPrice -= discountAmount;
-    discounts.push(`長住優惠 ${longStayDiscount * 100}% (-NT$${Math.round(discountAmount).toLocaleString()})`);
+    totalPrice *= (1 - longStayDiscount);
+    discounts.push(`長住優惠 ${longStayDiscount * 100}%`);
   }
   
   // 應用團體優惠
   if (bookingData.roomCount >= 3) {
     const groupDiscount = bookingData.roomCount >= 10 ? 0.2 :
                          bookingData.roomCount >= 5 ? 0.15 : 0.1;
-    const discountAmount = basePrice * groupDiscount;
-    totalPrice -= discountAmount;
-    discounts.push(`團體優惠 ${groupDiscount * 100}% (-NT$${Math.round(discountAmount).toLocaleString()})`);
+    totalPrice *= (1 - groupDiscount);
+    discounts.push(`團體優惠 ${groupDiscount * 100}%`);
   }
   
   // 兒童加床費用
@@ -500,7 +434,7 @@ function generateConfirmationLetter(bookingData, priceInfo, orderNumber) {
 • 入住時間：${checkInTime}
 • 退房時間：${checkOutTime}
 
-💰 **費用明細`
+💰 **費用明細`;
   
   if (priceInfo.discounts.length > 0) {
     confirmation += `\n• 適用優惠：${priceInfo.discounts.join('、')}`;
@@ -965,9 +899,6 @@ function handleAttractionsQuery(message, session) {
   } else if (message.includes('購物') || message.includes('逛街') || message.includes('買')) {
     category = 'shopping'; 
     specificQuery = '購物';
-  } else if (message.includes('觀光') || message.includes('景點')) {
-    category = 'sightseeing';
-    specificQuery = '觀光';
   }
   
   let reply = '🏞️ 附近推薦景點：\n\n';
@@ -1011,22 +942,19 @@ function handleFacilitiesQuery(message, session) {
   reply += '🍽️ **餐飲設施**\n';
   hotelFacilities.dining.forEach(facility => {
     reply += `• ${facility.name} (${facility.hours})\n`;
-    reply += `  📍 ${facility.location} | ${facility.description}\n\n`;
   });
   
-  reply += '💪 **休閒設施**\n';
+  reply += '\n💪 **休閒設施**\n';
   hotelFacilities.recreation.forEach(facility => {
     reply += `• ${facility.name} (${facility.hours})\n`;
-    reply += `  📍 ${facility.location} | ${facility.description}\n\n`;
   });
   
-  reply += '🔧 **服務設施**\n';
+  reply += '\n🔧 **服務設施**\n';
   hotelFacilities.services.forEach(facility => {
     reply += `• ${facility.name} (${facility.hours})\n`;
-    reply += `  📍 ${facility.location} | ${facility.description}\n\n`;
   });
   
-  reply += '需要了解特定設施的詳細資訊嗎？';
+  reply += '\n需要了解特定設施的詳細資訊嗎？';
   
   session.step = 'facilities_info';
   return {
@@ -1171,7 +1099,12 @@ function cleanupOldSessions() {
 setInterval(cleanupOldSessions, 60 * 60 * 1000);
 
 // ==================== API 路由 ====================
-app.post('/api/chat', (req, res) => {
+
+// 主要聊天端點 - 同時支援 /api/chat 和 /chat
+app.post('/api/chat', handleChat);
+app.post('/chat', handleChat); // 新增這個端點
+
+function handleChat(req, res) {
   const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` } = req.body;
   
   if (!message) {
@@ -1209,9 +1142,9 @@ app.post('/api/chat', (req, res) => {
       error: true
     });
   }
-});
+}
 
-// ==================== 健康檢查路由 ====================
+// 健康檢查 - 同時支援兩個路徑
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -1222,7 +1155,17 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ==================== 取得會話狀態路由 ====================
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    activeSessions: sessions.size,
+    memoryUsage: process.memoryUsage(),
+    uptime: process.uptime()
+  });
+});
+
+// 會話狀態查詢
 app.get('/api/session/:sessionId', (req, res) => {
   const { sessionId } = req.params;
   const session = sessions.get(sessionId);
@@ -1239,7 +1182,7 @@ app.get('/api/session/:sessionId', (req, res) => {
   });
 });
 
-// ==================== 重置會話路由 ====================
+// 重置會話
 app.post('/api/session/:sessionId/reset', (req, res) => {
   const { sessionId } = req.params;
   
@@ -1253,7 +1196,7 @@ app.post('/api/session/:sessionId/reset', (req, res) => {
   });
 });
 
-// ==================== 取得優惠政策路由 ====================
+// 優惠政策
 app.get('/api/promotions', (req, res) => {
   const simplifiedPromotions = {};
   
@@ -1261,33 +1204,28 @@ app.get('/api/promotions', (req, res) => {
     simplifiedPromotions[key] = {
       name: policy.name,
       description: policy.description,
-      questions: policy.questions.slice(0, 3) // 只回傳前3個範例問題
+      questions: policy.questions.slice(0, 3)
     };
   });
   
   res.json(simplifiedPromotions);
 });
 
-// ==================== 錯誤處理中間件 ====================
-app.use((err, req, res, next) => {
-  console.error('❌ 未處理的錯誤:', err);
-  res.status(500).json({
-    error: '伺服器內部錯誤',
-    message: process.env.NODE_ENV === 'development' ? err.message : '請稍後再試'
-  });
-});
-
-// ==================== 404 處理 ====================
+// ==================== 更新 404 處理 ====================
 app.use('*', (req, res) => {
   res.status(404).json({
     error: '端點不存在',
+    requestedPath: req.originalUrl,
     availableEndpoints: [
       'POST /api/chat',
+      'POST /chat', // 新增這個
       'GET /api/session/:sessionId', 
       'POST /api/session/:sessionId/reset',
       'GET /api/promotions',
-      'GET /health'
-    ]
+      'GET /health',
+      'GET /api/health'
+    ],
+    method: req.method
   });
 });
 
