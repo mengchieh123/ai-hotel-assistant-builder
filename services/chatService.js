@@ -9,7 +9,7 @@ class QAService {
     const lowerMessage = message.toLowerCase();
 
     if (/價格|價錢|多少錢|費用|房價|報價/.test(lowerMessage)) {
-      return `💰 價果資訊：\n` +
+      return `💰 價格資訊：\n` +
         `• 標準雙人房：2,200 TWD/晚\n` +
         `• 豪華雙人房：2,800 TWD/晚\n` +
         `• 套房：4,500 TWD/晚\n` +
@@ -87,6 +87,17 @@ class RequirementDetector {
   }
 }
 
+// ==================== 提取入住日期與住宿晚數 ====================
+function extractDateAndNights(message) {
+  const dateMatch = message.match(/\d{4}-\d{2}-\d{2}/);
+  const nightsMatch = message.match(/共?(\d+)晚/);
+
+  return {
+    checkInDate: dateMatch ? dateMatch[0] : null,
+    nights: nightsMatch ? parseInt(nightsMatch[1]) : null
+  };
+}
+
 // ==================== 意圖與槽位偵測 ====================
 async function detectIntentAndEntities(message) {
   const traditionalMsg = await converter.convertPromise(message);
@@ -104,6 +115,11 @@ async function detectIntentAndEntities(message) {
     intent = 'ask_promotion';
   } else if (/取消|退訂/.test(traditionalMsg)) {
     intent = 'cancel_booking';
+  } else if (/\d{4}-\d{2}-\d{2}/.test(traditionalMsg) && /共?\d+晚/.test(traditionalMsg)) {
+    intent = 'check_availability';
+    const { checkInDate, nights } = extractDateAndNights(traditionalMsg);
+    entities.checkInDate = checkInDate;
+    entities.nights = nights;
   }
 
   return { intent, entities };
@@ -133,19 +149,25 @@ class ResponseGenerator {
         break;
 
       case 'date':
-        if (dateRegex.test(message)) {
+        const { checkInDate, nights } = extractDateAndNights(message);
+        if (checkInDate && nights) {
+          session.data.checkInDate = checkInDate;
+          session.data.nights = nights;
+          session.step = 'guests';
+          reply = `已記錄入住日期：${checkInDate}，入住${nights}晚。請問有幾位旅客？`;
+        } else if (dateRegex.test(message)) {
           session.data.checkInDate = message;
           session.step = 'nights';
           reply = '入住日期已記錄。請問您要入住幾晚？';
         } else {
-          reply = '請輸入正確格式的入住日期，例如 2024-12-25。';
+          reply = '請輸入正確格式的入住日期，例如 2024-12-25，或提供「2024-12-25 共3晚」這樣的格式。';
         }
         break;
 
       case 'nights':
-        const nights = parseInt(message);
-        if (nights > 0 && nights <= 30) {
-          session.data.nights = nights;
+        const nightsInput = parseInt(message);
+        if (nightsInput > 0 && nightsInput <= 30) {
+          session.data.nights = nightsInput;
           session.step = 'guests';
           reply = '請問有幾位旅客？';
         } else {
@@ -158,7 +180,7 @@ class ResponseGenerator {
         if (guests > 0 && guests <= 6) {
           session.data.guestCount = guests;
           session.step = 'confirm';
-          
+
           const priceResult = pricingService.calculateRoomPrice(
             session.data.roomType === '豪華雙人房' ? 'deluxe' :
             session.data.roomType === '套房' ? 'suite' : 'standard',
@@ -199,6 +221,7 @@ class ResponseGenerator {
         reply = '會話重置，請問需要什麼服務？';
         break;
     }
+
     return { reply, step: session.step, sessionData: session.data };
   }
 }
