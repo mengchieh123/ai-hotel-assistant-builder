@@ -16,7 +16,6 @@ class QAService {
         `• 以上價格已含服務費及稅金\n` +
         `• 會員可享額外折扣`;
     }
-    // 其他智能問答判斷可擴充
     return null;
   }
 }
@@ -127,10 +126,13 @@ async function detectIntentAndEntities(message) {
 
 // ==================== 回應生成器 ====================
 class ResponseGenerator {
-  static generateResponse(message, session) {
+  static async generateResponse(message, session) {
     const lowerMessage = message.toLowerCase();
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     let reply = '';
+
+    // 先偵測意圖與槽位
+    const { intent, entities } = await detectIntentAndEntities(message);
 
     switch (session.step) {
       case 'init':
@@ -139,10 +141,17 @@ class ResponseGenerator {
           reply = qaAnswer;
           break;
         }
-        if (/標準雙人房|豪華雙人房|套房/.test(message)) {
-          session.data.roomType = message.match(/標準雙人房|豪華雙人房|套房/)[0];
+        if (intent === 'check_availability' && entities.checkInDate && entities.nights) {
+          session.data.checkInDate = entities.checkInDate;
+          session.data.nights = entities.nights;
+          session.step = 'guests';
+          reply = `您想查詢${entities.checkInDate}起住${entities.nights}晚，請問有幾位旅客？`;
+          break;
+        }
+        if (intent === 'select_room_type') {
+          session.data.roomType = entities.roomType;
           session.step = 'date';
-          reply = `您選擇的是 ${session.data.roomType}，請告訴我入住日期（格式：YYYY-MM-DD）`;
+          reply = `您選擇的是 ${entities.roomType}，請告訴我入住日期（格式：YYYY-MM-DD）`;
           break;
         }
         reply = '您好，歡迎使用 AI 訂房助理！請問需要什麼幫助？';
@@ -239,7 +248,7 @@ router.post('/chat', async (req, res) => {
 
     const session = getOrCreateSession(sessionId);
     const requirements = await RequirementDetector.detectAllRequirements(message);
-    const response = ResponseGenerator.generateResponse(message, session);
+    const response = await ResponseGenerator.generateResponse(message, session);
 
     sessions.set(sessionId, session);
 
