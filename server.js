@@ -10,6 +10,134 @@ app.use(express.json());
 // 會話存儲
 const sessions = new Map();
 
+// ==================== n8n 整合服務 ====================
+class N8NIntegrationService {
+  constructor() {
+    this.baseUrl = process.env.N8N_WEBHOOK_URL || 'https://your-n8n-instance.railway.app';
+    this.apiKey = process.env.N8N_API_KEY;
+    this.enabled = !!process.env.N8N_WEBHOOK_URL;
+  }
+
+  // 發送訂房確認到 n8n
+  async sendBookingConfirmation(bookingData) {
+    if (!this.enabled) {
+      console.log('🔕 n8n 整合未啟用，跳過發送訂房確認');
+      return null;
+    }
+
+    try {
+      console.log('📤 發送訂房確認到 n8n:', bookingData.orderNumber);
+      
+      const payload = {
+        action: 'booking_confirmation',
+        sessionId: bookingData.sessionId,
+        orderNumber: bookingData.orderNumber,
+        roomType: bookingData.roomType,
+        roomCount: bookingData.roomCount,
+        adults: bookingData.adults,
+        children: bookingData.children,
+        childAge: bookingData.childAge,
+        nights: bookingData.nights,
+        basePrice: bookingData.basePrice,
+        finalPrice: bookingData.finalPrice,
+        discounts: bookingData.discounts || [],
+        extraCharges: bookingData.extraCharges || [],
+        timestamp: new Date().toISOString(),
+        source: 'ai_hotel_assistant'
+      };
+
+      const response = await fetch(`${this.baseUrl}/webhook/hotel-booking`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.apiKey && { 'X-N8N-API-KEY': this.apiKey })
+        },
+        body: JSON.stringify(payload),
+        timeout: 10000 // 10秒超時
+      });
+
+      if (!response.ok) {
+        throw new Error(`n8n 響應錯誤: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ n8n 訂房確認發送成功');
+      return result;
+
+    } catch (error) {
+      console.error('❌ n8n 訂房確認發送失敗:', error.message);
+      // 不拋出錯誤，避免影響主要訂房流程
+      return null;
+    }
+  }
+
+  // 記錄客戶查詢到 n8n
+  async logCustomerInquiry(sessionId, userMessage, botResponse, intent) {
+    if (!this.enabled) {
+      return null;
+    }
+
+    try {
+      const payload = {
+        action: 'customer_inquiry',
+        sessionId,
+        userMessage,
+        botResponse: botResponse.reply,
+        intent: intent || 'unknown',
+        step: botResponse.nextStep,
+        timestamp: new Date().toISOString(),
+        source: 'ai_hotel_assistant'
+      };
+
+      // 使用 Promise 不等待響應，避免阻塞
+      fetch(`${this.baseUrl}/webhook/customer-inquiry`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.apiKey && { 'X-N8N-API-KEY': this.apiKey })
+        },
+        body: JSON.stringify(payload)
+      }).catch(error => {
+        console.error('❌ n8n 客戶查詢記錄失敗:', error.message);
+      });
+
+    } catch (error) {
+      console.error('❌ n8n 客戶查詢記錄錯誤:', error.message);
+    }
+  }
+
+  // 發送優惠查詢到 n8n
+  async logPromotionInquiry(sessionId, promotionType, userMessage) {
+    if (!this.enabled) return null;
+
+    try {
+      const payload = {
+        action: 'promotion_inquiry',
+        sessionId,
+        promotionType,
+        userMessage,
+        timestamp: new Date().toISOString(),
+        source: 'ai_hotel_assistant'
+      };
+
+      fetch(`${this.baseUrl}/webhook/promotion-inquiry`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.apiKey && { 'X-N8N-API-KEY': this.apiKey })
+        },
+        body: JSON.stringify(payload)
+      }).catch(console.error);
+
+    } catch (error) {
+      console.error('❌ n8n 優惠查詢記錄錯誤:', error.message);
+    }
+  }
+}
+
+// 初始化 n8n 服務
+const n8nService = new N8NIntegrationService();
+
 // 獲取或創建會話
 function getOrCreateSession(sessionId) {
   if (!sessions.has(sessionId)) {
@@ -25,59 +153,40 @@ function getOrCreateSession(sessionId) {
 
 // ==================== 優惠政策資料庫 ====================
 const promotionPolicies = {
-  // 長者優惠
   senior: {
     name: "長者優惠",
     description: "65歲以上長者專屬優惠",
-    discount: 0.1, // 9折
+    discount: 0.1,
     conditions: ["需出示身份證件", "限本人使用", "需提前預訂"],
     applicable: ["所有房型"],
     blackout_dates: ["國定假日", "連續假期"],
-    questions: [
-      "老人有優惠嗎？",
-      "65歲以上有什麼折扣？",
-      "長者優惠",
-      "銀髮族優惠"
-    ]
+    questions: ["老人有優惠嗎？", "65歲以上有什麼折扣？", "長者優惠", "銀髮族優惠"]
   },
   
-  // 長住優惠
   long_stay: {
     name: "長住優惠", 
     description: "長期住宿專屬優惠",
     tiers: [
-      { nights: 7, discount: 0.15 },   // 住7天85折
-      { nights: 14, discount: 0.2 },   // 住14天8折
-      { nights: 30, discount: 0.3 }    // 住30天7折
+      { nights: 7, discount: 0.15 },
+      { nights: 14, discount: 0.2 },
+      { nights: 30, discount: 0.3 }
     ],
     conditions: ["需連續住宿", "需提前預訂", "不含餐飲"],
-    questions: [
-      "長住優惠",
-      "住一個月有優惠嗎？", 
-      "長期住宿折扣",
-      "住一週以上優惠"
-    ]
+    questions: ["長住優惠", "住一個月有優惠嗎？", "長期住宿折扣", "住一週以上優惠"]
   },
   
-  // 團體優惠
   group: {
     name: "團體優惠",
     description: "多間房間團體優惠",
     tiers: [
-      { rooms: 3, discount: 0.1 },     // 3間房9折
-      { rooms: 5, discount: 0.15 },    // 5間房85折
-      { rooms: 10, discount: 0.2 }     // 10間房8折
+      { rooms: 3, discount: 0.1 },
+      { rooms: 5, discount: 0.15 },
+      { rooms: 10, discount: 0.2 }
     ],
     conditions: ["需同時入住", "需同一訂單", "需提前14天預訂"],
-    questions: [
-      "團體優惠",
-      "多間房折扣", 
-      "3間房間優惠",
-      "團體訂房"
-    ]
+    questions: ["團體優惠", "多間房折扣", "3間房間優惠", "團體訂房"]
   },
   
-  // 會員優惠
   member: {
     name: "會員優惠",
     description: "會員專屬優惠方案",
@@ -94,15 +203,9 @@ const promotionPolicies = {
       "首次入住即可申請",
       "累積住宿 nights 升級會籍"
     ],
-    questions: [
-      "會員優惠",
-      "怎麼成為會員？",
-      "會員有什麼好處？",
-      "VIP優惠"
-    ]
+    questions: ["會員優惠", "怎麼成為會員？", "會員有什麼好處？", "VIP優惠"]
   },
   
-  // 兒童政策（更新版）
   children: {
     name: "兒童政策",
     description: "兒童收費及加床政策",
@@ -128,14 +231,7 @@ const promotionPolicies = {
         conditions: ["需加床或訂額外房間", "可享兒童優惠價", "需成人陪同"]
       }
     ],
-    questions: [
-      "小孩要加價嗎？",
-      "兒童收費",
-      "小朋友住宿", 
-      "加床費用",
-      "嬰兒要錢嗎？",
-      "孩子幾歲要收費？"
-    ]
+    questions: ["小孩要加價嗎？", "兒童收費", "小朋友住宿", "加床費用", "嬰兒要錢嗎？", "孩子幾歲要收費？"]
   }
 };
 
@@ -221,65 +317,84 @@ function processMessage(message, session) {
   console.log('🔄 處理訊息:', message, '當前步驟:', session.step);
   
   const lowerMsg = message.toLowerCase().trim();
-  
+  let response = null;
+  let detectedIntent = 'unknown';
+
   // 重置會話指令
   if (lowerMsg.includes('重置') || lowerMsg.includes('重新開始') || lowerMsg.includes('restart')) {
     session.step = 'welcome';
     session.data = {};
     session.context = {};
-    return {
+    response = {
       reply: '會話已重置！請問需要什麼協助？\n• 訂房服務\n• 優惠查詢\n• 景點推薦\n• 設施介紹',
       nextStep: 'welcome'
     };
+    detectedIntent = 'reset';
   }
   
   // 幫助指令
-  if (lowerMsg.includes('幫助') || lowerMsg.includes('help') || lowerMsg.includes('指令')) {
-    return {
-      reply: '🆘 **幫助指南**\n\n' +
-             '📋 **可用指令：**\n' +
-             '• 訂房/預訂 - 開始訂房流程\n' + 
-             '• 優惠查詢 - 查看各項優惠政策\n' +
-             '• 附近景點 - 推薦周邊景點\n' +
-             '• 飯店設施 - 介紹飯店設施\n' +
-             '• 兒童政策 - 了解兒童收費標準\n' +
-             '• 重置 - 重新開始對話\n\n' +
-             '💡 **訂房流程：**\n' +
-             '選擇房型 → 輸入人數 → 選擇房間數 → 選擇天數 → 確認訂單',
+  else if (lowerMsg.includes('幫助') || lowerMsg.includes('help') || lowerMsg.includes('指令')) {
+    response = {
+      reply: '🆘 **幫助指南**\n\n📋 **可用指令：**\n• 訂房/預訂 - 開始訂房流程\n• 優惠查詢 - 查看各項優惠政策\n• 附近景點 - 推薦周邊景點\n• 飯店設施 - 介紹飯店設施\n• 兒童政策 - 了解兒童收費標準\n• 重置 - 重新開始對話\n\n💡 **訂房流程：**\n選擇房型 → 輸入人數 → 選擇房間數 → 選擇天數 → 確認訂單',
       nextStep: session.step
     };
+    detectedIntent = 'help';
   }
 
   // === 優先處理確認動作 ===
-  const confirmationResponse = handleConfirmation(lowerMsg, session);
-  if (confirmationResponse) return confirmationResponse;
+  else if (!response) {
+    response = handleConfirmation(lowerMsg, session);
+    if (response) detectedIntent = 'confirmation';
+  }
   
   // === 優先處理兒童相關查詢 ===
-  const childPolicyResponse = handleChildPolicyQuery(lowerMsg, session);
-  if (childPolicyResponse) return childPolicyResponse;
+  if (!response) {
+    response = handleChildPolicyQuery(lowerMsg, session);
+    if (response) detectedIntent = 'child_policy';
+  }
   
   // === 優惠政策查詢 ===
-  const promotionResponse = handlePromotionQuery(lowerMsg, session);
-  if (promotionResponse) return promotionResponse;
+  if (!response) {
+    response = handlePromotionQuery(lowerMsg, session);
+    if (response) detectedIntent = 'promotion';
+  }
   
   // === 景點相關查詢 ===
-  if (lowerMsg.includes('附近') || lowerMsg.includes('景點') || lowerMsg.includes('好玩') || 
-      lowerMsg.includes('推薦') || lowerMsg.includes('美食') || lowerMsg.includes('購物')) {
-    return handleAttractionsQuery(lowerMsg, session);
+  if (!response && (lowerMsg.includes('附近') || lowerMsg.includes('景點') || lowerMsg.includes('好玩') || 
+      lowerMsg.includes('推薦') || lowerMsg.includes('美食') || lowerMsg.includes('購物'))) {
+    response = handleAttractionsQuery(lowerMsg, session);
+    detectedIntent = 'attractions';
   }
   
   // === 設施相關查詢 ===
-  if (lowerMsg.includes('設施') || lowerMsg.includes('設備') || lowerMsg.includes('服務') ||
-      lowerMsg.includes('泳池') || lowerMsg.includes('健身房') || lowerMsg.includes('早餐')) {
-    return handleFacilitiesQuery(lowerMsg, session);
+  if (!response && (lowerMsg.includes('設施') || lowerMsg.includes('設備') || lowerMsg.includes('服務') ||
+      lowerMsg.includes('泳池') || lowerMsg.includes('健身房') || lowerMsg.includes('早餐'))) {
+    response = handleFacilitiesQuery(lowerMsg, session);
+    detectedIntent = 'facilities';
   }
   
   // === 數字處理 - 修復版 ===
-  const numberResponse = handleNumberInputEnhanced(message, session, lowerMsg);
-  if (numberResponse) return numberResponse;
+  if (!response) {
+    response = handleNumberInputEnhanced(message, session, lowerMsg);
+    if (response) detectedIntent = 'number_input';
+  }
   
   // === 訂房相關 ===
-  return handleBookingIntent(lowerMsg, session);
+  if (!response) {
+    response = handleBookingIntent(lowerMsg, session);
+    if (response) detectedIntent = 'booking';
+  }
+
+  // 記錄客戶查詢到 n8n（異步）
+  if (response) {
+    n8nService.logCustomerInquiry(session.sessionId, message, response, detectedIntent)
+      .catch(error => console.error('n8n 記錄失敗:', error));
+  } else {
+    response = generateDefaultResponse(session);
+    detectedIntent = 'default';
+  }
+
+  return response;
 }
 
 // ==================== 確認處理函數 ====================
@@ -287,19 +402,13 @@ function handleConfirmation(message, session) {
   const confirmKeywords = ['確認', '是的', '沒錯', '對', '好', 'ok', 'okay', 'yes', 'y', 'correct'];
   const cancelKeywords = ['取消', '不要', '不對', '錯誤', 'no', 'n', '重新輸入'];
   
-  const isConfirmation = confirmKeywords.some(keyword => 
-    message.includes(keyword)
-  );
-  
-  const isCancellation = cancelKeywords.some(keyword =>
-    message.includes(keyword)  
-  );
+  const isConfirmation = confirmKeywords.some(keyword => message.includes(keyword));
+  const isCancellation = cancelKeywords.some(keyword => message.includes(keyword));
   
   if (!isConfirmation && !isCancellation) return null;
   
   console.log('✅ 處理確認動作:', { isConfirmation, isCancellation, step: session.step });
   
-  // 根據當前步驟處理確認
   switch(session.step) {
     case 'confirm_booking':
       if (isConfirmation) {
@@ -312,7 +421,6 @@ function handleConfirmation(message, session) {
     case 'ask_guests':
     case 'ask_room_count':
     case 'ask_nights':
-      // 在收集資訊階段收到確認，視為確認當前輸入
       return handleStepConfirmation(message, session);
       
     case 'booking_completed':
@@ -332,7 +440,7 @@ function handleConfirmation(message, session) {
 }
 
 // ==================== 完成訂房流程 ====================
-function completeBooking(session) {
+async function completeBooking(session) {
   // 計算最終價格（考慮所有優惠）
   const finalPrice = calculateFinalPrice(session.data);
   
@@ -342,11 +450,27 @@ function completeBooking(session) {
   // 生成訂房確認信
   const confirmation = generateConfirmationLetter(session.data, finalPrice, orderNumber);
   
+  // 更新會話數據
   session.step = 'booking_completed';
   session.data.orderNumber = orderNumber;
-  session.data.finalPrice = finalPrice;
+  session.data.finalPrice = finalPrice.finalPrice;
+  session.data.basePrice = finalPrice.basePrice;
+  session.data.discounts = finalPrice.discounts;
+  session.data.extraCharges = finalPrice.extraCharges;
   session.data.bookingTime = new Date().toISOString();
-  
+  session.data.sessionId = session.sessionId;
+
+  // 發送到 n8n（異步）
+  n8nService.sendBookingConfirmation(session.data)
+    .then(result => {
+      if (result) {
+        console.log('🎉 n8n 訂房處理完成');
+      }
+    })
+    .catch(error => {
+      console.error('❌ n8n 訂房處理失敗:', error);
+    });
+
   return {
     reply: confirmation,
     nextStep: 'booking_completed'
@@ -479,7 +603,6 @@ function restartBookingProcess(session) {
 
 // 處理步驟確認
 function handleStepConfirmation(message, session) {
-  // 確認當前步驟的輸入，繼續下一步
   switch(session.step) {
     case 'ask_child_age':
       if (!session.data.childAge) {
@@ -536,17 +659,13 @@ function handleStepConfirmation(message, session) {
 
 // ==================== 兒童政策處理函數 ====================
 function handleChildPolicyQuery(message, session) {
-  // 兒童相關關鍵詞
   const childKeywords = [
     '小孩', '兒童', '孩子', '小朋友', '嬰兒', '寶寶',
     '加價', '加費', '加床', '收費', '費用', '要不要錢',
     '幾歲', '年齡', '年紀', '歲'
   ];
   
-  const hasChildReference = childKeywords.some(keyword => 
-    message.includes(keyword)
-  );
-  
+  const hasChildReference = childKeywords.some(keyword => message.includes(keyword));
   if (!hasChildReference) return null;
   
   console.log('👶 檢測到兒童相關查詢:', message);
@@ -555,7 +674,7 @@ function handleChildPolicyQuery(message, session) {
   const childMatch = message.match(/(\d+)\s*個?\s*(小孩|兒童|孩子)/);
   const adultMatch = message.match(/(\d+)\s*個?\s*(大人|成人)/);
   
-  const childCount = childMatch ? parseInt(childMatch[1]) : 1; // 預設1個小孩
+  const childCount = childMatch ? parseInt(childMatch[1]) : 1;
   const adultCount = adultMatch ? parseInt(adultMatch[1]) : (session.data.adults || 2);
   
   session.data.children = childCount;
@@ -597,7 +716,7 @@ function generateChildPolicyResponse(childAge, childCount, session) {
   }
   
   if (!applicablePolicy) {
-    applicablePolicy = policies[policies.length - 1]; // 預設最後一個政策
+    applicablePolicy = policies[policies.length - 1];
   }
   
   let reply = `👨‍👩‍👧‍👦 **兒童政策說明**\n\n`;
@@ -611,7 +730,6 @@ function generateChildPolicyResponse(childAge, childCount, session) {
     });
   }
   
-  // 根據年齡提供具體建議
   if (childAge < 6) {
     reply += `\n🎯 建議：可選擇家庭房，空間較寬敞`;
   } else if (childAge >= 6 && childAge < 12) {
@@ -620,7 +738,6 @@ function generateChildPolicyResponse(childAge, childCount, session) {
     reply += `\n🎯 建議：建議預訂額外房間`;
   }
   
-  // 如果已經有房型信息，提供更精準建議
   if (session.data.roomType) {
     reply += `\n\n您選擇的 ${session.data.roomType} ${
       session.data.roomType === '家庭房' ? '很適合親子同住' : 
@@ -644,11 +761,13 @@ function handlePromotionQuery(message, session) {
   
   // 檢查每個優惠類型的關鍵字
   for (const [promoType, promoData] of Object.entries(promotionPolicies)) {
-    const hasMatch = promoData.questions.some(question => 
-      message.includes(question.toLowerCase())
-    );
+    const hasMatch = promoData.questions.some(question => message.includes(question.toLowerCase()));
     
     if (hasMatch) {
+      // 記錄優惠查詢到 n8n
+      n8nService.logPromotionInquiry(session.sessionId, promoType, message)
+        .catch(console.error);
+      
       return generatePromotionResponse(promoType, message, session);
     }
   }
@@ -681,38 +800,22 @@ function generatePromotionResponse(promoType, originalMessage, session) {
   switch(promoType) {
     case 'senior':
       return {
-        reply: `👴 **長者優惠 (65歲以上)**\n\n` +
-               `🎯 優惠內容：房價${(promo.discount * 100)}%折扣\n` +
-               `📝 ${promo.description}\n\n` +
-               `📋 適用條件：\n` +
-               promo.conditions.map(cond => `• ${cond}`).join('\n') + `\n\n` +
-               `🏠 適用房型：${promo.applicable.join('、')}\n` +
-               `🚫 不適用日期：${promo.blackout_dates.join('、')}\n\n` +
-               `💡 預訂時請告知並出示證件`,
+        reply: `👴 **長者優惠 (65歲以上)**\n\n🎯 優惠內容：房價${(promo.discount * 100)}%折扣\n📝 ${promo.description}\n\n📋 適用條件：\n` +
+               promo.conditions.map(cond => `• ${cond}`).join('\n') + `\n\n🏠 適用房型：${promo.applicable.join('、')}\n🚫 不適用日期：${promo.blackout_dates.join('、')}\n\n💡 預訂時請告知並出示證件`,
         nextStep: 'promotion_info'
       };
       
     case 'long_stay':
-      const stayTiers = promo.tiers.map(tier => 
-        `• 住${tier.nights}晚以上：${(tier.discount * 100)}%折扣`
-      ).join('\n');
-      
+      const stayTiers = promo.tiers.map(tier => `• 住${tier.nights}晚以上：${(tier.discount * 100)}%折扣`).join('\n');
       return {
-        reply: `📅 **長住優惠**\n\n` +
-               `🎯 優惠內容：\n${stayTiers}\n\n` +
-               `📝 ${promo.description}\n\n` +
-               `📋 適用條件：\n` +
-               promo.conditions.map(cond => `• ${cond}`).join('\n') + `\n\n` +
-               `💡 如需長期住宿，建議提前聯繫訂房組`,
+        reply: `📅 **長住優惠**\n\n🎯 優惠內容：\n${stayTiers}\n\n📝 ${promo.description}\n\n📋 適用條件：\n` +
+               promo.conditions.map(cond => `• ${cond}`).join('\n') + `\n\n💡 如需長期住宿，建議提前聯繫訂房組`,
         nextStep: 'promotion_info'
       };
       
     case 'group':
-      const groupTiers = promo.tiers.map(tier => 
-        `• ${tier.rooms}間房以上：${(tier.discount * 100)}%折扣`
-      ).join('\n');
+      const groupTiers = promo.tiers.map(tier => `• ${tier.rooms}間房以上：${(tier.discount * 100)}%折扣`).join('\n');
       
-      // 如果訊息中包含房間數量，提供具體計算
       const roomMatch = originalMessage.match(/(\d+)\s*間/);
       if (roomMatch) {
         const roomCount = parseInt(roomMatch[1]);
@@ -720,34 +823,24 @@ function generatePromotionResponse(promoType, originalMessage, session) {
         
         if (applicableTier) {
           return {
-            reply: `👥 **團體優惠**\n\n` +
-                   `🎯 ${roomCount}間房可享：${(applicableTier.discount * 100)}%折扣\n\n` +
-                   `📋 適用條件：\n` +
-                   promo.conditions.map(cond => `• ${cond}`).join('\n') + `\n\n` +
-                   `💡 建議提前14天預訂以確保房況`,
+            reply: `👥 **團體優惠**\n\n🎯 ${roomCount}間房可享：${(applicableTier.discount * 100)}%折扣\n\n📋 適用條件：\n` +
+                   promo.conditions.map(cond => `• ${cond}`).join('\n') + `\n\n💡 建議提前14天預訂以確保房況`,
             nextStep: 'promotion_info'
           };
         }
       }
       
       return {
-        reply: `👥 **團體優惠**\n\n` +
-               `🎯 優惠內容：\n${groupTiers}\n\n` +
-               `📝 ${promo.description}\n\n` +
-               `📋 適用條件：\n` +
-               promo.conditions.map(cond => `• ${cond}`).join('\n') + `\n\n` +
-               `💡 請告知房間數量，我可為您計算具體優惠`,
+        reply: `👥 **團體優惠**\n\n🎯 優惠內容：\n${groupTiers}\n\n📝 ${promo.description}\n\n📋 適用條件：\n` +
+               promo.conditions.map(cond => `• ${cond}`).join('\n') + `\n\n💡 請告知房間數量，我可為您計算具體優惠`,
         nextStep: 'promotion_info'
       };
       
     case 'member':
       return {
-        reply: `⭐ **會員優惠**\n\n` +
-               `🎯 會員專屬福利：\n` +
-               promo.benefits.map(benefit => `• ${benefit}`).join('\n') + `\n\n` +
-               `📝 如何成為會員：\n` +
-               promo.join_conditions.map(condition => `• ${condition}`).join('\n') + `\n\n` +
-               `💡 首次入住即可免費申請會員`,
+        reply: `⭐ **會員優惠**\n\n🎯 會員專屬福利：\n` +
+               promo.benefits.map(benefit => `• ${benefit}`).join('\n') + `\n\n📝 如何成為會員：\n` +
+               promo.join_conditions.map(condition => `• ${condition}`).join('\n') + `\n\n💡 首次入住即可免費申請會員`,
         nextStep: 'promotion_info'
       };
       
@@ -756,15 +849,11 @@ function generatePromotionResponse(promoType, originalMessage, session) {
         `👶 **${policy.age}**：${policy.policy}\n   ${policy.conditions.map(cond => `• ${cond}`).join('\n   ')}`
       ).join('\n\n');
       
-      // 如果訊息中包含兒童數量，提供具體建議
       const childMatch = originalMessage.match(/(\d+)\s*個?\s*小孩/);
       if (childMatch) {
         const childCount = parseInt(childMatch[1]);
         return {
-          reply: `👨‍👩‍👧‍👦 **兒童政策**\n\n` +
-                 `根據您提到的${childCount}位小孩：\n\n` +
-                 childPolicies + `\n\n` +
-                 `💡 預訂時請告知兒童年齡，以便為您安排合適的房型`,
+          reply: `👨‍👩‍👧‍👦 **兒童政策**\n\n根據您提到的${childCount}位小孩：\n\n${childPolicies}\n\n💡 預訂時請告知兒童年齡，以便為您安排合適的房型`,
           nextStep: 'promotion_info'
         };
       }
@@ -784,18 +873,15 @@ function handleNumberInputEnhanced(originalMessage, session, lowerMsg) {
   const number = parseInt(numberMatch[1]);
   console.log(`🔢 識別到數字: ${number}, 當前步驟: ${session.step}, 原始訊息: "${originalMessage}"`);
   
-  // 防止年份等大數字被誤解
   if (number > 100 && !lowerMsg.includes('歲')) {
     console.log('⚠️  忽略過大數字，可能是年份或其他資訊');
     return null;
   }
   
-  // 新增：兒童年齡處理
   if (session.step === 'ask_child_age' || (lowerMsg.includes('歲') && session.data.hasChildren)) {
     session.data.childAge = number;
     session.data.hasChildren = true;
     
-    // 確保有兒童數量
     if (!session.data.children) {
       session.data.children = 1;
     }
@@ -803,7 +889,6 @@ function handleNumberInputEnhanced(originalMessage, session, lowerMsg) {
     return generateChildPolicyResponse(number, session.data.children, session);
   }
   
-  // 原有的其他數字處理邏輯
   const stepHandlers = {
     'ask_guests': () => {
       if (lowerMsg.includes('大人') || lowerMsg.includes('位') || lowerMsg.includes('個') || 
@@ -823,7 +908,6 @@ function handleNumberInputEnhanced(originalMessage, session, lowerMsg) {
       if (lowerMsg.includes('間') || session.context.lastQuestion === 'room_count') {
         session.data.roomCount = number;
         
-        // 如果有兒童，詢問年齡；否則直接問天數
         if (session.data.hasChildren && !session.data.childAge) {
           session.step = 'ask_child_age';
           session.context.lastQuestion = 'child_age';
@@ -1050,26 +1134,16 @@ function handleBookingIntent(lowerMsg, session) {
 function generateDefaultResponse(session) {
   const currentStep = session.step;
   
-  // 根據當前步驟提供情境化提示
   const stepPrompts = {
     'welcome': '您好！我是飯店客服助手，可以幫您：\n• 查詢訂房資訊\n• 了解優惠政策\n• 推薦附近景點\n• 介紹飯店設施\n\n請問需要什麼協助呢？',
-    
     'select_room': '請選擇房型：標準雙人房、豪華雙人房、套房、家庭房',
-    
     'ask_guests': '請問有幾位大人入住？',
-    
     'ask_room_count': '請問需要預訂幾間房間？',
-    
     'ask_nights': '請問打算入住幾晚？',
-    
     'ask_child_age': '請問小孩的年齡是？這會影響是否需要加床或額外費用。',
-    
     'promotion_info': '還需要了解其他優惠政策嗎？或是想要開始訂房？',
-    
     'attractions_recommendation': '需要其他類別的景點推薦嗎？或是想要開始訂房？',
-    
     'facilities_info': '需要了解特定設施的詳細資訊嗎？或是想要開始訂房？',
-    
     'booking_completed': '訂房已完成！請問還需要其他協助嗎？'
   };
   
@@ -1085,7 +1159,7 @@ function generateDefaultResponse(session) {
 // ==================== 會話清理機制 ====================
 function cleanupOldSessions() {
   const now = Date.now();
-  const MAX_AGE = 30 * 60 * 1000; // 30分鐘
+  const MAX_AGE = 30 * 60 * 1000;
   
   for (const [sessionId, session] of sessions.entries()) {
     if (now - session.lastActivity > MAX_AGE) {
@@ -1095,14 +1169,11 @@ function cleanupOldSessions() {
   }
 }
 
-// 每小時清理一次
 setInterval(cleanupOldSessions, 60 * 60 * 1000);
 
 // ==================== API 路由 ====================
-
-// 主要聊天端點 - 同時支援 /api/chat 和 /chat
 app.post('/api/chat', handleChat);
-app.post('/chat', handleChat); // 新增這個端點
+app.post('/chat', handleChat);
 
 function handleChat(req, res) {
   const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` } = req.body;
@@ -1112,26 +1183,24 @@ function handleChat(req, res) {
   }
   
   try {
-    // 獲取或創建會話
     const session = getOrCreateSession(sessionId);
     session.lastActivity = Date.now();
+    session.sessionId = sessionId; // 確保 sessionId 在 session 中可用
     
     console.log(`💬 收到訊息: ${message} (會話: ${sessionId})`);
     
-    // 處理訊息
     const response = processMessage(message, session);
     
-    // 更新會話步驟
     if (response && response.nextStep) {
       session.step = response.nextStep;
     }
     
-    // 發送回應
     res.json({
       reply: response.reply,
       sessionId: sessionId,
       step: session.step,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      n8nEnabled: n8nService.enabled
     });
     
   } catch (error) {
@@ -1144,12 +1213,16 @@ function handleChat(req, res) {
   }
 }
 
-// 健康檢查 - 同時支援兩個路徑
+// 健康檢查
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
     activeSessions: sessions.size,
+    n8nIntegration: {
+      enabled: n8nService.enabled,
+      baseUrl: n8nService.baseUrl
+    },
     memoryUsage: process.memoryUsage(),
     uptime: process.uptime()
   });
@@ -1160,8 +1233,10 @@ app.get('/api/health', (req, res) => {
     status: 'ok', 
     timestamp: new Date().toISOString(),
     activeSessions: sessions.size,
-    memoryUsage: process.memoryUsage(),
-    uptime: process.uptime()
+    n8nIntegration: {
+      enabled: n8nService.enabled,
+      baseUrl: n8nService.baseUrl
+    }
   });
 });
 
@@ -1211,17 +1286,27 @@ app.get('/api/promotions', (req, res) => {
   res.json(simplifiedPromotions);
 });
 
-// ==================== 更新 404 處理 ====================
+// n8n 狀態檢查
+app.get('/api/n8n-status', (req, res) => {
+  res.json({
+    enabled: n8nService.enabled,
+    baseUrl: n8nService.baseUrl,
+    apiKey: n8nService.apiKey ? '已設置' : '未設置'
+  });
+});
+
+// 更新 404 處理
 app.use('*', (req, res) => {
   res.status(404).json({
     error: '端點不存在',
     requestedPath: req.originalUrl,
     availableEndpoints: [
       'POST /api/chat',
-      'POST /chat', // 新增這個
+      'POST /chat',
       'GET /api/session/:sessionId', 
       'POST /api/session/:sessionId/reset',
       'GET /api/promotions',
+      'GET /api/n8n-status',
       'GET /health',
       'GET /api/health'
     ],
@@ -1235,10 +1320,13 @@ app.listen(PORT, () => {
   console.log(`📍 服務端口: ${PORT}`);
   console.log(`🌐 環境: ${process.env.NODE_ENV || 'development'}`);
   console.log(`⏰ 啟動時間: ${new Date().toLocaleString('zh-TW')}`);
+  console.log(`🔗 n8n 整合: ${n8nService.enabled ? '已啟用' : '未啟用'}`);
+  if (n8nService.enabled) {
+    console.log(`   n8n URL: ${n8nService.baseUrl}`);
+  }
   console.log(`💾 會話管理: 自動清理機制已啟用`);
 });
 
-// 優雅關機處理
 process.on('SIGTERM', () => {
   console.log('🛑 收到 SIGTERM 信號，開始關機...');
   process.exit(0);
