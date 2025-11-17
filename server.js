@@ -10,6 +10,20 @@ app.use(express.json());
 // 會話存儲
 const sessions = new Map();
 
+// ==================== 訊息清理工具 ====================
+function cleanInputMessage(message) {
+  if (!message) return '';
+  
+  let cleaned = message
+    .replace(/\[translate:\s*|\]/g, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  return cleaned || message;
+}
+
 // ==================== n8n 整合服務 ====================
 class N8NIntegrationService {
   constructor() {
@@ -314,9 +328,16 @@ const hotelFacilities = {
 
 // ==================== 增強版對話處理 ====================
 function processMessage(message, session) {
-  console.log('🔄 處理訊息:', message, '當前步驟:', session.step);
+  // 清理輸入訊息
+  const cleanMessage = cleanInputMessage(message);
+  const lowerMsg = cleanMessage.toLowerCase();
   
-  const lowerMsg = message.toLowerCase().trim();
+  console.log('🔄 處理訊息:', { 
+    original: message, 
+    cleaned: cleanMessage, 
+    step: session.step 
+  });
+  
   let response = null;
   let detectedIntent = 'unknown';
 
@@ -349,7 +370,7 @@ function processMessage(message, session) {
   
   // === 優先處理兒童相關查詢 ===
   if (!response) {
-    response = handleChildPolicyQuery(lowerMsg, session);
+    response = handleChildPolicyQuery(message, session); // 傳遞原始訊息給專用函數
     if (response) detectedIntent = 'child_policy';
   }
   
@@ -375,7 +396,7 @@ function processMessage(message, session) {
   
   // === 數字處理 - 修復版 ===
   if (!response) {
-    response = handleNumberInputEnhanced(message, session, lowerMsg);
+    response = handleNumberInputEnhanced(message, session, lowerMsg); // 傳遞原始訊息
     if (response) detectedIntent = 'number_input';
   }
   
@@ -387,7 +408,7 @@ function processMessage(message, session) {
 
   // 記錄客戶查詢到 n8n（異步）
   if (response) {
-    n8nService.logCustomerInquiry(session.sessionId, message, response, detectedIntent)
+    n8nService.logCustomerInquiry(session.sessionId, cleanMessage, response, detectedIntent)
       .catch(error => console.error('n8n 記錄失敗:', error));
   } else {
     response = generateDefaultResponse(session);
@@ -659,20 +680,28 @@ function handleStepConfirmation(message, session) {
 
 // ==================== 兒童政策處理函數 ====================
 function handleChildPolicyQuery(message, session) {
+  // 先清理訊息
+  const cleanMessage = cleanInputMessage(message);
+  const cleanLowerMsg = cleanMessage.toLowerCase().trim();
+  
+  // 兒童相關關鍵詞
   const childKeywords = [
     '小孩', '兒童', '孩子', '小朋友', '嬰兒', '寶寶',
     '加價', '加費', '加床', '收費', '費用', '要不要錢',
     '幾歲', '年齡', '年紀', '歲'
   ];
   
-  const hasChildReference = childKeywords.some(keyword => message.includes(keyword));
+  const hasChildReference = childKeywords.some(keyword => 
+    cleanLowerMsg.includes(keyword)
+  );
+  
   if (!hasChildReference) return null;
   
-  console.log('👶 檢測到兒童相關查詢:', message);
+  console.log('👶 檢測到兒童相關查詢:', cleanMessage);
   
-  // 提取兒童數量
-  const childMatch = message.match(/(\d+)\s*個?\s*(小孩|兒童|孩子)/);
-  const adultMatch = message.match(/(\d+)\s*個?\s*(大人|成人)/);
+  // 提取兒童數量 - 使用清理後的訊息
+  const childMatch = cleanMessage.match(/(\d+)\s*個?\s*(小孩|兒童|孩子)/);
+  const adultMatch = cleanMessage.match(/(\d+)\s*個?\s*(大人|成人)/);
   
   const childCount = childMatch ? parseInt(childMatch[1]) : 1;
   const adultCount = adultMatch ? parseInt(adultMatch[1]) : (session.data.adults || 2);
@@ -682,7 +711,7 @@ function handleChildPolicyQuery(message, session) {
   session.data.hasChildren = true;
   
   // 如果訊息中已經包含年齡信息
-  const ageMatch = message.match(/(\d+)\s*歲/);
+  const ageMatch = cleanMessage.match(/(\d+)\s*歲/);
   if (ageMatch) {
     const childAge = parseInt(ageMatch[1]);
     session.data.childAge = childAge;
@@ -865,23 +894,33 @@ function generatePromotionResponse(promoType, originalMessage, session) {
   }
 }
 
-// 修復版數字處理
+// ==================== 修復版數字處理 ====================
 function handleNumberInputEnhanced(originalMessage, session, lowerMsg) {
-  const numberMatch = originalMessage.match(/(\d+)/);
+  // 先清理訊息，移除 [translate:] 等標記
+  const cleanMessage = cleanInputMessage(originalMessage);
+  const cleanLowerMsg = cleanMessage.toLowerCase().trim();
+  
+  console.log(`🔍 清理後訊息: "${cleanMessage}", 原始: "${originalMessage}"`);
+  
+  // 增強數字識別 - 匹配各種格式
+  const numberMatch = cleanMessage.match(/(\d+)/) || originalMessage.match(/(\d+)/);
   if (!numberMatch) return null;
   
   const number = parseInt(numberMatch[1]);
-  console.log(`🔢 識別到數字: ${number}, 當前步驟: ${session.step}, 原始訊息: "${originalMessage}"`);
+  console.log(`🔢 識別到數字: ${number}, 當前步驟: ${session.step}, 清理訊息: "${cleanMessage}"`);
   
-  if (number > 100 && !lowerMsg.includes('歲')) {
+  // 防止年份等大數字被誤解
+  if (number > 100 && !cleanLowerMsg.includes('歲')) {
     console.log('⚠️  忽略過大數字，可能是年份或其他資訊');
     return null;
   }
   
-  if (session.step === 'ask_child_age' || (lowerMsg.includes('歲') && session.data.hasChildren)) {
+  // 新增：兒童年齡處理
+  if (session.step === 'ask_child_age' || (cleanLowerMsg.includes('歲') && session.data.hasChildren)) {
     session.data.childAge = number;
     session.data.hasChildren = true;
     
+    // 確保有兒童數量
     if (!session.data.children) {
       session.data.children = 1;
     }
@@ -889,15 +928,30 @@ function handleNumberInputEnhanced(originalMessage, session, lowerMsg) {
     return generateChildPolicyResponse(number, session.data.children, session);
   }
   
+  // 原有的其他數字處理邏輯 - 使用清理後的訊息
   const stepHandlers = {
     'ask_guests': () => {
-      if (lowerMsg.includes('大人') || lowerMsg.includes('位') || lowerMsg.includes('個') || 
-          lowerMsg.includes('人') || session.context.lastQuestion === 'guests') {
+      if (cleanLowerMsg.includes('大人') || cleanLowerMsg.includes('位') || cleanLowerMsg.includes('個') || 
+          cleanLowerMsg.includes('人') || session.context.lastQuestion === 'guests') {
         session.data.adults = number;
         session.step = 'ask_room_count';
         session.context.lastQuestion = 'room_count';
+        
+        // 如果有兒童資訊，一併處理
+        const childMatch = cleanMessage.match(/(\d+)\s*個?\s*(小孩|兒童|孩子)/);
+        if (childMatch) {
+          session.data.children = parseInt(childMatch[1]);
+          session.data.hasChildren = true;
+        }
+        
+        let reply = `了解，${number}位大人`;
+        if (session.data.children) {
+          reply += `和${session.data.children}位小孩`;
+        }
+        reply += `。請問需要預訂幾間${session.data.roomType || '房間'}？`;
+        
         return {
-          reply: `了解，${number}位大人。請問需要預訂幾間${session.data.roomType || '房間'}？`,
+          reply: reply,
           nextStep: 'ask_room_count'
         };
       }
@@ -905,9 +959,10 @@ function handleNumberInputEnhanced(originalMessage, session, lowerMsg) {
     },
     
     'ask_room_count': () => {
-      if (lowerMsg.includes('間') || session.context.lastQuestion === 'room_count') {
+      if (cleanLowerMsg.includes('間') || session.context.lastQuestion === 'room_count') {
         session.data.roomCount = number;
         
+        // 如果有兒童，詢問年齡；否則直接問天數
         if (session.data.hasChildren && !session.data.childAge) {
           session.step = 'ask_child_age';
           session.context.lastQuestion = 'child_age';
@@ -928,7 +983,7 @@ function handleNumberInputEnhanced(originalMessage, session, lowerMsg) {
     },
     
     'ask_nights': () => {
-      if (lowerMsg.includes('晚') || lowerMsg.includes('天') || session.context.lastQuestion === 'nights') {
+      if (cleanLowerMsg.includes('晚') || cleanLowerMsg.includes('天') || session.context.lastQuestion === 'nights') {
         session.data.nights = number;
         session.step = 'confirm_booking';
         return generateBookingSummary(session);
