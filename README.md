@@ -1,326 +1,133 @@
-# 🏨 AI Hotel Assistant - 智能訂房助理
+🏨 AI Hotel Assistant - 智能訂房助理
 
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen)](https://nodejs.org/)
-[![Express.js](https://img.shields.io/badge/express.js-4.x-blue)](https://expressjs.com/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
-> 多功能智能酒店服務系統，整合訂房管理、景點推薦、會員服務於一體
+多功能智能酒店服務系統，整合訂房管理、景點推薦、會員服務於一體
 
-## 🌐 即時服務狀態
+🌐 即時服務狀態
+生產環境: 🟢 正常運行
+服務網址: https://ai-hotel-assistant-builder-production.up.railway.app
+版本: 5.5.0
+最後更新: 2025-11-11T06:41:19.742Z
 
-**生產環境**: 🟢 正常運行  
-**服務網址**: `https://ai-hotel-assistant-builder-production.up.railway.app`  
-**版本**: 5.5.0  
-**最後更新**: 2025-11-11T06:41:19.742Z
+✨ 核心功能
+🏨 訂房服務
 
-## ✨ 核心功能
+多輪對話訂房 — 智能引導完成完整訂房流程
 
-### 🏨 訂房服務
-- **多輪對話訂房** - 智能引導完成完整訂房流程
-- **即時價格查詢** - 支援多種房型價格計算
-- **訂單管理** - 創建、查詢、取消訂單
-- **會員優惠** - 多層級會員折扣系統
+即時價格查詢 — 支援多種房型價格計算
 
-### 🏞️ 景點推薦服務
-- **附近景點查詢** - 酒店200公尺內景點推薦
-- **智能分類** - 美食、購物、自然、文化等6大類別
-- **詳細資訊** - 營業時間、評分、地址、聯絡方式
-- **關鍵字搜索** - 精準搜索特定景點
+訂單管理 — 創建、查詢、取消訂單
 
-### 💬 智能對話
-- **意圖識別** - 自動判斷用戶需求
-- **會話管理** - 多輪對話狀態維護
-- **上下文理解** - 保持對話連貫性
+會員優惠 — 多層級會員折扣系統
 
-## 🚀 快速開始
+🏞️ 景點推薦服務
 
-### 環境要求
-- Node.js >= 14.0.0
-- npm 或 yarn
+附近景點查詢 — 酒店200公尺內景點推薦
 
-### 安裝步驟
+智能分類 — 美食、購物、自然、文化等6大類別
 
-1. **克隆專案**
-```bash
+詳細資訊 — 營業時間、評分、地址、聯絡方式
+
+關鍵字搜索 — 精準搜索特定景點
+
+💬 智能對話
+
+意圖識別 — 自動判斷用戶需求
+
+會話管理 — 多輪對話狀態維護
+
+上下文理解 — 保持對話連貫性
+
+🚀 快速開始
+環境要求
+
+Node.js >= 14.0.0
+
+npm 或 yarn
+
+安裝步驟
+
+bash
 git clone https://github.com/mengchieh123/ai-hotel-assistant-builder.git
 cd ai-hotel-assistant-builder
-安裝依賴
-bash
 npm install
-啟動服務
-bash
-# 開發模式
+
+# 啟動服務
 npm start
 
 # 或使用守護進程模式（推薦用於 Codespaces）
 npm run keep-alive
 驗證服務
-bash
-curl https://ai-hotel-assistant-builder-production.up.railway.app/health
-📡 API 文檔
-
-🏠 基礎端點
-
-方法	端點	描述	狀態
-GET	/	API 資訊與文檔	✅ 正常
-GET	/health	服務健康狀態	✅ 正常
-API 資訊響應示例:
-
-json
-{
-  "message": "🏨 AI 訂房助理 API 服務",
-  "version": "5.5.0",
-  "timestamp": "2025-11-11T06:41:19.742Z",
-  "endpoints": {
-    "health": "/health",
-    "chat": "/chat (POST)",
-    "pricing": "/api/price (POST)",
-    "booking": "/api/booking (POST)",
-    "cancel": "/api/cancel-booking (POST)",
-    "attractions": {
-      "nearby": "/api/attractions/nearby",
-      "search": "/api/attractions/search",
-      "categories": "/api/attractions/categories",
-      "details": "/api/attractions/details/:name"
-    },
-    "sessions": {
-      "stats": "/api/sessions/stats",
-      "management": "/api/sessions/:sessionId",
-      "backup": "/api/sessions/backup"
-    }
-  },
-  "documentation": "請查看 README.md 了解詳細 API 使用方法"
-}
-🏨 訂房服務
-
-價格查詢
-
-http
-POST /api/price
-Content-Type: application/json
-
-{
-  "roomType": "standard",
-  "nights": 2,
-  "guestCount": 2
-}
-直接訂房
-
-http
-POST /api/booking
-Content-Type: application/json
-
-{
-  "checkInDate": "2024-12-25",
-  "nights": 2,
-  "roomType": "standard",
-  "guestCount": 2,
-  "guestName": "王小明",
-  "memberLevel": "gold"
-}
-取消訂單
-
-http
-POST /api/cancel-booking
-Content-Type: application/json
-
-{
-  "bookingId": "BKG-123456"
-}
-🏞️ 景點服務
-
-附近景點查詢
-
-http
-GET /api/attractions/nearby?type=food&maxDistance=200
-景點搜索
-
-http
-GET /api/attractions/search?keyword=牛肉麵
-景點分類
-
-http
-GET /api/attractions/categories
-詳細資訊
-
-http
-GET /api/attractions/details/鼎泰豐
-💬 智能對話
-
-聊天接口
-
-http
-POST /chat
-Content-Type: application/json
-
-{
-  "message": "附近有什麼好吃的餐廳",
-  "sessionId": "user-123"
-}
-🔧 會話管理
-
-會話統計
-
-http
-GET /api/sessions/stats
-會話詳情
-
-http
-GET /api/sessions/{sessionId}
-重置會話
-
-http
-DELETE /api/sessions/{sessionId}
-會話備份
-
-http
-GET /api/sessions/backup
-🎯 快速測試
-
-基礎功能驗證
 
 bash
-# 健康檢查
 curl https://ai-hotel-assistant-builder-production.up.railway.app/health
-
-# 價格查詢
-curl -X POST https://ai-hotel-assistant-builder-production.up.railway.app/api/price \
-  -H "Content-Type: application/json" \
-  -d '{"roomType":"standard"}'
-
-# 景點推薦
-curl "https://ai-hotel-assistant-builder-production.up.railway.app/api/attractions/nearby?type=food"
-
-# 智能對話
-curl -X POST https://ai-hotel-assistant-builder-production.up.railway.app/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"我想訂房", "sessionId":"test-1"}'
-🏗️ 專案架構
-
-text
-ai-hotel-assistant-builder/
-├── services/                 # 業務邏輯模組
-│   ├── bookingService.js     # 訂房服務
-│   ├── pricingService.js     # 價格計算
-│   ├── memberService.js      # 會員服務
-│   └── attractionsService.js # 景點服務
-├── server.js                # 主服務入口
-├── package.json             # 專案配置
-├── sessions.json           # 會話持久化文件
-└── README.md               # 說明文件
-核心模組說明
-
-bookingService - 處理訂房相關業務邏輯
-pricingService - 價格計算和優惠策略
-memberService - 會員權益和積分系統
-attractionsService - 景點資料和推薦算法
-🧪 測試與品質保證
-
-Postman 測試集合
-
-專案提供完整的 Postman 測試集合，包含：
-
-✅ 健康檢查測試 - 服務狀態驗證
-✅ 訂房流程測試 - 完整多輪對話訂房
-✅ 景點服務測試 - 景點推薦與搜索
-✅ 會員服務測試 - 會員權益驗證
-✅ 取消流程測試 - 訂單取消流程
-✅ 錯誤處理測試 - 異常情況處理
-✅ 會話管理測試 - 會話狀態監控
-測試劇本涵蓋場景
-
-完整訂房流程 (6步驟對話)
-景點探索流程 (分類推薦 → 詳細資訊)
-會員服務查詢 (優惠權益咨詢)
-訂單取消流程 (取消對話與直接API)
-綜合情境測試 (真實使用場景)
+📡 API 端點說明
+方法	路徑	描述
+GET	/	API 資訊與文檔
+GET	/health	服務健康狀態
+POST	/chat	聊天智能對話接口
+POST	/api/price	房價計算請求 (註意部署變化)
+POST	/api/booking	建立訂單
+POST	/api/cancel-booking	取消訂單
+GET	/api/attractions/nearby	附近景點查詢
+GET	/api/attractions/search	景點全文搜索
+GET	/api/attractions/categories	景點分類
+GET	/api/attractions/details/:name	景點詳細
+GET	/api/sessions/:sessionId	會話資料查詢
+POST	/api/session/:sessionId/reset	會話重置
+GET	/api/promotions	優惠政策摘要
+GET	/api/n8n-status	n8n 集成狀態查詢
 🔧 開發指南
+本地開發可使用 npm start 啟動服務後，以 Postman 或 curl 測試 API。
 
-本地開發
+支持 GitHub Codespaces 即時雲端開發，點擊 Code → Open with Codespaces，等待環境完成自動配置。
 
-bash
-# 啟動開發服務
-npm start
+📚 優惠政策與資料庫
+配置有多種優惠方案：長者優惠、長住優惠、團體優惠、會員專屬及兒童政策。
 
-# 測試 API
-curl http://localhost:8080/health
-GitHub Codespaces 部署
+附帶附近美食、購物與觀光景點資料庫，及頂樓餐廳、游泳池、商務中心等飯店設施資料。
 
-專案已完美支援 GitHub Codespaces：
+🔄 n8n 整合說明
+系統與 n8n 自動化平台整合，核心包括：
 
-點擊 Code → Open with Codespaces
-等待環境自動配置
-服務將在 https://your-codespace.app.github.dev 運行
-環境變數
+訂房完成自動推送訂單資料（含訂單號、消費資訊）至 n8n，觸發後續服務流程。
 
-變數	預設值	描述
-PORT	8080	服務端口
-NODE_ENV	development	運行環境
-🔄 版本資訊
+用戶每次查詢與交互詳細記錄推送，支持數據分析與行銷活動調整。
 
-v5.5.0 (當前版本)
+優惠查詢行為也同步記錄於 n8n，幫助精準推廣。
 
-✅ 新增景點推薦服務
-✅ 改進對話意圖識別
-✅ 優化會話管理系統
-✅ 增強錯誤處理機制
-✅ 完整 Postman 測試集合
-v5.4.0
+需設定環境變數 N8N_WEBHOOK_URL 與 N8N_API_KEY。
 
-✅ 基礎訂房服務
-✅ 價格計算系統
-✅ 會員管理功能
-✅ 多輪對話支持
+n8n webhook 端點預設為 /webhook/hotel-booking，/webhook/customer-inquiry 等。
+
 🐛 常見問題
+服務啟動失敗，請確認端口是否被佔用。
 
-Q: 服務啟動失敗，端口被佔用？
+請確保服務綁定 0.0.0.0，外部可訪問。
 
-A: 使用不同端口啟動：
+會話數據丟失，會話持久化文件 sessions.json 是否正常寫入。
 
-bash
-PORT=3000 npm start
-Q: 外部無法訪問服務？
+API 返回 404，請確認請求路徑與方法是否正確。
 
-A: 確保服務綁定到 0.0.0.0，檢查環境端口配置。
-
-Q: 會話數據丟失？
-
-A: 會話數據自動持久化到 sessions.json，重啟服務後會自動恢復。
-
-Q: API 返回 404 錯誤？
-
-A: 檢查服務是否正常運行，確認端點路徑正確。
+n8n webhook 無反應，檢查 URL、API KEY 和防火牆設定。
 
 🤝 貢獻指南
+歡迎提交代碼與功能建議：
 
-我們歡迎社區貢獻！請遵循以下流程：
+Fork 本 repo
 
-Fork 本專案
-創建功能分支 (git checkout -b feature/AmazingFeature)
-提交更改 (git commit -m 'Add some AmazingFeature')
-推送到分支 (git push origin feature/AmazingFeature)
+建立分支 feature/xxx
+
+Commit 與 push
+
 開啟 Pull Request
-開發規範
 
-遵循 JavaScript Standard Style
-添加適當的錯誤處理
-更新相關文檔
-添加測試用例
+請遵守 JavaScript Standard Style，並補充測試案例。
+
 📄 授權
+本專案採用 MIT 授權，詳見 LICENSE 文件。
 
-本專案採用 MIT 授權 - 查看 LICENSE 文件了解詳情。
+📞 聯絡與支援
+如有疑問或獲得技術支援，請透過 GitHub Issues 聯繫專案團隊。
 
-📞 支援
-
-如果您遇到問題或有建議：
-
-查看 常見問題 章節
-搜索 Issues
-開啟新的 Issue 描述問題
-🏆 致謝
-
-感謝所有為這個專案做出貢獻的開發者！
-
-立即體驗生產環境: https://ai-hotel-assistant-builder-production.up.railway.app
-
-讓AI為您的酒店服務增添智能！🏨✨
+感謝您使用 AI Hotel Assistant，期待為您的酒店服務智能化貢獻力量！🏨✨
