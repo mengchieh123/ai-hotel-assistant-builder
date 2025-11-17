@@ -7,14 +7,6 @@ const PORT = process.env.PORT || 8080;
 app.use(cors());
 app.use(express.json());
 
-// 初始化 n8n 服務
-const n8nService = new N8NIntegrationService();
-
-// ==================== Webhook 路由 ====================
-// 新增：匯入 webhook 路由，統一放在 /api 前綴下
-const webhookRouter = require('./routes/webhook');
-app.use('/api', webhookRouter);
-
 // 會話存儲
 const sessions = new Map();
 
