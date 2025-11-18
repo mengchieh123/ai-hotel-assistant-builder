@@ -284,6 +284,82 @@ function handleFamilyRoomRecommendation(message, session) {
   };
 }
 
+// ==================== 新增：檢查是否包含完整訂房資訊 ====================
+function hasCompleteBookingInfo(message, session) {
+  const lowerMsg = message.toLowerCase();
+  
+  // 檢查是否包含房型、天數、人數等關鍵資訊
+  const hasRoomType = /(標準|豪華|套房|家庭房)/.test(message) || session.data.roomType;
+  const hasNights = /(\d+)\s*晚/.test(message) || session.data.nights;
+  const hasAdults = /(\d+)\s*大/.test(message) || session.data.adults;
+  const hasChildren = /(\d+)\s*小/.test(message) || session.data.children;
+  const hasPriceQuery = /(價格|價錢|多少錢|總價)/.test(lowerMsg);
+  
+  // 如果用戶詢問價格且已經有足夠的訂房資訊，直接回覆價格
+  if (hasPriceQuery && (hasRoomType || hasNights || hasAdults)) {
+    return true;
+  }
+  
+  // 如果用戶提供了完整的訂房資訊組合
+  if (hasRoomType && hasNights && (hasAdults || hasChildren)) {
+    return true;
+  }
+  
+  return false;
+}
+
+// ==================== 新增：處理完整訂房查詢 ====================
+function handleCompleteBookingQuery(message, session) {
+  const lowerMsg = message.toLowerCase();
+  
+  // 提取房型
+  let roomType = session.data.roomType;
+  if (!roomType) {
+    if (lowerMsg.includes('標準')) roomType = '標準雙人房';
+    else if (lowerMsg.includes('豪華')) roomType = '豪華雙人房';
+    else if (lowerMsg.includes('套房')) roomType = '套房';
+    else if (lowerMsg.includes('家庭')) roomType = '家庭房';
+    
+    if (roomType) {
+      session.data.roomType = roomType;
+    }
+  }
+  
+  // 提取天數
+  const nightsMatch = message.match(/(\d+)\s*晚/);
+  if (nightsMatch) {
+    session.data.nights = parseInt(nightsMatch[1]);
+  }
+  
+  // 提取大人人數
+  const adultMatch = message.match(/(\d+)\s*大/);
+  if (adultMatch) {
+    session.data.adults = parseInt(adultMatch[1]);
+  }
+  
+  // 提取兒童人數
+  const childMatch = message.match(/(\d+)\s*小/);
+  if (childMatch) {
+    session.data.children = parseInt(childMatch[1]);
+    session.data.hasChildren = true;
+  }
+  
+  // 提取兒童年齡
+  const ageMatch = message.match(/(\d+)\s*歲/);
+  if (ageMatch) {
+    session.data.childAge = parseInt(ageMatch[1]);
+  }
+  
+  // 檢查是否所有必要資訊都已具備
+  if (session.data.roomType && session.data.nights && session.data.adults) {
+    // 直接生成訂單摘要
+    return generateBookingSummary(session);
+  } else {
+    // 引導用戶提供缺少的資訊
+    return guideToCompleteBooking(session);
+  }
+}
+
 // ==================== 簡化版對話處理 ====================
 function processMessage(message, session) {
   const cleanMessage = cleanInputMessage(message);
@@ -327,6 +403,12 @@ function processMessage(message, session) {
     detectedIntent = 'help';
   }
 
+  // ==================== 優先處理：完整訂房資訊查詢 ====================
+  else if (!response && hasCompleteBookingInfo(cleanMessage, session)) {
+    response = handleCompleteBookingQuery(cleanMessage, session);
+    detectedIntent = 'complete_booking_query';
+  }
+
   // ==================== 新增：兒童家庭房型處理 ====================
   else if (!response && (lowerMsg.includes('適合') || lowerMsg.includes('推薦') || 
          (session.data.hasChildren && !session.data.roomType))) {
@@ -356,7 +438,7 @@ function processMessage(message, session) {
   }
 
   // ==================== 新增：價格查詢處理 ====================
-  else if (!response && (lowerMsg.includes('價格') || lowerMsg.includes('價錢') || lowerMsg.includes('多少錢'))) {
+  else if (!response && (lowerMsg.includes('價格') || lowerMsg.includes('價錢') || lowerMsg.includes('多少錢') || lowerMsg.includes('總價'))) {
     response = handlePriceQuery(cleanMessage, session);
     detectedIntent = 'price_query';
   }
@@ -616,9 +698,49 @@ function handleChildPolicyQuery(message, session) {
   };
 }
 
-// ==================== 新增：處理價格查詢 ====================
+// ==================== 修改：處理價格查詢 ====================
 function handlePriceQuery(message, session) {
   const lowerMsg = message.toLowerCase();
+  
+  // 先檢查是否已經有足夠資訊可以直接計算價格
+  if (session.data.roomType && session.data.nights) {
+    const priceInfo = calculateFinalPrice(session.data);
+    
+    let reply = `💰 **價格估算結果**\n\n`;
+    reply += `🏨 ${session.data.roomType}\n`;
+    reply += `📅 ${session.data.nights}晚\n`;
+    if (session.data.adults) {
+      reply += `👥 ${session.data.adults}位大人`;
+    }
+    if (session.data.children) {
+      reply += ` + ${session.data.children}位小孩`;
+      if (session.data.childAge) {
+        reply += ` (${session.data.childAge}歲)`;
+      }
+    }
+    reply += `\n\n`;
+    
+    reply += `💵 每晚: NT$${roomCapacityData[session.data.roomType].price.toLocaleString()}\n`;
+    
+    if (priceInfo.extraCharges && priceInfo.extraCharges.length > 0) {
+      reply += `📊 額外費用: ${priceInfo.extraCharges.join('、')}\n`;
+    }
+    
+    if (session.data.memberLevel) {
+      const memberInfo = memberData[session.data.memberLevel];
+      reply += `🎁 ${memberInfo.level}會員折扣: -${(memberInfo.discount * 100)}%\n`;
+    }
+    
+    reply += `💰 總價: NT$${priceInfo.finalPrice.toLocaleString()}\n\n`;
+    
+    reply += `是否需要預訂此方案？`;
+    
+    session.step = 'price_query_complete';
+    return {
+      reply: reply,
+      nextStep: 'price_query_complete'
+    };
+  }
   
   // 提取房型
   let roomType = null;
@@ -884,7 +1006,7 @@ function guideToCompleteBooking(session) {
   };
 }
 
-// ==================== 數字處理 ====================
+// ==================== 修改：數字處理 - 改進天數識別 ====================
 function handleNumberInput(cleanMessage, session, lowerMsg) {
   const numberMatch = cleanMessage.match(/(\d+)/);
   if (!numberMatch) return null;
@@ -905,6 +1027,21 @@ function handleNumberInput(cleanMessage, session, lowerMsg) {
     return {
       reply: `👦 了解，孩子${number}歲 (${agePolicy})。請選擇您喜歡的房型：家庭房、套房、豪華雙人房`,
       nextStep: 'select_family_room'
+    };
+  }
+  
+  // 處理天數（優先處理，因為用戶可能直接提供完整資訊）
+  if ((cleanMessage.includes('晚') || cleanMessage.includes('天')) && !session.data.nights) {
+    session.data.nights = number;
+    
+    // 如果已經有房型和大人人數，直接生成摘要
+    if (session.data.roomType && session.data.adults) {
+      return generateBookingSummary(session);
+    }
+    
+    return {
+      reply: `了解，${number}晚。${!session.data.roomType ? '請問您想要哪種房型？' : !session.data.adults ? '請問有幾位大人入住？' : ''}`,
+      nextStep: session.data.roomType ? 'ask_guests' : 'select_room'
     };
   }
   
@@ -935,13 +1072,6 @@ function handleNumberInput(cleanMessage, session, lowerMsg) {
       reply: `好的，${number}間${session.data.roomType || '房間'}。請問打算入住幾晚？`,
       nextStep: 'ask_nights'
     };
-  }
-  
-  // 處理天數
-  if ((session.step === 'ask_nights' || !session.data.nights) && 
-      (cleanMessage.includes('晚') || cleanMessage.includes('天'))) {
-    session.data.nights = number;
-    return generateBookingSummary(session);
   }
   
   return null;
@@ -1051,6 +1181,7 @@ function generateDefaultResponse(session) {
     'child_policy': '還需要了解其他兒童政策嗎？',
     'child_policy_info': '是否需要繼續訂房流程？',
     'price_query': '是否需要預訂？',
+    'price_query_complete': '是否需要預訂此方案？',
     'price_info': '請告訴我您想查詢哪種房型？',
     'member_benefits_info': '請輸入會員帳號登入，或輸入「註冊會員」',
     'member_login': '請輸入會員帳號：',
