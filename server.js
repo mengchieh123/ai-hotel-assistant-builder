@@ -225,6 +225,65 @@ const roomCapacityData = {
   }
 };
 
+// ==================== 新增：處理家庭房型推薦 ====================
+function handleFamilyRoomRecommendation(message, session) {
+  const lowerMsg = message.toLowerCase();
+  
+  // 提取大人和兒童數量
+  const adultMatch = message.match(/(\d+)\s*大/);
+  const childMatch = message.match(/(\d+)\s*小/);
+  
+  const adults = adultMatch ? parseInt(adultMatch[1]) : (session.data.adults || 2);
+  const children = childMatch ? parseInt(childMatch[1]) : (session.data.children || 0);
+  
+  // 記錄到會話數據
+  session.data.adults = adults;
+  session.data.children = children;
+  session.data.hasChildren = children > 0;
+  
+  let reply = `👨‍👩‍👧‍👦 **了解您有 ${adults}位大人${children > 0 ? `和${children}位小孩` : ''}！**\n\n`;
+  
+  reply += `🏨 **適合的房型推薦**\n\n`;
+  
+  // 根據人數推薦房型
+  if (children >= 2) {
+    reply += `⭐ **家庭房 (推薦)**\n`;
+    reply += `   • 2張雙人床，空間寬敞\n`;
+    reply += `   • 最適合${adults}大${children}小家庭\n`;
+    reply += `   • 價格: NT$4,500/晚\n\n`;
+  }
+  
+  if (children > 0) {
+    reply += `🏠 **套房**\n`;
+    reply += `   • 獨立客廳，空間較大\n`;
+    reply += `   • 可加沙發床\n`;
+    reply += `   • 價格: NT$5,800/晚\n\n`;
+    
+    reply += `💎 **豪華雙人房**\n`;
+    reply += `   • 可加嬰兒床 (限1位幼兒)\n`;
+    reply += `   • 價格: NT$3,800/晚\n\n`;
+  } else {
+    reply += `🛏️ **標準雙人房**\n`;
+    reply += `   • 適合${adults}位大人\n`;
+    reply += `   • 價格: NT$2,800/晚\n\n`;
+  }
+  
+  // 如果沒有兒童年齡資訊，先詢問年齡
+  if (children > 0 && !session.data.childAge) {
+    reply += `📝 **為了給您更準確的建議**\n`;
+    reply += `請問孩子們的年齡是？這會影響房型選擇和費用計算。`;
+    session.step = 'ask_child_age';
+  } else {
+    reply += `請告訴我您想選擇哪種房型？`;
+    session.step = 'select_family_room';
+  }
+  
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
+}
+
 // ==================== 簡化版對話處理 ====================
 function processMessage(message, session) {
   const cleanMessage = cleanInputMessage(message);
@@ -266,6 +325,13 @@ function processMessage(message, session) {
       nextStep: session.step
     };
     detectedIntent = 'help';
+  }
+
+  // ==================== 新增：兒童家庭房型處理 ====================
+  else if (!response && (lowerMsg.includes('適合') || lowerMsg.includes('推薦') || 
+         (session.data.hasChildren && !session.data.roomType))) {
+    response = handleFamilyRoomRecommendation(cleanMessage, session);
+    detectedIntent = 'family_recommendation';
   }
 
   // ==================== 新增：會員優惠處理 ====================
@@ -825,6 +891,23 @@ function handleNumberInput(cleanMessage, session, lowerMsg) {
   
   const number = parseInt(numberMatch[1]);
   
+  // 處理兒童年齡
+  if (session.step === 'ask_child_age' && cleanMessage.includes('歲')) {
+    session.data.childAge = number;
+    session.step = 'select_family_room';
+    
+    let agePolicy = '';
+    if (number < 3) agePolicy = '免費同住';
+    else if (number < 6) agePolicy = '可免費同住，加床費NT$500/晚';
+    else if (number < 12) agePolicy = '加床費NT$800/晚';
+    else agePolicy = '視同成人收費';
+    
+    return {
+      reply: `👦 了解，孩子${number}歲 (${agePolicy})。請選擇您喜歡的房型：家庭房、套房、豪華雙人房`,
+      nextStep: 'select_family_room'
+    };
+  }
+  
   // 處理大人人數
   if ((session.step === 'ask_guests' || !session.data.adults) && 
       (cleanMessage.includes('大人') || cleanMessage.includes('位') || cleanMessage.includes('個'))) {
@@ -971,7 +1054,9 @@ function generateDefaultResponse(session) {
     'price_info': '請告訴我您想查詢哪種房型？',
     'member_benefits_info': '請輸入會員帳號登入，或輸入「註冊會員」',
     'member_login': '請輸入會員帳號：',
-    'member_logged_in': '會員已登入，是否需要開始訂房？'
+    'member_logged_in': '會員已登入，是否需要開始訂房？',
+    'ask_child_age': '請問孩子們的年齡是？這會影響房型選擇和費用計算。',
+    'select_family_room': '請選擇您喜歡的房型：家庭房、套房、豪華雙人房'
   };
   
   return {
