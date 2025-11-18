@@ -10,6 +10,35 @@ app.use(express.json());
 // 會話存儲
 const sessions = new Map();
 
+// ==================== 會員資料庫 ====================
+const memberData = {
+  'gold': {
+    level: 'Gold',
+    discount: 0.1,
+    benefits: ['房價9折', '免費早餐', '延遲退房至14:00', '房型升等機會'],
+    minNights: 1
+  },
+  'platinum': {
+    level: 'Platinum', 
+    discount: 0.15,
+    benefits: ['房價85折', '免費早餐', '延遲退房至15:00', '保證房型升等', '迎賓禮品'],
+    minNights: 2
+  },
+  'diamond': {
+    level: 'Diamond',
+    discount: 0.2,
+    benefits: ['房價8折', '免費早餐+晚餐', '延遲退房至16:00', '專屬樓層', '機場接送'],
+    minNights: 2
+  }
+};
+
+// 會員帳號範例 (實際應該從資料庫查詢)
+const memberAccounts = {
+  'gold123': { level: 'gold', name: '王小明', points: 1250 },
+  'plat456': { level: 'platinum', name: '陳小美', points: 3500 },
+  'dia789': { level: 'diamond', name: '林大為', points: 8900 }
+};
+
 // ==================== 基本健康檢查路由 ====================
 app.get('/health', (req, res) => {
   console.log('✅ 健康檢查請求收到');
@@ -73,6 +102,8 @@ class N8NIntegrationService {
         basePrice: bookingData.basePrice,
         finalPrice: bookingData.finalPrice,
         contactPerson: bookingData.contactPerson,
+        memberLevel: bookingData.memberLevel,
+        memberDiscount: bookingData.memberDiscount,
         checkInDate: bookingData.checkInDate,
         includesBreakfast: bookingData.includesBreakfast,
         timestamp: new Date().toISOString(),
@@ -246,6 +277,20 @@ function processMessage(message, session) {
     detectedIntent = 'help';
   }
 
+  // ==================== 新增：會員優惠處理 ====================
+  else if (!response && (lowerMsg.includes('會員') || lowerMsg.includes('優惠') || lowerMsg.includes('折扣') || 
+      lowerMsg.includes('vip') || lowerMsg.includes('福利'))) {
+    response = handleMemberBenefitsQuery(cleanMessage, session);
+    detectedIntent = 'member_benefits';
+  }
+
+  // ==================== 新增：會員登入處理 ====================
+  else if (!response && (session.step === 'member_login' || lowerMsg.includes('登入') || 
+      (session.context.awaitingMemberLogin && /^[a-zA-Z0-9]+$/.test(cleanMessage)))) {
+    response = handleMemberLogin(cleanMessage, session);
+    detectedIntent = 'member_login';
+  }
+
   // ==================== 新增：兒童政策查詢處理 ====================
   else if (!response && (lowerMsg.includes('兒童') || lowerMsg.includes('小孩') || lowerMsg.includes('孩子') || 
       lowerMsg.includes('加價') || lowerMsg.includes('加費') || lowerMsg.includes('收費'))) {
@@ -329,6 +374,108 @@ function processMessage(message, session) {
   }
 
   return response;
+}
+
+// ==================== 新增：處理會員優惠查詢 ====================
+function handleMemberBenefitsQuery(message, session) {
+  const lowerMsg = message.toLowerCase();
+  
+  let reply = `🎁 **會員專屬優惠**\n\n`;
+  
+  // 顯示各級會員福利
+  reply += `**會員等級與福利**\n`;
+  Object.entries(memberData).forEach(([key, data]) => {
+    reply += `\n⭐ ${data.level} 會員\n`;
+    reply += `   💰 折扣: ${(data.discount * 100)}% off\n`;
+    reply += `   🎁 福利: ${data.benefits.join('、')}\n`;
+    reply += `   📅 最低入住: ${data.minNights}晚\n`;
+  });
+  
+  // 檢查是否已登入會員
+  if (session.data.memberLevel) {
+    const memberInfo = memberData[session.data.memberLevel];
+    reply += `\n✅ **您已登入: ${memberInfo.level} 會員**\n`;
+    reply += `👤 會員姓名: ${session.data.memberName}\n`;
+    reply += `📊 累積點數: ${session.data.memberPoints}點\n`;
+    reply += `💎 專屬折扣: ${(memberInfo.discount * 100)}%`;
+    
+    // 如果正在訂房流程中，顯示適用優惠
+    if (session.data.roomType) {
+      const priceInfo = calculateFinalPrice(session.data);
+      reply += `\n\n💰 **訂房優惠估算**\n`;
+      reply += `原價: NT$${priceInfo.basePrice.toLocaleString()}\n`;
+      reply += `${memberInfo.level}會員折扣: -NT$${priceInfo.memberDiscount.toLocaleString()}\n`;
+      reply += `最終價格: NT$${priceInfo.finalPrice.toLocaleString()}`;
+    }
+    
+    session.step = 'member_benefits_display';
+  } else {
+    reply += `\n🔑 **會員登入**\n`;
+    reply += `如果您是現有會員，請提供會員帳號登入以享受專屬優惠！\n`;
+    reply += `或輸入「註冊會員」了解如何成為會員。`;
+    
+    session.step = 'member_benefits_info';
+    session.context.awaitingMemberLogin = true;
+  }
+  
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
+}
+
+// ==================== 新增：處理會員登入 ====================
+function handleMemberLogin(message, session) {
+  const cleanMessage = message.trim();
+  
+  // 會員註冊查詢
+  if (cleanMessage.includes('註冊') || cleanMessage.includes('成為會員')) {
+    return {
+      reply: `📝 **會員註冊資訊**\n\n💎 **會員等級**\n• Gold: 累積消費滿 NT$5,000\n• Platinum: 累積消費滿 NT$15,000  \n• Diamond: 累積消費滿 NT$30,000\n\n🎁 **立即加入福利**\n• 首次訂房享95折優惠\n• 消費累積點數 (1元=1點)\n• 生日當月額外折扣\n\n請至官網或櫃檯辦理會員註冊！`,
+      nextStep: 'member_registration_info'
+    };
+  }
+  
+  // 會員帳號驗證
+  if (memberAccounts[cleanMessage]) {
+    const memberAccount = memberAccounts[cleanMessage];
+    const memberInfo = memberData[memberAccount.level];
+    
+    session.data.memberLevel = memberAccount.level;
+    session.data.memberName = memberAccount.name;
+    session.data.memberPoints = memberAccount.points;
+    session.data.memberId = cleanMessage;
+    session.context.awaitingMemberLogin = false;
+    
+    let reply = `✅ **會員登入成功！**\n\n`;
+    reply += `👤 歡迎 ${memberAccount.name}\n`;
+    reply += `💎 會員等級: ${memberInfo.level}\n`;
+    reply += `📊 累積點數: ${memberAccount.points}點\n`;
+    reply += `🎁 專屬折扣: ${(memberInfo.discount * 100)}% off\n\n`;
+    reply += `現在訂房即可享受會員優惠！`;
+    
+    // 如果正在訂房流程中，更新價格計算
+    if (session.data.roomType) {
+      const priceInfo = calculateFinalPrice(session.data);
+      reply += `\n\n💰 **訂房優惠已自動套用**\n`;
+      reply += `最終價格: NT$${priceInfo.finalPrice.toLocaleString()}`;
+    }
+    
+    session.step = 'member_logged_in';
+    
+    return {
+      reply: reply,
+      nextStep: session.step
+    };
+  } else {
+    // 登入失敗
+    session.context.awaitingMemberLogin = true;
+    
+    return {
+      reply: `❌ **會員帳號未找到**\n\n請確認會員帳號是否正確，或輸入「註冊會員」了解如何成為會員。\n\n請重新輸入會員帳號：`,
+      nextStep: 'member_login'
+    };
+  }
 }
 
 // ==================== 新增：處理兒童政策查詢 ====================
@@ -431,17 +578,7 @@ function handlePriceQuery(message, session) {
   const children = childMatch ? parseInt(childMatch[1]) : 0;
   
   if (roomType) {
-    const roomInfo = roomCapacityData[roomType];
-    let totalPrice = roomInfo.price * nights;
-    let extraCharges = [];
-    
-    // 計算兒童加價
-    if (children > 0) {
-      // 簡單計算：每個兒童加 500/晚
-      const childCharge = 500 * children * nights;
-      totalPrice += childCharge;
-      extraCharges.push(`兒童加價 NT$${childCharge}`);
-    }
+    const priceInfo = calculatePriceWithDetails(roomType, nights, children, session.data.memberLevel);
     
     let reply = `💰 **價格查詢結果**\n\n`;
     reply += `🏨 ${roomType}\n`;
@@ -449,17 +586,18 @@ function handlePriceQuery(message, session) {
     if (children > 0) {
       reply += `👨‍👩‍👧‍👦 ${children}位小孩\n`;
     }
-    reply += `💵 每晚: NT$${roomInfo.price}\n`;
+    reply += `💵 每晚: NT$${priceInfo.basePricePerNight.toLocaleString()}\n`;
     
-    if (extraCharges.length > 0) {
-      reply += `📊 額外費用: ${extraCharges.join('、')}\n`;
+    if (priceInfo.extraCharges.length > 0) {
+      reply += `📊 額外費用: ${priceInfo.extraCharges.join('、')}\n`;
     }
     
-    reply += `💰 總價: NT$${totalPrice.toLocaleString()}\n`;
-    
-    if (roomInfo.breakfastIncluded) {
-      reply += `🍽️ 已包含免費早餐\n`;
+    if (session.data.memberLevel) {
+      const memberInfo = memberData[session.data.memberLevel];
+      reply += `🎁 ${memberInfo.level}會員折扣: -${(memberInfo.discount * 100)}%\n`;
     }
+    
+    reply += `💰 總價: NT$${priceInfo.finalPrice.toLocaleString()}\n`;
     
     // 更新會話數據
     session.data.roomType = roomType;
@@ -480,19 +618,13 @@ function handlePriceQuery(message, session) {
     // 沒有指定房型，顯示所有房型價格
     let reply = `💰 **各房型價格** (以${nights}晚計算${children > 0 ? `, ${children}位小孩` : ''})\n\n`;
     
-    Object.entries(roomCapacityData).forEach(([room, info]) => {
-      let roomPrice = info.price * nights;
-      if (children > 0) {
-        roomPrice += 500 * children * nights;
-      }
+    Object.keys(roomCapacityData).forEach(room => {
+      const priceInfo = calculatePriceWithDetails(room, nights, children, session.data.memberLevel);
       
       reply += `🏨 ${room}\n`;
-      reply += `   💵 NT$${roomPrice.toLocaleString()}\n`;
-      if (info.breakfastIncluded) {
-        reply += `   🍽️ 含早餐\n`;
-      }
-      if (children > 0) {
-        reply += `   👶 已計兒童費用\n`;
+      reply += `   💵 NT$${priceInfo.finalPrice.toLocaleString()}\n`;
+      if (session.data.memberLevel) {
+        reply += `   🎁 會員價\n`;
       }
       reply += `\n`;
     });
@@ -807,10 +939,17 @@ function generateBookingSummary(session) {
   if (session.data.contactPerson) {
     summary += `• 聯絡人：${session.data.contactPerson}\n`;
   }
+  if (session.data.memberLevel) {
+    const memberInfo = memberData[session.data.memberLevel];
+    summary += `• 會員等級：${memberInfo.level} (${(memberInfo.discount * 100)}%折扣)\n`;
+  }
   
   summary += `\n💰 費用估算\n`;
   if (priceInfo.extraCharges && priceInfo.extraCharges.length > 0) {
     summary += `• 額外費用：${priceInfo.extraCharges.join('、')}\n`;
+  }
+  if (session.data.memberLevel) {
+    summary += `• 會員折扣：-NT$${priceInfo.memberDiscount.toLocaleString()}\n`;
   }
   summary += `• 總金額：NT$ ${priceInfo.finalPrice.toLocaleString()}\n`;
   
@@ -837,7 +976,10 @@ function generateDefaultResponse(session) {
     'child_policy': '還需要了解其他兒童政策嗎？',
     'child_policy_info': '是否需要繼續訂房流程？',
     'price_query': '是否需要預訂？',
-    'price_info': '請告訴我您想查詢哪種房型？'
+    'price_info': '請告訴我您想查詢哪種房型？',
+    'member_benefits_info': '請輸入會員帳號登入，或輸入「註冊會員」',
+    'member_login': '請輸入會員帳號：',
+    'member_logged_in': '會員已登入，是否需要開始訂房？'
   };
   
   return {
@@ -854,21 +996,42 @@ async function completeBooking(session) {
   session.step = 'booking_completed';
   session.data.orderNumber = orderNumber;
   session.data.finalPrice = finalPrice.finalPrice;
+  session.data.basePrice = finalPrice.basePrice;
+  session.data.memberDiscount = finalPrice.memberDiscount;
 
   await n8nService.sendBookingConfirmation(session.data);
 
+  let reply = `🎉 **訂房完成！**\n\n📋 訂單編號: ${orderNumber}\n`;
+  if (session.data.memberLevel) {
+    const memberInfo = memberData[session.data.memberLevel];
+    reply += `💎 會員等級: ${memberInfo.level}\n`;
+    reply += `🎁 會員折扣: -${(memberInfo.discount * 100)}%\n`;
+  }
+  reply += `💰 總金額: NT$${finalPrice.finalPrice.toLocaleString()}\n`;
+  reply += `🏨 房型: ${session.data.roomType}\n`;
+  reply += `📅 天數: ${session.data.nights}晚\n`;
+  reply += `👥 人數: ${session.data.adults}位大人${session.data.children ? ` + ${session.data.children}位小孩` : ''}\n\n`;
+  reply += `感謝您的預訂！我們期待為您服務！`;
+
   return {
-    reply: `🎉 **訂房完成！**\n\n📋 訂單編號: ${orderNumber}\n💰 總金額: NT$${finalPrice.finalPrice.toLocaleString()}\n🏨 房型: ${session.data.roomType}\n📅 天數: ${session.data.nights}晚\n👥 人數: ${session.data.adults}位大人${session.data.children ? ` + ${session.data.children}位小孩` : ''}\n\n感謝您的預訂！我們期待為您服務！`,
+    reply: reply,
     nextStep: 'booking_completed'
   };
 }
 
+// ==================== 價格計算函數 (更新版) ====================
 function calculateFinalPrice(bookingData) {
-  if (!bookingData.roomType) return { finalPrice: 0 };
+  if (!bookingData.roomType) return { 
+    finalPrice: 0, 
+    basePrice: 0, 
+    memberDiscount: 0 
+  };
   
   const roomInfo = roomCapacityData[bookingData.roomType];
-  let finalPrice = roomInfo.price * (bookingData.nights || 1) * (bookingData.roomCount || 1);
+  const basePrice = roomInfo.price * (bookingData.nights || 1) * (bookingData.roomCount || 1);
+  let finalPrice = basePrice;
   let extraCharges = [];
+  let memberDiscount = 0;
   
   // 計算兒童費用
   if (bookingData.children > 0 && bookingData.childAge >= 6) {
@@ -881,9 +1044,50 @@ function calculateFinalPrice(bookingData) {
     extraCharges.push(`兒童加床費 NT$${childCharge}`);
   }
   
+  // 計算會員折扣
+  if (bookingData.memberLevel && memberData[bookingData.memberLevel]) {
+    const discountRate = memberData[bookingData.memberLevel].discount;
+    memberDiscount = Math.round(finalPrice * discountRate);
+    finalPrice -= memberDiscount;
+  }
+  
   return { 
     finalPrice: Math.round(finalPrice),
+    basePrice: basePrice,
+    memberDiscount: memberDiscount,
     extraCharges: extraCharges
+  };
+}
+
+// ==================== 詳細價格計算函數 ====================
+function calculatePriceWithDetails(roomType, nights, children, memberLevel) {
+  const roomInfo = roomCapacityData[roomType];
+  const basePricePerNight = roomInfo.price;
+  let totalPrice = basePricePerNight * nights;
+  let extraCharges = [];
+  
+  // 計算兒童費用
+  if (children > 0) {
+    const childCharge = 800 * children * nights;
+    totalPrice += childCharge;
+    extraCharges.push(`兒童加床費 NT$${childCharge}`);
+  }
+  
+  let finalPrice = totalPrice;
+  let memberDiscount = 0;
+  
+  // 計算會員折扣
+  if (memberLevel && memberData[memberLevel]) {
+    const discountRate = memberData[memberLevel].discount;
+    memberDiscount = Math.round(totalPrice * discountRate);
+    finalPrice -= memberDiscount;
+  }
+  
+  return {
+    basePricePerNight: basePricePerNight,
+    finalPrice: finalPrice,
+    extraCharges: extraCharges,
+    memberDiscount: memberDiscount
   };
 }
 
