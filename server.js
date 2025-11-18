@@ -80,37 +80,16 @@ class N8NIntegrationService {
     this.enabled = !!process.env.N8N_WEBHOOK_URL;
   }
 
-  async sendBookingConfirmation(bookingData) {
+  async sendToN8N(payload) {
     if (!this.enabled) {
-      console.log('🔕 n8n 整合未啟用，跳過發送訂房確認');
+      console.log('🔕 n8n 整合未啟用，跳過發送資料');
       return null;
     }
 
     try {
-      console.log('📤 發送訂房確認到 n8n:', bookingData.orderNumber);
+      console.log('📤 發送資料到 n8n:', payload.action);
       
-      const payload = {
-        action: 'booking_confirmation',
-        sessionId: bookingData.sessionId,
-        orderNumber: bookingData.orderNumber,
-        roomType: bookingData.roomType,
-        roomCount: bookingData.roomCount,
-        adults: bookingData.adults,
-        children: bookingData.children,
-        childAge: bookingData.childAge,
-        nights: bookingData.nights,
-        basePrice: bookingData.basePrice,
-        finalPrice: bookingData.finalPrice,
-        contactPerson: bookingData.contactPerson,
-        memberLevel: bookingData.memberLevel,
-        memberDiscount: bookingData.memberDiscount,
-        checkInDate: bookingData.checkInDate,
-        includesBreakfast: bookingData.includesBreakfast,
-        timestamp: new Date().toISOString(),
-        source: 'ai_hotel_assistant'
-      };
-
-      const response = await fetch(`${this.baseUrl}/webhook/hotel-booking`, {
+      const response = await fetch(`${this.baseUrl}/webhook/ai-hotel-booking`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -125,47 +104,58 @@ class N8NIntegrationService {
       }
 
       const result = await response.json();
-      console.log('✅ n8n 訂房確認發送成功');
+      console.log('✅ n8n 資料發送成功');
       return result;
 
     } catch (error) {
-      console.error('❌ n8n 訂房確認發送失敗:', error.message);
+      console.error('❌ n8n 資料發送失敗:', error.message);
       return null;
     }
   }
 
+  async sendBookingConfirmation(bookingData) {
+    const payload = {
+      action: 'booking_confirmation',
+      type: 'booking',
+      sessionId: bookingData.sessionId,
+      orderNumber: bookingData.orderNumber,
+      roomType: bookingData.roomType,
+      roomCount: bookingData.roomCount,
+      adults: bookingData.adults,
+      children: bookingData.children || 0,
+      childAge: bookingData.childAge || 0,
+      nights: bookingData.nights,
+      basePrice: bookingData.basePrice,
+      finalPrice: bookingData.finalPrice,
+      contactPerson: bookingData.contactPerson || '未提供',
+      memberLevel: bookingData.memberLevel || 'none',
+      memberDiscount: bookingData.memberDiscount || 0,
+      checkInDate: bookingData.checkInDate || '未指定',
+      includesBreakfast: bookingData.includesBreakfast || false,
+      timestamp: new Date().toISOString(),
+      source: 'ai_hotel_assistant'
+    };
+
+    return await this.sendToN8N(payload);
+  }
+
   async logCustomerInquiry(sessionId, userMessage, botResponse, intent) {
-    if (!this.enabled) {
-      return null;
-    }
+    const payload = {
+      action: 'customer_inquiry',
+      type: 'inquiry',
+      sessionId,
+      userMessage,
+      botResponse: botResponse.reply,
+      intent: intent || 'unknown',
+      step: botResponse.nextStep || 'unknown',
+      timestamp: new Date().toISOString(),
+      source: 'ai_hotel_assistant'
+    };
 
-    try {
-      const payload = {
-        action: 'customer_inquiry',
-        sessionId,
-        userMessage,
-        botResponse: botResponse.reply,
-        intent: intent || 'unknown',
-        step: botResponse.nextStep,
-        timestamp: new Date().toISOString(),
-        source: 'ai_hotel_assistant'
-      };
-
-      // 使用 Promise 不等待響應，避免阻塞
-      fetch(`${this.baseUrl}/webhook/customer-inquiry`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(this.apiKey && { 'X-N8N-API-KEY': this.apiKey })
-        },
-        body: JSON.stringify(payload)
-      }).catch(error => {
-        console.error('❌ n8n 客戶查詢記錄失敗:', error.message);
-      });
-
-    } catch (error) {
-      console.error('❌ n8n 客戶查詢記錄錯誤:', error.message);
-    }
+    // 使用 Promise 不等待響應，避免阻塞
+    this.sendToN8N(payload).catch(error => {
+      console.error('❌ n8n 客戶查詢記錄失敗:', error.message);
+    });
   }
 }
 
@@ -180,7 +170,8 @@ function getOrCreateSession(sessionId) {
       data: {},
       context: {},
       conversationHistory: [],
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
+      sessionId: sessionId
     });
   }
   return sessions.get(sessionId);
@@ -366,8 +357,9 @@ function processMessage(message, session) {
       timestamp: new Date().toISOString()
     });
     
-    n8nService.logCustomerInquiry(session.sessionId, cleanMessage, response, detectedIntent)
-      .catch(error => console.error('n8n 記錄失敗:', error));
+    // 記錄客戶查詢到 n8n
+    n8nService.logCustomerInquiry(session.sessionId, cleanMessage, response, detectedIntent);
+
   } else {
     response = generateDefaultResponse(session);
     detectedIntent = 'default';
@@ -999,6 +991,7 @@ async function completeBooking(session) {
   session.data.basePrice = finalPrice.basePrice;
   session.data.memberDiscount = finalPrice.memberDiscount;
 
+  // 發送訂房確認到 n8n
   await n8nService.sendBookingConfirmation(session.data);
 
   let reply = `🎉 **訂房完成！**\n\n📋 訂單編號: ${orderNumber}\n`;
