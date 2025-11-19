@@ -46,7 +46,8 @@ app.get('/health', (req, res) => {
     status: 'ok', 
     timestamp: new Date().toISOString(),
     activeSessions: sessions.size,
-    message: '服務正常運行中'
+    message: '服務正常運行中',
+    uptime: process.uptime()
   });
 });
 
@@ -54,7 +55,18 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    activeSessions: sessions.size
+    activeSessions: sessions.size,
+    uptime: process.uptime()
+  });
+});
+
+// 根路徑
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    service: 'Hotel Chatbot API',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
   });
 });
 
@@ -790,451 +802,817 @@ function handleTransportationInfo(message, session) {
     reply += `   • 飯店代叫: 免費服務\n\n`;
     
     reply += `🚇 **大眾運輸**\n`;
-    reply += `   • 捷運: 紅線
-    // 捷運資訊
-reply += `   • 路線: 紅線、藍線交會\n`;
-reply += `   • 首班車: 06:00, 末班車: 00:00\n`;
-reply += `   • 票價: NT$20-50\n\n`;
-
-reply += `🚌 **公車**\n`;
-reply += `   • 路線: 15條路線經過\n`;
-reply += `   • 班次: 10-15分鐘一班\n`;
-reply += `   • 票價: NT$15 (悠遊卡NT$12)\n`;
-}
-
-reply += `\n🗺️ **交通小貼士**\n`;
-reply += `• 下載"台灣等公車"APP查詢即時班次\n`;
-reply += `• 使用悠遊卡享轉乘優惠\n`;
-reply += `• 飯店提供免費市區地圖\n`;
-
-session.step = 'transportation_info';
-return {
-  reply: reply,
-  nextStep: session.step
-};
+    reply += `   • 捷運: 紅線、藍線交會\n`;
+    reply += `   • 首班車: 06:00, 末班車: 00:00\n`;
+    reply += `   • 票價: NT$20-50\n\n`;
+    
+    reply += `🚌 **公車**\n`;
+    reply += `   • 路線: 15條路線經過\n`;
+    reply += `   • 班次: 10-15分鐘一班\n`;
+    reply += `   • 票價: NT$15 (悠遊卡NT$12)\n`;
+  }
+  
+  reply += `\n🗺️ **交通小貼士**\n`;
+  reply += `• 下載"台灣等公車"APP查詢即時班次\n`;
+  reply += `• 使用悠遊卡享轉乘優惠\n`;
+  reply += `• 飯店提供免費市區地圖\n`;
+  
+  session.step = 'transportation_info';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 // ==================== 新增：處理便利設施資訊 ====================
 function handleAmenitiesInfo(message, session) {
-const lowerMsg = message.toLowerCase();
-
-let reply = `🏪 **周邊便利設施**\n\n`;
-
-if (lowerMsg.includes('便利商店') || lowerMsg.includes('超商')) {
-reply += `🛒 **便利商店**\n\n`;
-reply += `🏪 7-11\n`;
-reply += `   • 距離: 步行2分鐘 (飯店大廳)\n`;
-reply += `   • 營業時間: 24小時\n`;
-reply += `   • 服務: 取貨、影印、熱食\n\n`;
-
-reply += `🏪 FamilyMart\n`;
-reply += `   • 距離: 步行3分鐘\n`;
-reply += `   • 營業時間: 06:00-24:00\n`;
-reply += `   • 特色: 座位區、現煮咖啡\n`;
-
-} else if (lowerMsg.includes('超市') || lowerMsg.includes('賣場')) {
-reply += `🛍️ **超市賣場**\n\n`;
-reply += `🏬 頂好超市\n`;
-reply += `   • 距離: 步行8分鐘\n`;
-reply += `   • 營業時間: 08:00-23:00\n`;
-reply += `   • 特色: 生鮮食品、進口商品\n\n`;
-
-reply += `🏬 家樂福便利購\n`;
-reply += `   • 距離: 車程5分鐘\n`;
-reply += `   • 營業時間: 09:00-22:30\n`;
-reply += `   • 特色: 品項齊全、價格實惠\n`;
-
-} else if (lowerMsg.includes('藥局') || lowerMsg.includes('藥妝')) {
-reply += `💊 **藥局藥妝**\n\n`;
-reply += `🏥 康是美\n`;
-reply += `   • 距離: 步行5分鐘\n`;
-reply += `   • 營業時間: 10:00-22:00\n`;
-reply += `   • 特色: 藥妝、保健品、美妝\n\n`;
-
-reply += `🏥 屈臣氏\n`;
-reply += `   • 距離: 步行7分鐘\n`;
-reply += `   • 營業時間: 09:30-22:30\n`;
-reply += `   • 特色: 開架彩妝、醫藥用品\n`;
-
-} else if (lowerMsg.includes('銀行') || lowerMsg.includes('atm')) {
-reply += `🏦 **金融服務**\n\n`;
-reply += `💰 中國信託ATM\n`;
-reply += `   • 距離: 步行1分鐘 (飯店大廳)\n`;
-reply += `   • 服務: 提款、轉帳、外幣兌換\n\n`;
-
-reply += `🏦 台新銀行\n`;
-reply += `   • 距離: 步行5分鐘\n`;
-reply += `   • 營業時間: 09:00-15:30\n`;
-reply += `   • 服務: 外幣兌換、匯款\n`;
-
-} else {
-reply += `📍 **生活設施一覽**\n\n`;
-reply += `🛒 **便利商店**\n`;
-reply += `   • 7-11 (24小時) - 步行2分鐘\n`;
-reply += `   • FamilyMart - 步行3分鐘\n\n`;
-
-reply += `🛍️ **超市賣場**\n`;
-reply += `   • 頂好超市 - 步行8分鐘\n`;
-reply += `   • 家樂福 - 車程5分鐘\n\n`;
-
-reply += `💊 **藥局藥妝**\n`;
-reply += `   • 康是美 - 步行5分鐘\n`;
-reply += `   • 屈臣氏 - 步行7分鐘\n\n`;
-
-reply += `🏦 **金融服務**\n`;
-reply += `   • ATM (飯店大廳) - 步行1分鐘\n`;
-reply += `   • 台新銀行 - 步行5分鐘\n\n`;
-
-reply += `☕ **其他服務**\n`;
-reply += `   • 星巴克 - 步行6分鐘\n`;
-reply += `   • 郵局 - 步行10分鐘\n`;
-reply += `   • 洗衣店 - 步行8分鐘\n`;
-}
-
-reply += `\n💡 **便利服務**\n`;
-reply += `• 飯店提供代收包裹服務\n`;
-reply += `• 可協助叫外送服務\n`;
-reply += `• 提供周邊地圖導引\n`;
-
-session.step = 'amenities_info';
-return {
-  reply: reply,
-  nextStep: session.step
-};
+  const lowerMsg = message.toLowerCase();
+  
+  let reply = `🏪 **周邊便利設施**\n\n`;
+  
+  if (lowerMsg.includes('便利商店') || lowerMsg.includes('超商')) {
+    reply += `🛒 **便利商店**\n\n`;
+    reply += `🏪 7-11\n`;
+    reply += `   • 距離: 步行2分鐘 (飯店大廳)\n`;
+    reply += `   • 營業時間: 24小時\n`;
+    reply += `   • 服務: 取貨、影印、熱食\n\n`;
+    
+    reply += `🏪 FamilyMart\n`;
+    reply += `   • 距離: 步行3分鐘\n`;
+    reply += `   • 營業時間: 06:00-24:00\n`;
+    reply += `   • 特色: 座位區、現煮咖啡\n`;
+    
+  } else if (lowerMsg.includes('超市') || lowerMsg.includes('賣場')) {
+    reply += `🛍️ **超市賣場**\n\n`;
+    reply += `🏬 頂好超市\n`;
+    reply += `   • 距離: 步行8分鐘\n`;
+    reply += `   • 營業時間: 08:00-23:00\n`;
+    reply += `   • 特色: 生鮮食品、進口商品\n\n`;
+    
+    reply += `🏬 家樂福便利購\n`;
+    reply += `   • 距離: 車程5分鐘\n`;
+    reply += `   • 營業時間: 09:00-22:30\n`;
+    reply += `   • 特色: 品項齊全、價格實惠\n`;
+    
+  } else if (lowerMsg.includes('藥局') || lowerMsg.includes('藥妝')) {
+    reply += `💊 **藥局藥妝**\n\n`;
+    reply += `🏥 康是美\n`;
+    reply += `   • 距離: 步行5分鐘\n`;
+    reply += `   • 營業時間: 10:00-22:00\n`;
+    reply += `   • 特色: 藥妝、保健品、美妝\n\n`;
+    
+    reply += `🏥 屈臣氏\n`;
+    reply += `   • 距離: 步行7分鐘\n`;
+    reply += `   • 營業時間: 09:30-22:30\n`;
+    reply += `   • 特色: 開架彩妝、醫藥用品\n`;
+    
+  } else if (lowerMsg.includes('銀行') || lowerMsg.includes('atm')) {
+    reply += `🏦 **金融服務**\n\n`;
+    reply += `💰 中國信託ATM\n`;
+    reply += `   • 距離: 步行1分鐘 (飯店大廳)\n`;
+    reply += `   • 服務: 提款、轉帳、外幣兌換\n\n`;
+    
+    reply += `🏦 台新銀行\n`;
+    reply += `   • 距離: 步行5分鐘\n`;
+    reply += `   • 營業時間: 09:00-15:30\n`;
+    reply += `   • 服務: 外幣兌換、匯款\n`;
+    
+  } else {
+    reply += `📍 **生活設施一覽**\n\n`;
+    reply += `🛒 **便利商店**\n`;
+    reply += `   • 7-11 (24小時) - 步行2分鐘\n`;
+    reply += `   • FamilyMart - 步行3分鐘\n\n`;
+    
+    reply += `🛍️ **超市賣場**\n`;
+    reply += `   • 頂好超市 - 步行8分鐘\n`;
+    reply += `   • 家樂福 - 車程5分鐘\n\n`;
+    
+    reply += `💊 **藥局藥妝**\n`;
+    reply += `   • 康是美 - 步行5分鐘\n`;
+    reply += `   • 屈臣氏 - 步行7分鐘\n\n`;
+    
+    reply += `🏦 **金融服務**\n`;
+    reply += `   • ATM (飯店大廳) - 步行1分鐘\n`;
+    reply += `   • 台新銀行 - 步行5分鐘\n\n`;
+    
+    reply += `☕ **其他服務**\n`;
+    reply += `   • 星巴克 - 步行6分鐘\n`;
+    reply += `   • 郵局 - 步行10分鐘\n`;
+    reply += `   • 洗衣店 - 步行8分鐘\n`;
+  }
+  
+  reply += `\n💡 **便利服務**\n`;
+  reply += `• 飯店提供代收包裹服務\n`;
+  reply += `• 可協助叫外送服務\n`;
+  reply += `• 提供周邊地圖導引\n`;
+  
+  session.step = 'amenities_info';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 // ==================== 新增：處理景點推薦 ====================
 function handleAttractionsRecommendation(message, session) {
-const lowerMsg = message.toLowerCase();
-
-let reply = `🏞️ **景點推薦**\n\n`;
-
-if (lowerMsg.includes('自然') || lowerMsg.includes('公園') || lowerMsg.includes('戶外')) {
-reply += `🌳 **自然景觀**\n\n`;
-reply += `🏞️ 國家公園\n`;
-reply += `   • 距離: 車程30分鐘\n`;
-reply += `   • 特色: 登山步道、瀑布、野生動物\n`;
-reply += `   • 建議時間: 半天\n`;
-reply += `   • 門票: NT$100/人\n\n`;
-
-reply += `🌺 植物園\n`;
-reply += `   • 距離: 車程20分鐘\n`;
-reply += `   • 特色: 熱帶植物、溫室花園\n`;
-reply += `   • 建議時間: 2-3小時\n`;
-reply += `   • 門票: NT$50/人\n`;
-
-} else if (lowerMsg.includes('文化') || lowerMsg.includes('歷史') || lowerMsg.includes('古蹟')) {
-reply += `🏛️ **文化歷史**\n\n`;
-reply += `🎨 故宮博物院\n`;
-reply += `   • 距離: 車程25分鐘\n`;
-reply += `   • 特色: 中華文物、翠玉白菜\n`;
-reply += `   • 建議時間: 3-4小時\n`;
-reply += `   • 門票: NT$350/人\n\n`;
-
-reply += `🏯 歷史古蹟\n`;
-reply += `   • 距離: 步行15分鐘\n`;
-reply += `   • 特色: 百年建築、文化展覽\n`;
-reply += `   • 建議時間: 1-2小時\n`;
-reply += `   • 門票: 免費\n`;
-
-} else if (lowerMsg.includes('親子') || lowerMsg.includes('小孩') || lowerMsg.includes('兒童')) {
-reply += `👨‍👩‍👧‍👦 **親子景點**\n\n`;
-reply += `🎡 主題樂園\n`;
-reply += `   • 距離: 車程40分鐘\n`;
-reply += `   • 特色: 遊樂設施、表演秀\n`;
-reply += `   • 建議時間: 全天\n`;
-reply += `   • 門票: NT$899/人\n\n`;
-
-reply += `🐠 海洋公園\n`;
-reply += `   • 距離: 車程35分鐘\n`;
-reply += `   • 特色: 海洋生物、海豚表演\n`;
-reply += `   • 建議時間: 半天\n`;
-reply += `   • 門票: NT$650/人\n`;
-
-} else {
-reply += `⭐ **熱門景點精選**\n\n`;
-reply += `🏙️ 觀景台\n`;
-reply += `   • 距離: 步行10分鐘\n`;
-reply += `   • 特色: 城市全景、夜景\n`;
-reply += `   • 建議時間: 1小時\n`;
-reply += `   • 門票: NT$300/人\n\n`;
-
-reply += `🎭 文創園區\n`;
-reply += `   • 距離: 車程15分鐘\n`;
-reply += `   • 特色: 藝術展覽、文創市集\n`;
-reply += `   • 建議時間: 2-3小時\n`;
-reply += `   • 門票: 免費\n\n`;
-
-reply += `🛍️ 購物特區\n`;
-reply += `   • 距離: 步行8分鐘\n`;
-reply += `   • 特色: 精品商店、特色小店\n`;
-reply += `   • 建議時間: 2-4小時\n`;
-reply += `   • 門票: 免費\n\n`;
-
-reply += `🌃 河濱公園\n`;
-reply += `   • 距離: 步行20分鐘\n`;
-reply += `   • 特色: 自行車道、夜景\n`;
-reply += `   • 建議時間: 1-2小時\n`;
-reply += `   • 門票: 免費\n`;
-}
-
-reply += `\n📋 **旅遊建議**\n`;
-reply += `• 飯店提供景點導覽手冊\n`;
-reply += `• 可代訂景點門票享折扣\n`;
-reply += `• 建議提前預約熱門景點\n`;
-reply += `• 提供包車旅遊服務\n`;
-
-session.step = 'attractions_recommendation';
-return {
-  reply: reply,
-  nextStep: session.step
-};
+  const lowerMsg = message.toLowerCase();
+  
+  let reply = `🏞️ **景點推薦**\n\n`;
+  
+  if (lowerMsg.includes('自然') || lowerMsg.includes('公園') || lowerMsg.includes('戶外')) {
+    reply += `🌳 **自然景觀**\n\n`;
+    reply += `🏞️ 國家公園\n`;
+    reply += `   • 距離: 車程30分鐘\n`;
+    reply += `   • 特色: 登山步道、瀑布、野生動物\n`;
+    reply += `   • 建議時間: 半天\n`;
+    reply += `   • 門票: NT$100/人\n\n`;
+    
+    reply += `🌺 植物園\n`;
+    reply += `   • 距離: 車程20分鐘\n`;
+    reply += `   • 特色: 熱帶植物、溫室花園\n`;
+    reply += `   • 建議時間: 2-3小時\n`;
+    reply += `   • 門票: NT$50/人\n`;
+    
+  } else if (lowerMsg.includes('文化') || lowerMsg.includes('歷史') || lowerMsg.includes('古蹟')) {
+    reply += `🏛️ **文化歷史**\n\n`;
+    reply += `🎨 故宮博物院\n`;
+    reply += `   • 距離: 車程25分鐘\n`;
+    reply += `   • 特色: 中華文物、翠玉白菜\n`;
+    reply += `   • 建議時間: 3-4小時\n`;
+    reply += `   • 門票: NT$350/人\n\n`;
+    
+    reply += `🏯 歷史古蹟\n`;
+    reply += `   • 距離: 步行15分鐘\n`;
+    reply += `   • 特色: 百年建築、文化展覽\n`;
+    reply += `   • 建議時間: 1-2小時\n`;
+    reply += `   • 門票: 免費\n`;
+    
+  } else if (lowerMsg.includes('親子') || lowerMsg.includes('小孩') || lowerMsg.includes('兒童')) {
+    reply += `👨‍👩‍👧‍👦 **親子景點**\n\n`;
+    reply += `🎡 主題樂園\n`;
+    reply += `   • 距離: 車程40分鐘\n`;
+    reply += `   • 特色: 遊樂設施、表演秀\n`;
+    reply += `   • 建議時間: 全天\n`;
+    reply += `   • 門票: NT$899/人\n\n`;
+    
+    reply += `🐠 海洋公園\n`;
+    reply += `   • 距離: 車程35分鐘\n`;
+    reply += `   • 特色: 海洋生物、海豚表演\n`;
+    reply += `   • 建議時間: 半天\n`;
+    reply += `   • 門票: NT$650/人\n`;
+    
+  } else {
+    reply += `⭐ **熱門景點精選**\n\n`;
+    reply += `🏙️ 觀景台\n`;
+    reply += `   • 距離: 步行10分鐘\n`;
+    reply += `   • 特色: 城市全景、夜景\n`;
+    reply += `   • 建議時間: 1小時\n`;
+    reply += `   • 門票: NT$300/人\n\n`;
+    
+    reply += `🎭 文創園區\n`;
+    reply += `   • 距離: 車程15分鐘\n`;
+    reply += `   • 特色: 藝術展覽、文創市集\n`;
+    reply += `   • 建議時間: 2-3小時\n`;
+    reply += `   • 門票: 免費\n\n`;
+    
+    reply += `🛍️ 購物特區\n`;
+    reply += `   • 距離: 步行8分鐘\n`;
+    reply += `   • 特色: 精品商店、特色小店\n`;
+    reply += `   • 建議時間: 2-4小時\n`;
+    reply += `   • 門票: 免費\n\n`;
+    
+    reply += `🌃 河濱公園\n`;
+    reply += `   • 距離: 步行20分鐘\n`;
+    reply += `   • 特色: 自行車道、夜景\n`;
+    reply += `   • 建議時間: 1-2小時\n`;
+    reply += `   • 門票: 免費\n`;
+  }
+  
+  reply += `\n📋 **旅遊建議**\n`;
+  reply += `• 飯店提供景點導覽手冊\n`;
+  reply += `• 可代訂景點門票享折扣\n`;
+  reply += `• 建議提前預約熱門景點\n`;
+  reply += `• 提供包車旅遊服務\n`;
+  
+  session.step = 'attractions_recommendation';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 // ==================== 新增：處理餐廳推薦 ====================
 function handleRestaurantRecommendation(message, session) {
-const lowerMsg = message.toLowerCase();
-
-let reply = `🍽️ **餐廳推薦**\n\n`;
-
-if (lowerMsg.includes('中式') || lowerMsg.includes('台菜') || lowerMsg.includes('台灣')) {
-reply += `🥢 **中式料理**\n\n`;
-reply += `🏮 台菜餐廳\n`;
-reply += `   • 距離: 步行8分鐘\n`;
-reply += `   • 招牌: 三杯雞、滷肉飯、蚵仔煎\n`;
-reply += `   • 人均: NT$400-600\n`;
-reply += `   • 備註: 適合家庭聚餐\n\n`;
-
-reply += `🥟 點心專門店\n`;
-reply += `   • 距離: 步行12分鐘\n`;
-reply += `   • 招牌: 小籠包、燒賣、腸粉\n`;
-reply += `   • 人均: NT$300-500\n`;
-reply += `   • 備註: 米其林推薦\n`;
-
-} else if (lowerMsg.includes('西式') || lowerMsg.includes('牛排') || lowerMsg.includes('義大利')) {
-reply += `🍝 **西式料理**\n\n`;
-reply += `🥩 牛排館\n`;
-reply += `   • 距離: 步行5分鐘\n`;
-reply += `   • 招牌: 肋眼牛排、龍蝦\n`;
-reply += `   • 人均: NT$800-1200\n`;
-reply += `   • 備註: 浪漫氛圍，適合約會\n\n`;
-
-reply += `🍕 義式餐廳\n`;
-reply += `   • 距離: 步行10分鐘\n`;
-reply += `   • 招牌: 手工披薩、義大利麵\n`;
-reply += `   • 人均: NT$500-800\n`;
-reply += `   • 備註: 家庭友善，有兒童餐\n`;
-
-} else if (lowerMsg.includes('日式') || lowerMsg.includes('壽司') || lowerMsg.includes('拉麵')) {
-reply += `🍣 **日式料理**\n\n`;
-reply += `🎎 壽司店\n`;
-reply += `   • 距離: 步行15分鐘\n`;
-reply += `   • 招牌: 握壽司、生魚片\n`;
-reply += `   • 人均: NT$600-1000\n`;
-reply += `   • 備註: 新鮮食材，師傅現做\n\n`;
-
-reply += `🍜 拉麵店\n`;
-reply += `   • 距離: 步行8分鐘\n`;
-reply += `   • 招牌: 豚骨拉麵、沾麵\n`;
-reply += `   • 人均: NT$250-350\n`;
-reply += `   • 備註: 湯頭濃郁，排隊名店\n`;
-
-} else if (lowerMsg.includes('素食') || lowerMsg.includes('蔬食')) {
-reply += `🥗 **素食選擇**\n\n`;
-reply += `🌱 素食餐廳\n`;
-reply += `   • 距離: 步行12分鐘\n`;
-reply += `   • 招牌: 素食套餐、養生湯品\n`;
-reply += `   • 人均: NT$350-500\n`;
-reply += `   • 備註: 全素/蛋奶素可選\n\n`;
-
-reply += `🥬 健康輕食\n`;
-reply += `   • 距離: 步行6分鐘\n`;
-reply += `   • 招牌: 沙拉、蔬果汁、三明治\n`;
-reply += `   • 人均: NT$200-300\n`;
-reply += `   • 備註: 提供外帶服務\n`;
-
-} else {
-reply += `🎯 **精選餐廳**\n\n`;
-reply += `🍽️ 飯店餐廳\n`;
-reply += `   • 位置: 飯店2樓\n`;
-reply += `   • 菜系: 國際自助餐\n`;
-reply += `   • 人均: NT$880+10%\n`;
-reply += `   • 特色: 現場烹飪，多國料理\n\n`;
-
-reply += `🌃 景觀餐廳\n`;
-reply += `   • 距離: 步行10分鐘\n`;
-reply += `   • 菜系: 融合料理\n`;
-reply += `   • 人均: NT$600-900\n`;
-reply += `   • 特色: 高空夜景，浪漫氛圍\n\n`;
-
-reply += `🍻 居酒屋\n`;
-reply += `   • 距離: 步行5分鐘\n`;
-reply += `   • 菜系: 日式串燒\n`;
-reply += `   • 人均: NT$400-600\n`;
-reply += `   • 特色: 下班小酌，氣氛輕鬆\n`;
-}
-
-reply += `\n💡 **訂位服務**\n`;
-reply += `• 飯店可代訂熱門餐廳\n`;
-reply += `• 部分餐廳持房卡享折扣\n`;
-reply += `• 提供外送服務資訊\n`;
-reply += `• 推薦隱藏版美食地圖\n`;
-
-session.step = 'restaurant_recommendation';
-return {
-  reply: reply,
-  nextStep: session.step
-};
+  const lowerMsg = message.toLowerCase();
+  
+  let reply = `🍽️ **餐廳推薦**\n\n`;
+  
+  if (lowerMsg.includes('中式') || lowerMsg.includes('台菜') || lowerMsg.includes('台灣')) {
+    reply += `🥢 **中式料理**\n\n`;
+    reply += `🏮 台菜餐廳\n`;
+    reply += `   • 距離: 步行8分鐘\n`;
+    reply += `   • 招牌: 三杯雞、滷肉飯、蚵仔煎\n`;
+    reply += `   • 人均: NT$400-600\n`;
+    reply += `   • 備註: 適合家庭聚餐\n\n`;
+    
+    reply += `🥟 點心專門店\n`;
+    reply += `   • 距離: 步行12分鐘\n`;
+    reply += `   • 招牌: 小籠包、燒賣、腸粉\n`;
+    reply += `   • 人均: NT$300-500\n`;
+    reply += `   • 備註: 米其林推薦\n`;
+    
+  } else if (lowerMsg.includes('西式') || lowerMsg.includes('牛排') || lowerMsg.includes('義大利')) {
+    reply += `🍝 **西式料理**\n\n`;
+    reply += `🥩 牛排館\n`;
+    reply += `   • 距離: 步行5分鐘\n`;
+    reply += `   • 招牌: 肋眼牛排、龍蝦\n`;
+    reply += `   • 人均: NT$800-1200\n`;
+    reply += `   • 備註: 浪漫氛圍，適合約會\n\n`;
+    
+    reply += `🍕 義式餐廳\n`;
+    reply += `   • 距離: 步行10分鐘\n`;
+    reply += `   • 招牌: 手工披薩、義大利麵\n`;
+    reply += `   • 人均: NT$500-800\n`;
+    reply += `   • 備註: 家庭友善，有兒童餐\n`;
+    
+  } else if (lowerMsg.includes('日式') || lowerMsg.includes('壽司') || lowerMsg.includes('拉麵')) {
+    reply += `🍣 **日式料理**\n\n`;
+    reply += `🎎 壽司店\n`;
+    reply += `   • 距離: 步行15分鐘\n`;
+    reply += `   • 招牌: 握壽司、生魚片\n`;
+    reply += `   • 人均: NT$600-1000\n`;
+    reply += `   • 備註: 新鮮食材，師傅現做\n\n`;
+    
+    reply += `🍜 拉麵店\n`;
+    reply += `   • 距離: 步行8分鐘\n`;
+    reply += `   • 招牌: 豚骨拉麵、沾麵\n`;
+    reply += `   • 人均: NT$250-350\n`;
+    reply += `   • 備註: 湯頭濃郁，排隊名店\n`;
+    
+  } else if (lowerMsg.includes('素食') || lowerMsg.includes('蔬食')) {
+    reply += `🥗 **素食選擇**\n\n`;
+    reply += `🌱 素食餐廳\n`;
+    reply += `   • 距離: 步行12分鐘\n`;
+    reply += `   • 招牌: 素食套餐、養生湯品\n`;
+    reply += `   • 人均: NT$350-500\n`;
+    reply += `   • 備註: 全素/蛋奶素可選\n\n`;
+    
+    reply += `🥬 健康輕食\n`;
+    reply += `   • 距離: 步行6分鐘\n`;
+    reply += `   • 招牌: 沙拉、蔬果汁、三明治\n`;
+    reply += `   • 人均: NT$200-300\n`;
+    reply += `   • 備註: 提供外帶服務\n`;
+    
+  } else {
+    reply += `🎯 **精選餐廳**\n\n`;
+    reply += `🍽️ 飯店餐廳\n`;
+    reply += `   • 位置: 飯店2樓\n`;
+    reply += `   • 菜系: 國際自助餐\n`;
+    reply += `   • 人均: NT$880+10%\n`;
+    reply += `   • 特色: 現場烹飪，多國料理\n\n`;
+    
+    reply += `🌃 景觀餐廳\n`;
+    reply += `   • 距離: 步行10分鐘\n`;
+    reply += `   • 菜系: 融合料理\n`;
+    reply += `   • 人均: NT$600-900\n`;
+    reply += `   • 特色: 高空夜景，浪漫氛圍\n\n`;
+    
+    reply += `🍻 居酒屋\n`;
+    reply += `   • 距離: 步行5分鐘\n`;
+    reply += `   • 菜系: 日式串燒\n`;
+    reply += `   • 人均: NT$400-600\n`;
+    reply += `   • 特色: 下班小酌，氣氛輕鬆\n`;
+  }
+  
+  reply += `\n💡 **訂位服務**\n`;
+  reply += `• 飯店可代訂熱門餐廳\n`;
+  reply += `• 部分餐廳持房卡享折扣\n`;
+  reply += `• 提供外送服務資訊\n`;
+  reply += `• 推薦隱藏版美食地圖\n`;
+  
+  session.step = 'restaurant_recommendation';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 // ==================== 新增：處理飯店設施 ====================
 function handleHotelFacilities(message, session) {
-const lowerMsg = message.toLowerCase();
-
-let reply = `🏨 **飯店設施**\n\n`;
-
-if (lowerMsg.includes('健身房') || lowerMsg.includes('健身') || lowerMsg.includes('運動')) {
-reply += `💪 **健身中心**\n\n`;
-reply += `🏋️ 重量訓練區\n`;
-reply += `   • 位置: 3樓\n`;
-reply += `   • 設備: 啞鈴、槓鈴、重訓機\n`;
-reply += `   • 時間: 06:00-22:00\n\n`;
-
-reply += `🏃 有氧區\n`;
-reply += `   • 設備: 跑步機、飛輪、橢圓機\n`;
-reply += `   • 特色: 面對市景，電視娛樂\n`;
-reply += `   • 服務: 毛巾、飲用水提供\n\n`;
-
-reply += `🧘 伸展區\n`;
-reply += `   • 設備: 瑜伽墊、健身球\n`;
-reply += `   • 課程: 晨間瑜伽 (07:00-08:00)\n`;
-
-} else if (lowerMsg.includes('游泳池') || lowerMsg.includes('泳池') || lowerMsg.includes('游泳')) {
-reply += `🏊 **游泳池**\n\n`;
-reply += `🌊 主游泳池\n`;
-reply += `   • 位置: 頂樓\n`;
-reply += `   • 尺寸: 25公尺長\n`;
-reply += `   • 深度: 1.2-1.8公尺\n`;
-reply += `   • 時間: 07:00-21:00\n\n`;
-
-reply += `👶 兒童池\n`;
-reply += `   • 深度: 0.6公尺\n`;
-reply += `   • 特色: 滑水道、噴水設施\n`;
-reply += `   • 備註: 需家長陪同\n\n`;
-
-reply += `🛟 服務項目\n`;
-reply += `   • 免費: 毛巾、泳圈、浮板\n`;
-reply += `   • 租借: 泳鏡NT$50、泳帽NT$100\n`;
-reply += `   • 安全: 救生員值班\n`;
-
-} else if (lowerMsg.includes('早餐') || lowerMsg.includes('用餐')) {
-reply += `🍽️ **餐飲設施**\n\n`;
-reply += `🌅 早餐餐廳\n`;
-reply += `   • 位置: 1樓大廳旁\n`;
-reply += `   • 時間: 06:30-10:30\n`;
-reply += `   • 形式: 自助式早餐\n`;
-reply += `   • 價格: 房客NT$350/人\n\n`;
-
-reply += `☕ 大廳酒吧\n`;
-reply += `   • 時間: 10:00-23:00\n`;
-reply += `   • 提供: 咖啡、茶飲、輕食\n`;
-reply += `   • 特色: 現場鋼琴演奏\n\n`;
-
-reply += `🍸 頂樓酒吧\n`;
-reply += `   • 時間: 18:00-01:00\n`;
-reply += `   • 特色: 夜景、調酒、小點\n`;
-reply += `   • 備註: 需著正式服裝\n`;
-
-} else {
-reply += `⭐ **完整設施列表**\n\n`;
-reply += `🛏️ **客房設施**\n`;
-reply += `   • 免費WiFi\n`;
-reply += `   • 空調系統\n`;
-reply += `   • 液晶電視\n`;
-reply += `   • 迷你冰箱\n`;
-reply += `   • 保險箱\n\n`;
-
-reply += `🏋️ **休閒設施**\n`;
-reply += `   • 健身中心 (06:00-22:00)\n`;
-reply += `   • 游泳池 (07:00-21:00)\n`;
-reply += `   • 三溫暖 (14:00-22:00)\n`;
-reply += `   • 按摩服務 (需預約)\n\n`;
-
-reply += `🍽️ **餐飲設施**\n`;
-reply += `   • 早餐餐廳 (06:30-10:30)\n`;
-reply += `   • 大廳酒吧 (10:00-23:00)\n`;
-reply += `   • 頂樓酒吧 (18:00-01:00)\n\n`;
-
-reply += `💼 **商務設施**\n`;
-reply += `   • 商務中心 (24小時)\n`;
-reply += `   • 會議室 (需預約)\n`;
-reply += `   • 影印服務\n`;
+  const lowerMsg = message.toLowerCase();
+  
+  let reply = `🏨 **飯店設施**\n\n`;
+  
+  if (lowerMsg.includes('健身房') || lowerMsg.includes('健身') || lowerMsg.includes('運動')) {
+    reply += `💪 **健身中心**\n\n`;
+    reply += `🏋️ 重量訓練區\n`;
+    reply += `   • 位置: 3樓\n`;
+    reply += `   • 設備: 啞鈴、槓鈴、重訓機\n`;
+    reply += `   • 時間: 06:00-22:00\n\n`;
+    
+    reply += `🏃 有氧區\n`;
+    reply += `   • 設備: 跑步機、飛輪、橢圓機\n`;
+    reply += `   • 特色: 面對市景，電視娛樂\n`;
+    reply += `   • 服務: 毛巾、飲用水提供\n\n`;
+    
+    reply += `🧘 伸展區\n`;
+    reply += `   • 設備: 瑜伽墊、健身球\n`;
+    reply += `   • 課程: 晨間瑜伽 (07:00-08:00)\n`;
+    
+  } else if (lowerMsg.includes('游泳池') || lowerMsg.includes('泳池') || lowerMsg.includes('游泳')) {
+    reply += `🏊 **游泳池**\n\n`;
+    reply += `🌊 主游泳池\n`;
+    reply += `   • 位置: 頂樓\n`;
+    reply += `   • 尺寸: 25公尺長\n`;
+    reply += `   • 深度: 1.2-1.8公尺\n`;
+    reply += `   • 時間: 07:00-21:00\n\n`;
+    
+    reply += `👶 兒童池\n`;
+    reply += `   • 深度: 0.6公尺\n`;
+    reply += `   • 特色: 滑水道、噴水設施\n`;
+    reply += `   • 備註: 需家長陪同\n\n`;
+    
+    reply += `🛟 服務項目\n`;
+    reply += `   • 免費: 毛巾、泳圈、浮板\n`;
+    reply += `   • 租借: 泳鏡NT$50、泳帽NT$100\n`;
+    reply += `   • 安全: 救生員值班\n`;
+    
+  } else if (lowerMsg.includes('早餐') || lowerMsg.includes('用餐')) {
+    reply += `🍽️ **餐飲設施**\n\n`;
+    reply += `🌅 早餐餐廳\n`;
+    reply += `   • 位置: 1樓大廳旁\n`;
+    reply += `   • 時間: 06:30-10:30\n`;
+    reply += `   • 形式: 自助式早餐\n`;
+    reply += `   • 價格: 房客NT$350/人\n\n`;
+    
+    reply += `☕ 大廳酒吧\n`;
+    reply += `   • 時間: 10:00-23:00\n`;
+    reply += `   • 提供: 咖啡、茶飲、輕食\n`;
+    reply += `   • 特色: 現場鋼琴演奏\n\n`;
+    
+    reply += `🍸 頂樓酒吧\n`;
+    reply += `   • 時間: 18:00-01:00\n`;
+    reply += `   • 特色: 夜景、調酒、小點\n`;
+    reply += `   • 備註: 需著正式服裝\n`;
+    
+  } else {
+    reply += `⭐ **完整設施列表**\n\n`;
+    reply += `🛏️ **客房設施**\n`;
+    reply += `   • 免費WiFi\n`;
+    reply += `   • 空調系統\n`;
+    reply += `   • 液晶電視\n`;
+    reply += `   • 迷你冰箱\n`;
+    reply += `   • 保險箱\n\n`;
+    
+    reply += `🏋️ **休閒設施**\n`;
+    reply += `   • 健身中心 (06:00-22:00)\n`;
+    reply += `   • 游泳池 (07:00-21:00)\n`;
+    reply += `   • 三溫暖 (14:00-22:00)\n`;
+    reply += `   • 按摩服務 (需預約)\n\n`;
+    
+    reply += `🍽️ **餐飲設施**\n`;
+    reply += `   • 早餐餐廳 (06:30-10:30)\n`;
+    reply += `   • 大廳酒吧 (10:00-23:00)\n`;
+    reply += `   • 頂樓酒吧 (18:00-01:00)\n\n`;
+    
+    reply += `💼 **商務設施**\n`;
+    reply += `   • 商務中心 (24小時)\n`;
+    reply += `   • 會議室 (需預約)\n`;
+    reply += `   • 影印服務\n`;
+  }
+  
+  reply += `\n📞 **使用須知**\n`;
+  reply += `• 房客免費使用大部分設施\n`;
+  reply += `• 部分設施需提前預約\n`;
+  reply += `• 請遵守各設施使用規定\n`;
+  reply += `• 詳細資訊請洽櫃檯\n`;
+  
+  session.step = 'hotel_facilities';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
-reply += `\n📞 **使用須知**\n`;
-reply += `• 房客免費使用大部分設施\n`;
-reply += `• 部分設施需提前預約\n`;
-reply += `• 請遵守各設施使用規定\n`;
-reply += `• 詳細資訊請洽櫃檯\n`;
-
-session.step = 'hotel_facilities';
-return {
-  reply: reply,
-  nextStep: session.step
-};
+// ==================== 缺少的函數定義 ====================
+function generateBookingSummary(session) {
+  const roomType = session.data.roomType;
+  const roomInfo = roomCapacityData[roomType];
+  const basePrice = roomInfo.price * session.data.nights;
+  
+  let reply = `📋 **訂單摘要**\n\n`;
+  reply += `🏨 房型: ${roomType}\n`;
+  reply += `📅 天數: ${session.data.nights}晚\n`;
+  reply += `👥 人數: ${session.data.adults}位大人${session.data.children > 0 ? `, ${session.data.children}位小孩` : ''}\n`;
+  reply += `💰 基礎價格: NT$${basePrice.toLocaleString()}\n\n`;
+  
+  reply += `請確認以上資訊是否正確？`;
+  
+  session.step = 'confirm_booking';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
-// ==================== 其他現有函數保持不變 ====================
+function guideToCompleteBooking(session) {
+  let missingInfo = [];
+  
+  if (!session.data.roomType) missingInfo.push('房型');
+  if (!session.data.nights) missingInfo.push('入住天數');
+  if (!session.data.adults) missingInfo.push('大人人數');
+  
+  let reply = `📝 **請提供以下資訊完成訂房：**\n\n`;
+  reply += `目前缺少: ${missingInfo.join(', ')}\n\n`;
+  
+  if (!session.data.roomType) {
+    reply += `🏨 **請選擇房型：**\n`;
+    reply += `• 標準雙人房 (NT$2,800/晚)\n`;
+    reply += `• 豪華雙人房 (NT$3,800/晚)\n`;
+    reply += `• 套房 (NT$5,800/晚)\n`;
+    reply += `• 家庭房 (NT$4,500/晚)\n\n`;
+  }
+  
+  if (!session.data.nights) {
+    reply += `📅 **請輸入入住天數：**\n`;
+    reply += `例如: 2晚、3晚\n\n`;
+  }
+  
+  if (!session.data.adults) {
+    reply += `👥 **請輸入大人人數：**\n`;
+    reply += `例如: 2大、3大\n\n`;
+  }
+  
+  session.step = 'complete_booking_info';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
+}
+
+// 其他缺少的函數定義（簡化版）
 function handleMemberBenefitsQuery(message, session) {
-// ... 保持現有會員優惠處理邏輯不變
+  let reply = `🎁 **會員優惠方案**\n\n`;
+  
+  reply += `⭐ **Gold 會員**\n`;
+  reply += `   • 房價9折優惠\n`;
+  reply += `   • 免費早餐\n`;
+  reply += `   • 延遲退房至14:00\n`;
+  reply += `   • 房型升等機會\n\n`;
+  
+  reply += `💎 **Platinum 會員**\n`;
+  reply += `   • 房價85折優惠\n`;
+  reply += `   • 免費早餐\n`;
+  reply += `   • 延遲退房至15:00\n`;
+  reply += `   • 保證房型升等\n`;
+  reply += `   • 迎賓禮品\n\n`;
+  
+  reply += `👑 **Diamond 會員**\n`;
+  reply += `   • 房價8折優惠\n`;
+  reply += `   • 免費早餐+晚餐\n`;
+  reply += `   • 延遲退房至16:00\n`;
+  reply += `   • 專屬樓層\n`;
+  reply += `   • 機場接送服務\n\n`;
+  
+  reply += `💳 **立即登入會員享優惠**\n`;
+  reply += `請輸入您的會員帳號：`;
+  
+  session.step = 'member_login';
+  session.context.awaitingMemberLogin = true;
+  
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 function handleMemberLogin(message, session) {
-// ... 保持現有會員登入處理邏輯不變
+  const cleanMessage = cleanInputMessage(message);
+  
+  if (memberAccounts[cleanMessage]) {
+    const member = memberAccounts[cleanMessage];
+    const benefits = memberData[member.level];
+    
+    session.data.memberLevel = member.level;
+    session.data.memberName = member.name;
+    session.data.memberPoints = member.points;
+    session.context.awaitingMemberLogin = false;
+    
+    let reply = `👋 歡迎回來，${member.name}！\n\n`;
+    reply += `⭐ 您的會員等級: ${benefits.level}\n`;
+    reply += `📊 累積點數: ${member.points}點\n`;
+    reply += `🎁 專屬優惠: ${benefits.benefits.join('、')}\n\n`;
+    reply += `現在訂房即可享受會員優惠！`;
+    
+    session.step = 'welcome';
+    
+    return {
+      reply: reply,
+      nextStep: session.step
+    };
+  } else {
+    let reply = `❌ 會員帳號未找到\n\n`;
+    reply += `請確認帳號是否正確，或聯繫客服協助。\n`;
+    reply += `您也可以繼續以一般旅客身份訂房。`;
+    
+    session.context.awaitingMemberLogin = false;
+    session.step = 'welcome';
+    
+    return {
+      reply: reply,
+      nextStep: session.step
+    };
+  }
 }
 
 function handleChildPolicyQuery(message, session) {
-// ... 保持現有兒童政策處理邏輯不變
+  let reply = `👶 **兒童政策說明**\n\n`;
+  
+  reply += `📋 **兒童收費標準**\n`;
+  reply += `• 0-5歲: 免費 (不佔床)\n`;
+  reply += `• 6-11歲: NT$500/晚 (加床)\n`;
+  reply += `• 12歲以上: 視同成人\n\n`;
+  
+  reply += `🛏️ **房型兒童容納**\n`;
+  reply += `• 標準雙人房: 最多1位兒童\n`;
+  reply += `• 豪華雙人房: 最多2位兒童\n`;
+  reply += `• 套房: 最多2位兒童\n`;
+  reply += `• 家庭房: 最多3位兒童\n\n`;
+  
+  reply += `🎁 **兒童友善服務**\n`;
+  reply += `• 免費提供嬰兒床\n`;
+  reply += `• 兒童沐浴備品\n`;
+  reply += `• 兒童專屬拖鞋\n`;
+  reply += `• 親子活動推薦\n`;
+  
+  session.step = 'child_policy';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 function handlePriceQuery(message, session) {
-// ... 保持現有價格查詢處理邏輯不變
+  let reply = `💰 **房價查詢**\n\n`;
+  
+  if (session.data.roomType) {
+    const roomInfo = roomCapacityData[session.data.roomType];
+    const nights = session.data.nights || 1;
+    const basePrice = roomInfo.price * nights;
+    
+    reply += `🏨 ${session.data.roomType}\n`;
+    reply += `📅 ${nights}晚\n`;
+    reply += `💵 總價: NT$${basePrice.toLocaleString()}\n\n`;
+    
+    if (session.data.memberLevel) {
+      const discount = memberData[session.data.memberLevel].discount;
+      const finalPrice = basePrice * (1 - discount);
+      reply += `🎁 會員${memberData[session.data.memberLevel].level}折扣: ${discount * 100}%\n`;
+      reply += `💰 折後價格: NT$${finalPrice.toLocaleString()}\n`;
+    }
+  } else {
+    reply += `🏨 **房型價格表**\n\n`;
+    reply += `🛏️ 標準雙人房: NT$2,800/晚\n`;
+    reply += `💎 豪華雙人房: NT$3,800/晚\n`;
+    reply += `🏠 套房: NT$5,800/晚\n`;
+    reply += `👨‍👩‍👧‍👦 家庭房: NT$4,500/晚\n\n`;
+    reply += `💡 請告訴我您想查詢哪種房型？`;
+  }
+  
+  session.step = 'price_query';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 function handleBreakfastQuery(message, session) {
-// ... 保持現有早餐查詢處理邏輯不變
+  let reply = `🍽️ **早餐服務說明**\n\n`;
+  
+  reply += `🕒 **用餐時間**\n`;
+  reply += `• 平日: 06:30-10:00\n`;
+  reply += `• 假日: 06:30-10:30\n\n`;
+  
+  reply += `💰 **早餐費用**\n`;
+  reply += `• 成人: NT$350/位\n`;
+  reply += `• 兒童 (6-12歲): NT$200/位\n`;
+  reply += `• 幼兒 (0-5歲): 免費\n\n`;
+  
+  reply += `🍴 **餐點內容**\n`;
+  reply += `• 中西式自助早餐\n`;
+  reply += `• 現煮咖啡、新鮮果汁\n`;
+  reply += `• 麵包、沙拉、熱食\n`;
+  reply += `• 素食選項\n\n`;
+  
+  reply += `💡 **貼心提醒**\n`;
+  reply += `• 部分房型已含早餐\n`;
+  reply += `• 會員享早餐優惠\n`;
+  reply += `• 可預約房內用餐\n`;
+  
+  session.step = 'breakfast_query';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 function handleCheckInDate(message, session) {
-// ... 保持現有入住日期處理邏輯不變
+  let reply = `📅 **入住日期查詢**\n\n`;
+  
+  reply += `🏨 我們接受未來90天內的訂房\n\n`;
+  reply += `📋 **入住須知**\n`;
+  reply += `• 入住時間: 15:00後\n`;
+  reply += `• 退房時間: 11:00前\n`;
+  reply += `• 提早入住: 視房況安排\n`;
+  reply += `• 延遲退房: 會員專屬優惠\n\n`;
+  
+  reply += `💡 **建議**\n`;
+  reply += `• 旺季建議提前預訂\n`;
+  reply += `• 連續假日有最低住宿天數要求\n`;
+  reply += `• 特殊節日價格可能調整\n\n`;
+  
+  reply += `請告訴我您計劃的入住日期？`;
+  
+  session.step = 'checkin_date';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 function handleContactInfo(message, session) {
-// ... 保持現有聯絡資訊處理邏輯不變
+  let reply = `📞 **聯絡資訊**\n\n`;
+  
+  reply += `🏨 **飯店總機**\n`;
+  reply += `• 電話: (02) 1234-5678\n`;
+  reply += `• 服務時間: 24小時\n\n`;
+  
+  reply += `📧 **電子郵件**\n`;
+  reply += `• 訂房服務: reservation@hotel.com\n`;
+  reply += `• 客服專線: service@hotel.com\n\n`;
+  
+  reply += `🌐 **線上服務**\n`;
+  reply += `• 官方網站: www.hotel.com\n`;
+  reply += `• LINE客服: @hotel_service\n`;
+  reply += `• Facebook: Hotel Official\n\n`;
+  
+  reply += `📍 **地址**\n`;
+  reply += `台北市信義區松仁路100號\n`;
+  
+  session.step = 'contact_info';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 function handleCancelBooking(message, session) {
-// ... 保持現有取消訂房處理邏輯不變
+  let reply = `❌ **取消訂房政策**\n\n`;
+  
+  reply += `📋 **取消時程**\n`;
+  reply += `• 入住前3天: 全額退款\n`;
+  reply += `• 入住前1-2天: 退款50%\n`;
+  reply += `• 入住當天: 恕不退費\n\n`;
+  
+  reply += `🔄 **更改訂房**\n`;
+  reply += `• 可免費更改入住日期一次\n`;
+  reply += `• 房型變更視房況安排\n`;
+  reply += `• 價格差異需補差額\n\n`;
+  
+  reply += `📞 **取消方式**\n`;
+  reply += `• 致電訂房組: (02) 1234-5678\n`;
+  reply += `• 線上取消: 官網會員中心\n`;
+  reply += `• Email取消: cancel@hotel.com\n\n`;
+  
+  reply += `請提供您的訂房編號以協助處理。`;
+  
+  session.step = 'cancel_booking';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 function handleThankYouMessage(message, session) {
-// ... 保持現有感謝訊息處理邏輯不變
+  let reply = `🙏 **感謝您的使用！**\n\n`;
+  
+  reply += `😊 很榮幸為您服務！\n\n`;
+  reply += `💡 如果需要其他協助，請隨時告訴我：\n`;
+  reply += `• 訂房服務\n`;
+  reply += `• 優惠查詢\n`;
+  reply += `• 景點推薦\n`;
+  reply += `• 餐廳推薦\n\n`;
+  
+  reply += `祝您有美好的一天！✨`;
+  
+  session.step = 'welcome';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 function handleBookingConfirmation(message, session) {
-// ... 保持現有訂房確認處理邏輯不變
+  let reply = `✅ **訂房確認中...**\n\n`;
+  
+  reply += `📋 正在為您處理訂房：\n`;
+  reply += `• 房型: ${session.data.roomType || '待確認'}\n`;
+  reply += `• 天數: ${session.data.nights || '待確認'}晚\n`;
+  reply += `• 人數: ${session.data.adults || '待確認'}大${session.data.children ? ` ${session.data.children}小` : ''}\n\n`;
+  
+  reply += `⏳ 請稍候，系統正在處理中...`;
+  
+  // 模擬處理時間
+  setTimeout(() => {
+    session.step = 'booking_completed';
+  }, 2000);
+  
+  return {
+    reply: reply,
+    nextStep: 'processing_booking'
+  };
 }
 
 function handleNumberInput(message, session, lowerMsg) {
-// ... 保持現有數字輸入處理邏輯不變
+  const numberMatch = message.match(/\d+/);
+  if (!numberMatch) return null;
+  
+  const number = parseInt(numberMatch[0]);
+  
+  switch (session.step) {
+    case 'ask_child_age':
+      session.data.childAge = number;
+      return {
+        reply: `📝 已記錄孩子年齡: ${number}歲\n\n請告訴我您想選擇哪種房型？`,
+        nextStep: 'select_family_room'
+      };
+      
+    case 'select_room_count':
+      session.data.roomCount = number;
+      return {
+        reply: `🏨 已選擇 ${number} 間房間\n\n請輸入入住天數：`,
+        nextStep: 'ask_nights'
+      };
+      
+    case 'ask_nights':
+      session.data.nights = number;
+      return generateBookingSummary(session);
+      
+    default:
+      return null;
+  }
 }
 
 function handleBookingIntent(lowerMsg, session) {
-// ... 保持現有訂房意圖處理邏輯不變
+  if (lowerMsg.includes('訂房') || lowerMsg.includes('預訂') || lowerMsg.includes('訂房間')) {
+    let reply = `🏨 **歡迎使用訂房服務！**\n\n`;
+    
+    reply += `📝 請告訴我您的需求：\n`;
+    reply += `• 入住人數 (幾位大人、小孩)\n`;
+    reply += `• 偏好房型\n`;
+    reply += `• 入住天數\n\n`;
+    
+    reply += `💡 例如：\n`;
+    reply += `"2大1小，住3晚" 或\n`;
+    reply += `"想要家庭房，2大2小"`;
+    
+    session.step = 'start_booking';
+    session.data = {}; // 重置訂房數據
+    
+    return {
+      reply: reply,
+      nextStep: session.step
+    };
+  }
+  return null;
 }
 
 function generateDefaultResponse(session) {
-// ... 保持現有預設回應處理邏輯不變
+  let reply = `🤖 **我是飯店智能助理**\n\n`;
+  
+  reply += `我可以為您提供以下服務：\n\n`;
+  reply += `🏨 **訂房服務**\n`;
+  reply += `• 房型選擇與價格查詢\n`;
+  reply += `• 會員優惠說明\n`;
+  reply += `• 訂房流程協助\n\n`;
+  
+  reply += `🎯 **旅遊資訊**\n`;
+  reply += `• 周邊景點推薦\n`;
+  reply += `• 餐廳美食介紹\n`;
+  reply += `• 交通方式指引\n\n`;
+  
+  reply += `💎 **會員服務**\n`;
+  reply += `• 會員優惠查詢\n`;
+  reply += `• 點數累積說明\n`;
+  reply += `• 專屬福利介紹\n\n`;
+  
+  reply += `請告訴我您需要什麼協助？`;
+  
+  session.step = 'welcome';
+  return {
+    reply: reply,
+    nextStep: session.step
+  };
 }
 
 // ==================== 主要對話路由 ====================
@@ -1319,14 +1697,48 @@ app.delete('/api/sessions/:sessionId', (req, res) => {
 });
 
 // ==================== 啟動伺服器 ====================
-app.listen(PORT, () => {
+console.log('🔄 正在啟動 Express 伺服器...');
+console.log(`📁 當前工作目錄: ${process.cwd()}`);
+console.log(`🔧 Node.js 版本: ${process.version}`);
+console.log(`🌍 環境變數 PORT: ${process.env.PORT}`);
+console.log(`🏠 監聽地址: 0.0.0.0:${PORT}`);
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 飯店客服系統已啟動`);
   console.log(`📍 服務端口: ${PORT}`);
-  console.log(`🌐 健康檢查: http://localhost:${PORT}/health`);
-  console.log(`💬 聊天端點: http://localhost:${PORT}/api/chat`);
-  console.log(`📊 會話管理: http://localhost:${PORT}/api/sessions`);
+  console.log(`🌐 健康檢查: http://0.0.0.0:${PORT}/health`);
+  console.log(`💬 聊天端點: http://0.0.0.0:${PORT}/api/chat`);
+  console.log(`📊 會話管理: http://0.0.0.0:${PORT}/api/sessions`);
   console.log(`🔕 n8n 整合: ${n8nService.enabled ? '已啟用' : '未啟用'}`);
   console.log(`\n✅ 系統準備就緒，等待請求...\n`);
+});
+
+// 優雅關閉處理
+process.on('SIGTERM', () => {
+  console.log('🔄 收到 SIGTERM 信號，開始優雅關閉...');
+  server.close(() => {
+    console.log('✅ 伺服器已關閉');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🔄 收到 SIGINT 信號，開始優雅關閉...');
+  server.close(() => {
+    console.log('✅ 伺服器已關閉');
+    process.exit(0);
+  });
+});
+
+// 未捕獲異常處理
+process.on('uncaughtException', (error) => {
+  console.error('❌ 未捕獲異常:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ 未處理的 Promise 拒絕:', reason);
+  process.exit(1);
 });
 
 // 導出 app 用於測試
