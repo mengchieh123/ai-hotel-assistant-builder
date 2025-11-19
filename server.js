@@ -84,90 +84,26 @@ function cleanInputMessage(message) {
   return cleaned || message;
 }
 
-// ==================== n8n 整合服務 ====================
+// ==================== 修復：完全禁用 n8n 整合服務 ====================
 class N8NIntegrationService {
   constructor() {
-    this.baseUrl = process.env.N8N_WEBHOOK_URL;
-    this.apiKey = process.env.N8N_API_KEY;
-    this.enabled = !!process.env.N8N_WEBHOOK_URL;
+    this.enabled = false; // 強制禁用 n8n
   }
 
   async sendToN8N(payload) {
-    if (!this.enabled) {
-      console.log('🔕 n8n 整合未啟用，跳過發送資料');
-      return null;
-    }
-
-    try {
-      console.log('📤 發送資料到 n8n:', payload.action);
-      
-      const response = await fetch(`${this.baseUrl}/webhook/ai-hotel-booking`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(this.apiKey && { 'X-N8N-API-KEY': this.apiKey })
-        },
-        body: JSON.stringify(payload),
-        timeout: 10000
-      });
-
-      if (!response.ok) {
-        throw new Error(`n8n 響應錯誤: ${response.status} ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ n8n 資料發送成功');
-      return result;
-
-    } catch (error) {
-      console.error('❌ n8n 資料發送失敗:', error.message);
-      return null;
-    }
+    console.log('🔕 n8n 整合已禁用，跳過發送資料');
+    return null;
   }
 
   async sendBookingConfirmation(bookingData) {
-    const payload = {
-      action: 'booking_confirmation',
-      type: 'booking',
-      sessionId: bookingData.sessionId,
-      orderNumber: bookingData.orderNumber,
-      roomType: bookingData.roomType,
-      roomCount: bookingData.roomCount,
-      adults: bookingData.adults,
-      children: bookingData.children || 0,
-      childAge: bookingData.childAge || 0,
-      nights: bookingData.nights,
-      basePrice: bookingData.basePrice,
-      finalPrice: bookingData.finalPrice,
-      contactPerson: bookingData.contactPerson || '未提供',
-      memberLevel: bookingData.memberLevel || 'none',
-      memberDiscount: bookingData.memberDiscount || 0,
-      checkInDate: bookingData.checkInDate || '未指定',
-      includesBreakfast: bookingData.includesBreakfast || false,
-      timestamp: new Date().toISOString(),
-      source: 'ai_hotel_assistant'
-    };
-
-    return await this.sendToN8N(payload);
+    console.log('🔕 n8n 整合已禁用，跳過訂房確認');
+    return null;
   }
 
   async logCustomerInquiry(sessionId, userMessage, botResponse, intent) {
-    const payload = {
-      action: 'customer_inquiry',
-      type: 'inquiry',
-      sessionId,
-      userMessage,
-      botResponse: botResponse.reply,
-      intent: intent || 'unknown',
-      step: botResponse.nextStep || 'unknown',
-      timestamp: new Date().toISOString(),
-      source: 'ai_hotel_assistant'
-    };
-
-    // 使用 Promise 不等待響應，避免阻塞
-    this.sendToN8N(payload).catch(error => {
-      console.error('❌ n8n 客戶查詢記錄失敗:', error.message);
-    });
+    console.log('🔕 n8n 整合已禁用，跳過客戶查詢記錄');
+    // 完全不執行任何操作
+    return;
   }
 }
 
@@ -565,8 +501,8 @@ function processMessage(message, session) {
       timestamp: new Date().toISOString()
     });
     
-    // 記錄客戶查詢到 n8n
-    n8nService.logCustomerInquiry(session.sessionId, cleanMessage, response, detectedIntent);
+    // 修復：完全跳過 n8n 記錄，避免任何錯誤
+    // n8nService.logCustomerInquiry(session.sessionId, cleanMessage, response, detectedIntent);
 
   } else {
     response = generateDefaultResponse(session);
@@ -1647,7 +1583,11 @@ app.post('/api/chat', async (req, res) => {
       responseLength: response.reply.length 
     });
     
+    // 關鍵修復：完全跳過 n8n 記錄
+    // n8nService.logCustomerInquiry(session.sessionId, cleanMessage, response, detectedIntent);
+    
     res.json({
+      success: true,
       reply: response.reply,
       sessionId: sessionId,
       nextStep: session.step,
@@ -1656,9 +1596,13 @@ app.post('/api/chat', async (req, res) => {
     
   } catch (error) {
     console.error('❌ 聊天處理錯誤:', error);
-    res.status(500).json({
-      error: '伺服器處理訊息時發生錯誤',
-      reply: '抱歉，處理您的訊息時發生錯誤。請稍後再試。'
+    
+    // 關鍵修復：錯誤時也返回用戶友好的回應
+    res.json({
+      success: false,
+      reply: '抱歉，處理您的訊息時發生錯誤。請稍後再試。',
+      sessionId: req.body.sessionId,
+      timestamp: new Date().toISOString()
     });
   }
 });
