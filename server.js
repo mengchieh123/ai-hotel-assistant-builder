@@ -104,7 +104,7 @@ class N8NIntegrationService {
       const response = await fetch(`${this.baseUrl}/webhook/ai-hotel-booking`, {
         method: 'POST',
         headers: {
-          'Content-Type: 'application/json',
+          'Content-Type': 'application/json',
           ...(this.apiKey && { 'X-N8N-API-KEY': this.apiKey })
         },
         body: JSON.stringify(payload),
@@ -1615,8 +1615,7 @@ function generateDefaultResponse(session) {
   };
 }
 
-// ==================== 主要修復：關鍵修復部分 ====================
-// 修復 n8n 錯誤處理，確保即使 n8n 失敗也返回成功回應
+// ==================== 主要對話路由 ====================
 app.post('/api/chat', async (req, res) => {
   const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` } = req.body;
   
@@ -1648,9 +1647,7 @@ app.post('/api/chat', async (req, res) => {
       responseLength: response.reply.length 
     });
     
-    // 關鍵修復：即使 n8n 失敗也返回成功回應
     res.json({
-      success: true,
       reply: response.reply,
       sessionId: sessionId,
       nextStep: session.step,
@@ -1659,13 +1656,9 @@ app.post('/api/chat', async (req, res) => {
     
   } catch (error) {
     console.error('❌ 聊天處理錯誤:', error);
-    
-    // 關鍵修復：錯誤時也返回用戶友好的回應
-    res.json({
-      success: false,
-      reply: '抱歉，處理您的訊息時發生錯誤。請稍後再試。',
-      sessionId: req.body.sessionId,
-      timestamp: new Date().toISOString()
+    res.status(500).json({
+      error: '伺服器處理訊息時發生錯誤',
+      reply: '抱歉，處理您的訊息時發生錯誤。請稍後再試。'
     });
   }
 });
