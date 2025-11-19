@@ -92,7 +92,7 @@ class HotelBookingAssistant {
   }
 
   async sendToAI(message) {
-    const response = await fetch("/api/chat", {
+    const response = await fetch("https://ai-hotel-assistant-builder-production.up.railway.app/api/chat", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -325,3 +325,4 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log('💰 或: "預算2000元以内的住宿"');
   }, 1000);
 });
+
