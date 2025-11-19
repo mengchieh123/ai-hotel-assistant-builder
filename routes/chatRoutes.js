@@ -1,42 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-console.log('🏨 加載完整版飯店AI助理 - 包含所有問題邏輯');
-
-// ==================== 會員服務 ====================
-class MemberService {
-  static members = {
-    'gold123': { level: '金卡', discount: 0.15, name: '王小明', points: 1250 },
-    'silver456': { level: '銀卡', discount: 0.1, name: '李小姐', points: 800 },
-    'platinum789': { level: '白金卡', discount: 0.2, name: '張先生', points: 2500 },
-    'test001': { level: '銀卡', discount: 0.1, name: '測試用戶', points: 500 }
-  };
-
-  static validateMember(account) {
-    return this.members[account] || null;
-  }
-
-  static getMemberBenefits(level) {
-    const benefits = {
-      '銀卡': ['房價9折優惠', '免費早餐x2', '延遲退房至14:00', '會員積分累積'],
-      '金卡': ['房價85折優惠', '免費早餐x2', '延遲退房至15:00', '迎賓水果', '快速入住通道'],
-      '白金卡': ['房價8折優惠', '免費早餐x4', '延遲退房至16:00', '房型升等機會', '專屬管家服務']
-    };
-    return benefits[level] || [];
-  }
-
-  static getPointsInfo() {
-    return `🎫 **會員積分制度**\n\n` +
-           `💰 積分累積：\n` +
-           `• 每消費 100 TWD 累積 1 積分\n` +
-           `• 首次入住贈送 500 積分\n` +
-           `• 推薦朋友入住各得 200 積分\n\n` +
-           `🎁 積分兌換：\n` +
-           `• 1,000 積分 = 免費早餐券\n` +
-           `• 5,000 積分 = 免費住宿一晚\n` +
-           `• 10,000 積分 = 套房升等券`;
-  }
-}
+console.log('🏨 加載完整功能版飯店AI助理');
 
 // ==================== 日期處理服務 ====================
 class DateService {
@@ -44,9 +9,17 @@ class DateService {
     const today = new Date();
     const currentYear = today.getFullYear();
     
-    // 處理 "下星期五" 等相對日期
-    const relativeDate = this.parseRelativeDate(input);
-    if (relativeDate) return relativeDate;
+    // 處理 "今晚入住"、"今天"
+    if (/今晚|今天|現在/.test(input.toLowerCase())) {
+      return today.toISOString().split('T')[0];
+    }
+    
+    // 處理 "下星期五"
+    if (/下週五|下星期五|下周五/.test(input.toLowerCase())) {
+      const daysUntilFriday = (5 - today.getDay() + 7) % 7 || 7;
+      today.setDate(today.getDate() + daysUntilFriday);
+      return today.toISOString().split('T')[0];
+    }
     
     // 處理 "12/23" 格式
     if (/\d{1,2}\/\d{1,2}/.test(input)) {
@@ -64,24 +37,6 @@ class DateService {
     return null;
   }
 
-  static parseRelativeDate(input) {
-    const lowerInput = input.toLowerCase();
-    const today = new Date();
-    
-    if (/下週五|下星期五|下周五/.test(lowerInput)) {
-      const daysUntilFriday = (5 - today.getDay() + 7) % 7 || 7;
-      today.setDate(today.getDate() + daysUntilFriday);
-      return today.toISOString().split('T')[0];
-    }
-    
-    if (/下週|下星期/.test(lowerInput)) {
-      today.setDate(today.getDate() + 7);
-      return today.toISOString().split('T')[0];
-    }
-    
-    return null;
-  }
-
   static isDateAvailable(date) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -91,39 +46,66 @@ class DateService {
 
   static formatDateDisplay(date) {
     const d = new Date(date);
-    return `${d.getMonth() + 1}月${d.getDate()}日`;
+    const options = { month: 'long', day: 'numeric' };
+    return d.toLocaleDateString('zh-TW', options);
   }
 }
 
 // ==================== 價格計算服務 ====================
 class PricingService {
   static roomRates = {
-    standard: { base: 2200, maxGuests: 2, name: '標準雙人房', description: '溫馨舒適，基本配備齊全' },
-    deluxe: { base: 2800, maxGuests: 2, name: '豪華雙人房', description: '空間寬敞，景觀優美' },
-    family: { base: 3800, maxGuests: 4, name: '家庭房', description: '專為家庭設計，兩張大床' },
-    suite: { base: 4500, maxGuests: 4, name: '套房', description: '客廳臥室分離，豪華享受' }
+    standard: { 
+      base: 2200, 
+      maxGuests: 2, 
+      name: '標準雙人房', 
+      description: '溫馨舒適，基本配備齊全',
+      features: ['18平方公尺', '1張大雙人床', '基本衛浴', '免費WiFi']
+    },
+    deluxe: { 
+      base: 2800, 
+      maxGuests: 2, 
+      name: '豪華雙人房', 
+      description: '空間寬敞，景觀優美',
+      features: ['25平方公尺', '1張特大雙人床', '乾濕分離衛浴', '景觀窗']
+    },
+    family: { 
+      base: 3800, 
+      maxGuests: 4, 
+      name: '家庭房', 
+      description: '專為家庭設計，兩張大床',
+      features: ['32平方公尺', '2張大雙人床', '獨立兒童區', '遊戲空間']
+    },
+    suite: { 
+      base: 4500, 
+      maxGuests: 4, 
+      name: '套房', 
+      description: '客廳臥室分離，豪華享受',
+      features: ['45平方公尺', '客廳+臥室分離', '按摩浴缸', '迷你吧台']
+    }
   };
 
-  static calculateRoomPrice(roomType, nights = 1, adults = 2, children = 0, member = null, roomCount = 1) {
+  static calculateRoomPrice(roomType, nights = 1, adults = 2, children = 0, roomCount = 1, member = null) {
     const room = this.roomRates[roomType] || this.roomRates.standard;
     let basePrice = room.base * nights * roomCount;
     
     // 團體折扣
     let groupDiscount = 0;
-    if (roomCount >= 3) {
-      groupDiscount = basePrice * 0.1; // 3間以上9折
-    } else if (roomCount >= 5) {
-      groupDiscount = basePrice * 0.15; // 5間以上85折
+    if (roomCount >= 3 && roomCount <= 4) {
+      groupDiscount = basePrice * 0.05; // 3-4間95折
+    } else if (roomCount >= 5 && roomCount <= 9) {
+      groupDiscount = basePrice * 0.1; // 5-9間9折
+    } else if (roomCount >= 10) {
+      groupDiscount = basePrice * 0.15; // 10間以上85折
     }
     
     // 長住優惠
     let longStayDiscount = 0;
-    if (nights >= 7) {
-      longStayDiscount = basePrice * 0.1; // 住7晚以上9折
-    } else if (nights >= 14) {
-      longStayDiscount = basePrice * 0.15; // 住14晚以上85折
+    if (nights >= 7 && nights <= 13) {
+      longStayDiscount = basePrice * 0.1; // 7-13晚9折
+    } else if (nights >= 14 && nights <= 29) {
+      longStayDiscount = basePrice * 0.15; // 14-29晚85折
     } else if (nights >= 30) {
-      longStayDiscount = basePrice * 0.2; // 住30晚以上8折
+      longStayDiscount = basePrice * 0.2; // 30晚以上8折
     }
     
     // 額外成人收費
@@ -160,27 +142,55 @@ class PricingService {
   }
 
   static getRoomComparison() {
-    return `🏨 **房型比較**\n\n` +
-           `🛏️ **標準雙人房** (2,200 TWD/晚)\n` +
-           `• 18平方公尺 • 1張大雙人床\n` +
-           `• 基本衛浴 • 免費WiFi\n` +
-           `• 適合商務旅客、情侶\n\n` +
-           `🌟 **豪華雙人房** (2,800 TWD/晚)\n` +
-           `• 25平方公尺 • 1張特大雙人床\n` +
-           `• 乾濕分離衛浴 • 景觀窗\n` +
-           `• 適合蜜月、紀念日\n\n` +
-           `🏠 **家庭房** (3,800 TWD/晚)\n` +
-           `• 32平方公尺 • 2張大雙人床\n` +
-           `• 獨立兒童區 • 遊戲空間\n` +
-           `• 適合2大2小家庭\n\n` +
-           `💎 **套房** (4,500 TWD/晚)\n` +
-           `• 45平方公尺 • 客廳+臥室分離\n` +
-           `• 按摩浴缸 • 迷你吧台\n` +
-           `• 適合重要場合、奢華體驗`;
+    let comparison = `🏨 **房型詳細比較**\n\n`;
+    
+    Object.values(this.roomRates).forEach(room => {
+      comparison += `**${room.name}** (${room.base.toLocaleString()} TWD/晚)\n`;
+      comparison += `• ${room.description}\n`;
+      comparison += `• 特色: ${room.features.join(' • ')}\n`;
+      comparison += `• 最多入住: ${room.maxGuests}人\n\n`;
+    });
+    
+    return comparison;
   }
 }
 
-// ==================== 智能問答服務 - 增強版 ====================
+// ==================== 會員服務 ====================
+class MemberService {
+  static members = {
+    'gold123': { level: '金卡', discount: 0.15, name: '王小明', points: 1250 },
+    'silver456': { level: '銀卡', discount: 0.1, name: '李小姐', points: 800 },
+    'platinum789': { level: '白金卡', discount: 0.2, name: '張先生', points: 2500 },
+    'test001': { level: '銀卡', discount: 0.1, name: '測試用戶', points: 500 }
+  };
+
+  static validateMember(account) {
+    return this.members[account] || null;
+  }
+
+  static getMemberBenefits(level) {
+    const benefits = {
+      '銀卡': ['房價9折優惠', '免費早餐x2', '延遲退房至14:00', '會員積分累積'],
+      '金卡': ['房價85折優惠', '免費早餐x2', '延遲退房至15:00', '迎賓水果', '快速入住通道'],
+      '白金卡': ['房價8折優惠', '免費早餐x4', '延遲退房至16:00', '房型升等機會', '專屬管家服務']
+    };
+    return benefits[level] || [];
+  }
+
+  static getPointsInfo() {
+    return `🎫 **會員積分制度**\n\n` +
+           `💰 積分累積：\n` +
+           `• 每消費 100 TWD 累積 1 積分\n` +
+           `• 首次入住贈送 500 積分\n` +
+           `• 推薦朋友入住各得 200 積分\n\n` +
+           `🎁 積分兌換：\n` +
+           `• 1,000 積分 = 免費早餐券\n` +
+           `• 5,000 積分 = 免費住宿一晚（標準房）\n` +
+           `• 10,000 積分 = 套房升等券`;
+  }
+}
+
+// ==================== 智能問答服務 - 完整版 ====================
 class QAService {
   static handleQuestion(message, sessionData = {}) {
     const lowerMessage = message.toLowerCase();
@@ -219,12 +229,21 @@ class QAService {
     }
     
     // ==================== 日期與住宿相關 ====================
+    if (/今晚入住|今天入住|現在訂房/.test(lowerMessage)) {
+      const today = new Date().toISOString().split('T')[0];
+      return `🌙 **今晚入住**\n\n` +
+             `📅 入住日期：${DateService.formatDateDisplay(today)}\n` +
+             `✅ 目前仍有空房可供預訂\n` +
+             `💡 建議儘快完成預訂以確保空房\n` +
+             `請告訴我入住人數和房型需求！`;
+    }
+    
     if (/下星期五.*訂房|下週五.*入住/.test(lowerMessage)) {
-      const nextFriday = DateService.parseRelativeDate('下星期五');
+      const nextFriday = DateService.parseDate('下星期五');
       return `📅 **下星期五入住**\n\n` +
              `建議入住日期：${DateService.formatDateDisplay(nextFriday)}\n` +
              `✅ 目前仍有空房可供預訂\n` +
-             `💡 建議儘早預訂以確保 availability\n` +
+             `💡 建議儘早預訂以確保空房\n` +
              `請告訴我入住人數和房型需求！`;
     }
     
@@ -429,6 +448,18 @@ class QAService {
              `• 櫃檯現場安排`;
     }
     
+    // ==================== 日期查詢 ====================
+    if (/還有沒有房間|有空房嗎|有房間嗎/.test(lowerMessage)) {
+      const parsedDate = DateService.parseDate(message);
+      if (parsedDate) {
+        if (DateService.isDateAvailable(parsedDate)) {
+          return `📅 **${DateService.formatDateDisplay(parsedDate)} 有可用房間！**\n\n請問您需要預訂嗎？請告訴我入住人數和房型需求。`;
+        } else {
+          return `❌ **${DateService.formatDateDisplay(parsedDate)} 已客滿或日期無效**\n\n請選擇其他日期，或詢問其他日期的空房情況。`;
+        }
+      }
+    }
+    
     // ==================== 價格查詢 ====================
     if (/價格|價錢|多少錢|費用|房價|報價/.test(lowerMessage)) {
       return `💰 **價格資訊**\n\n` +
@@ -467,7 +498,7 @@ function getOrCreateSession(sessionId) {
   return session;
 }
 
-// ==================== 回應生成器 - 完整版 ====================
+// ==================== 回應生成器 - 完整功能版 ====================
 class ResponseGenerator {
   static generateResponse(message, session) {
     const lowerMessage = message.toLowerCase();
@@ -475,73 +506,28 @@ class ResponseGenerator {
 
     console.log(`🔍 步驟: ${session.step}, 訊息: "${message}"`);
 
-    // 🚀 意圖識別：重置對話
-    if (/重新開始|重置|重來|再來一次/.test(lowerMessage)) {
-      session.step = 'welcome';
-      session.data = { adults: 2, children: 0, childrenAges: [], roomCount: 1 };
+    // 🚀 智能問答優先處理 - 不改變對話狀態
+    const qaAnswer = QAService.handleQuestion(message, session.data);
+    if (qaAnswer) {
+      console.log(`✅ 智能問答處理，保持步驟: ${session.step}`);
       return {
-        reply: '🔄 對話已重置！請問需要什麼服務？',
-        step: 'welcome',
+        reply: qaAnswer,
+        step: session.step,  // 保持當前步驟
         sessionData: session.data
       };
     }
 
-    // 🚀 意圖識別：幫助
-    if (/幫助|幫忙|怎麼用|如何使用/.test(lowerMessage)) {
-      return {
-        reply: this.getHelpMessage(session.step),
-        step: session.step,
-        sessionData: session.data
-      };
-    }
-
-    // 🚀 智能處理：會員驗證
-    if ((/會員|帳號/.test(lowerMessage) && /[a-zA-Z0-9]/.test(message)) || 
-        Object.keys(MemberService.members).includes(message.trim())) {
-      const member = MemberService.validateMember(message.trim());
-      if (member) {
-        session.data.member = member;
-        const benefits = MemberService.getMemberBenefits(member.level);
-        return {
-          reply: `✅ **會員驗證成功！**\n\n` +
-                 `👋 ${member.name} 您好！${member.level}會員\n` +
-                 `📊 當前積分：${member.points}點\n\n` +
-                 `🎁 **專屬權益**：\n${benefits.map(b => `• ${b}`).join('\n')}\n\n` +
-                 `請問需要什麼服務？`,
-          step: session.step,
-          sessionData: session.data
-        };
-      } else {
-        return {
-          reply: `❌ **會員帳號未找到**\n\n` +
-                 `請確認帳號是否正確，或聯繫客服協助。\n` +
-                 `💡 試用帳號：gold123, silver456, platinum789`,
-          step: session.step,
-          sessionData: session.data
-        };
-      }
-    }
-
-    // 🚀 智能處理：日期識別
+    // 🚀 日期查詢處理
     const parsedDate = DateService.parseDate(message);
-    if (parsedDate) {
+    if (parsedDate && /還有沒有房間|有空房嗎/.test(lowerMessage)) {
       if (DateService.isDateAvailable(parsedDate)) {
         session.data.checkInDate = parsedDate;
-        if (session.step === 'welcome' || session.step === 'start_booking') {
-          session.step = 'guests';
-          return {
-            reply: `📅 **${DateService.formatDateDisplay(parsedDate)} 有可用房間！**\n\n請問有幾位旅客？`,
-            step: 'guests',
-            sessionData: session.data
-          };
-        } else if (session.step === 'date') {
-          session.step = 'nights';
-          return {
-            reply: `📅 **${DateService.formatDateDisplay(parsedDate)} 有可用房間！**\n\n請問要入住幾晚？`,
-            step: 'nights',
-            sessionData: session.data
-          };
-        }
+        session.step = 'guests';
+        return {
+          reply: `📅 **${DateService.formatDateDisplay(parsedDate)} 有可用房間！**\n\n請問有幾位旅客？\n例如："2位大人" 或 "2大1小"`,
+          step: 'guests',
+          sessionData: session.data
+        };
       } else {
         return {
           reply: `❌ **${DateService.formatDateDisplay(parsedDate)} 已客滿或日期無效**\n\n請選擇其他日期。`,
@@ -551,26 +537,12 @@ class ResponseGenerator {
       }
     }
 
-    // 🚀 智能處理：問答系統
-    const qaAnswer = QAService.handleQuestion(message, session.data);
-    if (qaAnswer) {
+    // 🚀 會員相關處理
+    if (/我是.*會員|會員.*優惠/.test(lowerMessage) && session.step === 'welcome') {
+      session.step = 'member_login';
       return {
-        reply: qaAnswer,
-        step: session.step,
-        sessionData: session.data
-      };
-    }
-
-    // 🚀 智能處理：家庭成員識別
-    const guestInfo = this.extractGuestInfo(message);
-    if (guestInfo.found && (session.step === 'welcome' || session.step === 'start_booking' || session.step === 'guests')) {
-      Object.assign(session.data, guestInfo);
-      session.step = 'room';
-      const roomRec = this.getRoomRecommendation(guestInfo.adults, guestInfo.children);
-      return {
-        reply: `👨‍👩‍👧‍👦 **已記錄：${guestInfo.adults}位大人${guestInfo.children > 0 ? `, ${guestInfo.children}位小朋友` : ''}**\n\n` +
-               `🏨 **適合的房型推薦**\n\n${roomRec}\n\n請選擇您喜歡的房型：`,
-        step: 'room',
+        reply: '🔐 **會員服務**\n\n請輸入您的會員帳號：\n💡 試用帳號：gold123, silver456, platinum789\n\n或回覆 "跳過" 以一般旅客身份繼續。',
+        step: 'member_login',
         sessionData: session.data
       };
     }
@@ -578,20 +550,42 @@ class ResponseGenerator {
     // 主要對話狀態機
     switch (session.step) {
       case 'welcome':
-        if (/訂房|預訂|預定/.test(lowerMessage)) {
-          session.step = 'start_booking';
-          reply = '🏨 **歡迎使用訂房服務！**\n\n請告訴我您的需求，或直接詢問任何問題！';
+        if (/訂房|預訂|今晚入住/.test(lowerMessage)) {
+          session.step = 'guests';
+          reply = '🏨 **歡迎使用訂房服務！**\n\n請問有幾位旅客？\n例如："2位大人" 或 "2大1小"';
         } else {
-          reply = '🤖 **我是飯店智能助理**\n\n我可以為您提供：\n🏨 訂房服務 • 💰 價格查詢\n🎯 景點推薦 • 💎 會員服務\n🍽️ 餐廳推薦 • 🏊 設施預約\n\n請告訴我您需要什麼協助？';
+          reply = '🤖 **我是飯店智能助理**\n\n我可以為您提供：\n🏨 訂房服務 • 💰 價格查詢\n💎 會員服務 • 🏠 設施詢問\n\n請告訴我您的需求！';
         }
         break;
 
-      case 'start_booking':
-        reply = '請告訴我入住需求，例如："12/23 2大1小" 或直接詢問任何問題！';
+      case 'member_login':
+        if (/跳過|不用|一般旅客/.test(lowerMessage)) {
+          session.step = 'welcome';
+          reply = '好的，以一般旅客身份繼續。請問需要什麼服務？';
+        } else {
+          const member = MemberService.validateMember(message.trim());
+          if (member) {
+            session.data.member = member;
+            session.step = 'welcome';
+            const benefits = MemberService.getMemberBenefits(member.level);
+            reply = `✅ **會員登入成功！**\n\n${member.name} 您好，${member.level}會員！\n\n🎁 專屬權益：\n${benefits.map(b => `• ${b}`).join('\n')}\n\n請問需要什麼服務？`;
+          } else {
+            reply = '❌ **會員帳號未找到**\n\n請確認帳號是否正確。\n💡 試用帳號：gold123, silver456\n\n或回覆 "跳過" 以一般旅客身份繼續。';
+          }
+        }
         break;
 
       case 'guests':
-        reply = '請告訴我入住人數，例如："3位大人" 或 "2大1小"';
+        const guestInfo = this.extractGuestInfo(message);
+        if (guestInfo.found) {
+          Object.assign(session.data, guestInfo);
+          session.step = 'room';
+          const roomRec = this.getRoomRecommendation(guestInfo.adults, guestInfo.children);
+          reply = `👨‍👩‍👧‍👦 **已記錄：${guestInfo.adults}位大人${guestInfo.children > 0 ? `, ${guestInfo.children}位小朋友` : ''}**\n\n` +
+                 `🏨 **適合的房型推薦**\n\n${roomRec}\n\n請選擇您喜歡的房型：`;
+        } else {
+          reply = '請告訴我入住人數，例如："3位大人" 或 "2大1小"';
+        }
         break;
 
       case 'room':
@@ -604,15 +598,31 @@ class ResponseGenerator {
           };
           const matchedKey = Object.keys(roomMap).find(k => lowerMessage.includes(k));
           session.data.roomType = roomMap[matchedKey] || 'standard';
-          session.step = 'date';
-          reply = `🏨 **您選擇的是 ${matchedKey}房型**\n\n請告訴我入住日期 (如：12/23)`;
+          
+          if (session.data.checkInDate) {
+            session.step = 'nights';
+            reply = `🏨 **您選擇的是 ${matchedKey}房型**\n📅 **入住日期：${DateService.formatDateDisplay(session.data.checkInDate)}**\n\n請問要入住幾晚？`;
+          } else {
+            session.step = 'date';
+            reply = `🏨 **您選擇的是 ${matchedKey}房型**\n\n請告訴我入住日期 (如：12/23 或 下星期五)`;
+          }
         } else {
           reply = '請選擇房型：標準雙人房、豪華雙人房、家庭房或套房';
         }
         break;
 
       case 'date':
-        reply = '請告訴我入住日期，例如：12/23 或 下星期五';
+        if (parsedDate) {
+          if (DateService.isDateAvailable(parsedDate)) {
+            session.data.checkInDate = parsedDate;
+            session.step = 'nights';
+            reply = `📅 **${DateService.formatDateDisplay(parsedDate)} 有可用房間！**\n\n請問要入住幾晚？`;
+          } else {
+            reply = `❌ **${DateService.formatDateDisplay(parsedDate)} 已客滿**\n\n請選擇其他日期。`;
+          }
+        } else {
+          reply = '請輸入入住日期，例如：12/23 或 下星期五';
+        }
         break;
 
       case 'nights':
@@ -626,8 +636,8 @@ class ResponseGenerator {
             session.data.nights, 
             session.data.adults,
             session.data.children,
-            session.data.member,
-            session.data.roomCount
+            session.data.roomCount,
+            session.data.member
           );
           
           Object.assign(session.data, priceResult);
@@ -655,7 +665,7 @@ class ResponseGenerator {
           session.data = { adults: 2, children: 0, childrenAges: [], roomCount: 1 };
           reply = '好的，讓我們重新開始。請問有幾位旅客？';
         } else {
-          reply = this.generateBookingSummary(session.data) + '\n\n請回覆「確認」完成訂房';
+          reply = this.generateBookingSummary(session.data) + '\n\n請回覆「確認」完成訂房，或「修改」重新選擇。';
         }
         break;
 
@@ -671,14 +681,12 @@ class ResponseGenerator {
         break;
     }
 
+    console.log(`💬 最終步驟: ${session.step}`);
     return { reply, step: session.step, sessionData: session.data };
   }
 
-  // 家庭成員識別
   static extractGuestInfo(message) {
     const lowerMessage = message.toLowerCase();
-    
-    // 多種模式匹配
     const patterns = [
       /(\d+)[位個]?大?人.*?(\d+)[位個]?小?孩?/,
       /(\d+)大.*?(\d+)小/,
@@ -691,7 +699,6 @@ class ResponseGenerator {
       if (match) {
         let adults = parseInt(match[1]) || 2;
         let children = match[2] ? parseInt(match[2]) || 0 : 0;
-        
         return { found: true, adults, children, childrenAges: [] };
       }
     }
@@ -699,7 +706,6 @@ class ResponseGenerator {
     return { found: false, adults: 2, children: 0, childrenAges: [] };
   }
 
-  // 房型推薦
   static getRoomRecommendation(adults, children) {
     const totalGuests = adults + children;
     
@@ -717,7 +723,6 @@ class ResponseGenerator {
     }
   }
 
-  // 生成訂單摘要
   static generateBookingSummary(data, showConfirmation = true) {
     const roomName = PricingService.roomRates[data.roomType]?.name || data.roomType;
     const dateDisplay = data.checkInDate ? DateService.formatDateDisplay(data.checkInDate) : '待確認';
@@ -735,16 +740,6 @@ class ResponseGenerator {
     
     return summary;
   }
-
-  // 幫助訊息
-  static getHelpMessage(step) {
-    return `💡 **需要幫助嗎？**\n\n` +
-           `• 說 "價格" 查詢房價\n` +
-           `• 說 "會員" 了解優惠\n` +
-           `• 說 "設施" 查看設備\n` +
-           `• 說 "重新開始" 重置對話\n` +
-           `• 或直接告訴我您的需求！`;
-  }
 }
 
 // ==================== 路由處理 ====================
@@ -759,8 +754,12 @@ router.post('/chat', async (req, res) => {
       });
     }
 
+    console.log('💬 收到訊息:', { message, sessionId });
+
     const session = getOrCreateSession(sessionId);
     const response = ResponseGenerator.generateResponse(message, session);
+
+    console.log('📊 回應結果:', { sessionId, step: session.step });
 
     res.json({
       success: true,
@@ -771,24 +770,12 @@ router.post('/chat', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ 聊天服務錯誤:', error);
+    console.error('❌ 錯誤:', error);
     res.status(500).json({
       success: false,
-      error: '處理您的請求時出現錯誤',
-      suggestion: '請稍後重試'
+      error: '系統忙碌中，請稍後重試'
     });
   }
-});
-
-// 健康檢查
-router.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'Hotel AI Assistant',
-    version: '2.0.0',
-    timestamp: new Date().toISOString(),
-    activeSessions: sessions.size
-  });
 });
 
 module.exports = router;
