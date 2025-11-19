@@ -3,6 +3,11 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// ==================== 新增：靜態文件服務配置 ====================
+// 服務前端靜態文件
+app.use(express.static('public'));
+app.use(express.static('.')); // 也服務根目錄的 HTML 文件
+
 // 中間件
 app.use(cors());
 app.use(express.json());
