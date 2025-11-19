@@ -2,6 +2,13 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 
+// ==================== 重要：啟用 CORS ====================
+app.use(cors({
+    origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://192.168.1.86:3000'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // ==================== 修復：Railway 端口配置 ====================
 // Railway 使用 process.env.PORT，確保正確綁定
 const PORT = process.env.PORT || 8080;
@@ -14,7 +21,8 @@ app.use(express.static('public'));
 app.use(express.static('.')); // 也服務根目錄的 HTML 文件
 
 // 中間件
-app.use(cors());
+app.use(express.static('public'));
+app.use(express.static('.'));
 app.use(express.json());
 
 // 會話存儲
@@ -65,28 +73,29 @@ app.get('/:page', (req, res) => {
   }
 });
 
-// ==================== 基本健康檢查路由 ====================
+// ==================== 健康檢查路由 ====================
 app.get('/health', (req, res) => {
-  console.log('✅ 健康檢查請求收到');
   res.status(200).json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
+    status: 'healthy', 
+    service: 'AI Hotel Assistant', 
+    version: '5.5.0',
     activeSessions: sessions.size,
-    message: '服務正常運行中',
-    uptime: process.uptime()
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
+    features: ['booking', 'pricing', 'cancellation', 'attractions', 'chat']
   });
 });
 
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    activeSessions: sessions.size,
-    uptime: process.uptime()
-  });
+app.get('/live', (req, res) => {
+  res.status(200).json({ status: 'alive', timestamp: new Date().toISOString() });
 });
 
-// 根路徑
+app.get('/ready', (req, res) => {
+  res.status(200).json({ status: 'ready', timestamp: new Date().toISOString() });
+});
+
+// ==================== 根路由 ====================
 app.get('/', (req, res) => {
   res.status(200).json({ 
     service: 'Hotel Chatbot API',
@@ -95,6 +104,7 @@ app.get('/', (req, res) => {
     version: '1.0.0'
   });
 });
+
 
 // ==================== 訊息清理工具 ====================
 function cleanInputMessage(message) {
