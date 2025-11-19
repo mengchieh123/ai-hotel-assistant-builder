@@ -1,357 +1,317 @@
-// services/chatService.js v3.0 - 完整特殊需求处理版本
 const express = require('express');
 const router = express.Router();
+const OpenCC = require('opencc');
+const converter = new OpenCC('s2t.json'); // 簡體轉繁體
 
-// 高级需求检测系统
-class RequirementDetector {
-  static detectAllRequirements(message) {
+// ==================== 智能問答服務 ====================
+class QAService {
+  static handleQuestion(message, sessionData = {}) {
+    const lowerMessage = message.toLowerCase();
+
+    if (/價格|價錢|多少錢|費用|房價|報價/.test(lowerMessage)) {
+      return `💰 價格資訊：\n` +
+        `• 標準雙人房：2,200 TWD/晚\n` +
+        `• 豪華雙人房：2,800 TWD/晚\n` +
+        `• 套房：4,500 TWD/晚\n` +
+        `• 以上價格已含服務費及稅金\n` +
+        `• 會員可享額外折扣`;
+    }
+    return null;
+  }
+}
+
+// ==================== 會話管理 ====================
+const sessions = new Map();
+
+function getOrCreateSession(sessionId) {
+  if (!sessions.has(sessionId)) {
+    sessions.set(sessionId, {
+      step: 'init',
+      data: {},
+      createdAt: new Date().toISOString(),
+      lastActive: new Date().toISOString()
+    });
+  }
+  const session = sessions.get(sessionId);
+  session.lastActive = new Date().toISOString();
+  return session;
+}
+
+// ==================== 價格計算服務 ====================
+const pricingService = {
+  calculateRoomPrice(roomType, nights = 1, guestCount = 2, memberLevel = 'none') {
+    const rates = { standard: 2200, deluxe: 2800, suite: 4500 };
+    const basePrice = (rates[roomType] || rates.standard) * nights;
+    const extraGuestFee = guestCount > 2 ? (guestCount - 2) * 500 * nights : 0;
+
+    const discountRates = { none: 0, silver: 0.05, gold: 0.1, platinum: 0.15 };
+    const discount = discountRates[memberLevel] || 0;
+    const discountAmount = basePrice * discount;
+
+    const subtotal = basePrice + extraGuestFee;
+    const totalPrice = subtotal - discountAmount;
+
     return {
-      // 符号数量检测
+      basePrice,
+      extraGuestFee,
+      subtotal,
+      discountRate: discount * 100,
+      discountAmount,
+      totalPrice,
+      currency: 'TWD'
+    };
+  }
+};
+
+// ==================== 需求檢測服務 ====================
+class RequirementDetector {
+  static async detectAllRequirements(message) {
+    return {
       symbolCount: {
         count: (message.match(/[.!?,;:!！？，；：]/g) || []).length,
-        level: this.analyzeSymbolDensity(message)
+        level: 'normal'
       },
-      
-      // 无障碍需求检测
       accessible: {
-        required: /(无障碍|残障|轮椅|行动不便|残疾人|无障碍设施|坡道|扶手)/i.test(message),
-        urgency: this.detectAccessibilityUrgency(message),
-        type: this.detectAccessibilityType(message)
+        required: /(無障礙|殘障|輪椅|行動不便)/i.test(message)
       },
-      
-      // 素食需求检测  
-      vegetarian: {
-        required: /(素食|不吃肉|蔬菜|素食主义|全素|蛋奶素| vegan|vegetarian|荤食不吃)/i.test(message),
-        type: this.detectVegetarianType(message),
-        strictness: this.detectDietStrictness(message)
+      family: {
+        children: /(小孩|兒童|孩子|小朋友|嬰兒)/i.test(message),
+        extraBed: /(加床|嬰兒床)/i.test(message)
       },
-      
-      // 其他特殊需求
-      special: {
-        allergy: this.detectAllergies(message),
-        religious: this.detectReligiousNeeds(message),
-        medical: this.detectMedicalNeeds(message)
-      },
-      
-      // 用户意图分析
-      intent: this.detectUserIntent(message),
-      
-      // 情感分析
-      sentiment: this.analyzeSentiment(message)
+      service: {
+        parking: /(停車|車位)/i.test(message),
+        breakfast: /(早餐|用餐)/i.test(message)
+      }
     };
-  }
-
-  static analyzeSymbolDensity(message) {
-    const density = (message.match(/[.!?,;:!！？，；：]/g) || []).length / message.length;
-    if (density > 0.1) return 'high';
-    if (density > 0.05) return 'medium';
-    return 'low';
-  }
-
-  static detectAccessibilityUrgency(message) {
-    if (/(急需|立刻|马上|紧急|必须).*(轮椅|无障碍)/i.test(message)) return 'urgent';
-    if (/(需要|要求|希望).*(无障碍)/i.test(message)) return 'standard';
-    return 'informational';
-  }
-
-  static detectAccessibilityType(message) {
-    const types = [];
-    if (/轮椅/i.test(message)) types.push('wheelchair');
-    if (/视觉|盲人|视障/i.test(message)) types.push('visual');
-    if (/听觉|聋哑|听障/i.test(message)) types.push('hearing');
-    if (/行动不便|老年人/i.test(message)) types.push('mobility');
-    return types.length > 0 ? types : ['general'];
-  }
-
-  static detectVegetarianType(message) {
-    if (/(全素|严格素食|vegan)/i.test(message)) return 'vegan';
-    if (/(蛋奶素|vegetarian)/i.test(message)) return 'lacto_ovo';
-    if (/佛教|斋食/i.test(message)) return 'buddhist';
-    return 'general_vegetarian';
-  }
-
-  static detectDietStrictness(message) {
-    if (/(严格|绝对|完全不能|禁忌)/i.test(message)) return 'strict';
-    if (/(尽量|偏好|喜欢)/i.test(message)) return 'moderate';
-    return 'flexible';
-  }
-
-  static detectAllergies(message) {
-    const allergies = [];
-    const allergyKeywords = {
-      nuts: /坚果|花生|almond|walnut|nut/i,
-      seafood: /海鲜|鱼|虾|蟹|seafood|fish/i,
-      gluten: /麸质|面粉|gluten|wheat/i,
-      dairy: /奶制品|牛奶|乳糖|dairy|milk|cheese/i
-    };
-    
-    for (const [allergy, pattern] of Object.entries(allergyKeywords)) {
-      if (pattern.test(message)) allergies.push(allergy);
-    }
-    return allergies;
-  }
-
-  static detectReligiousNeeds(message) {
-    if (/清真|halal|穆斯林|回民/i.test(message)) return 'halal';
-    if (/犹太|kosher|犹太教/i.test(message)) return 'kosher';
-    if (/佛教|斋戒|素食/i.test(message)) return 'buddhist';
-    return null;
-  }
-
-  static detectMedicalNeeds(message) {
-    if (/(糖尿病|血糖)/i.test(message)) return 'diabetic';
-    if (/(高血压|低钠)/i.test(message)) return 'low_sodium';
-    if (/(肾病|低蛋白)/i.test(message)) return 'low_protein';
-    return null;
-  }
-
-  static detectUserIntent(message) {
-    const intents = [];
-    if (/(预订|预定|订房|预约)/i.test(message)) intents.push('booking');
-    if (/(查询|了解|想知道|价格)/i.test(message)) intents.push('inquiry');
-    if (/(取消|退订)/i.test(message)) intents.push('cancellation');
-    if (/(服务|设施|提供)/i.test(message)) intents.push('service_info');
-    if (/(投诉|意见|不满意)/i.test(message)) intents.push('complaint');
-    return intents.length > 0 ? intents : ['general_inquiry'];
-  }
-
-  static analyzeSentiment(message) {
-    const positive = /(谢谢|感谢|很好|不错|满意|喜欢)/i.test(message);
-    const negative = /(不满|糟糕|失望|生气|投诉)/i.test(message);
-    const urgent = /(紧急|急需|立刻|马上)/i.test(message);
-    
-    if (urgent) return 'urgent';
-    if (negative) return 'negative';
-    if (positive) return 'positive';
-    return 'neutral';
   }
 }
 
-// 智能响应生成器
+// ==================== 提取入住日期與住宿晚數 ====================
+function extractDateAndNights(message) {
+  const dateMatch = message.match(/\d{4}-\d{2}-\d{2}/);
+  const nightsMatch = message.match(/共?(\d+)晚/);
+
+  return {
+    checkInDate: dateMatch ? dateMatch[0] : null,
+    nights: nightsMatch ? parseInt(nightsMatch[1]) : null
+  };
+}
+
+// ==================== 意圖與槽位偵測 ====================
+async function detectIntentAndEntities(message) {
+  const traditionalMsg = await converter.convertPromise(message);
+
+  let intent = 'general_inquiry';
+  let entities = {};
+
+  if (/標準雙人房|豪華雙人房|套房/.test(traditionalMsg)) {
+    intent = 'select_room_type';
+    const match = traditionalMsg.match(/標準雙人房|豪華雙人房|套房/);
+    entities.roomType = match ? match[0] : null;
+  } else if (/訂房|預訂|預定/.test(traditionalMsg)) {
+    intent = 'book_room';
+  } else if (/優惠|折扣|促銷/.test(traditionalMsg)) {
+    intent = 'ask_promotion';
+  } else if (/取消|退訂/.test(traditionalMsg)) {
+    intent = 'cancel_booking';
+  } else if (/\d{4}-\d{2}-\d{2}/.test(traditionalMsg) && /共?\d+晚/.test(traditionalMsg)) {
+    intent = 'check_availability';
+    const { checkInDate, nights } = extractDateAndNights(traditionalMsg);
+    entities.checkInDate = checkInDate;
+    entities.nights = nights;
+  }
+
+  return { intent, entities };
+}
+
+// ==================== 回應生成器 ====================
 class ResponseGenerator {
-  static generateResponse(userMessage, requirements) {
-    const baseResponse = this.generateBaseResponse(requirements.intent);
-    const specialNeedsResponse = this.generateSpecialNeedsResponse(requirements);
-    const followUpQuestions = this.generateFollowUpQuestions(requirements);
-    
-    return {
-      mainResponse: baseResponse,
-      specialNeeds: specialNeedsResponse,
-      followUp: followUpQuestions,
-      fullResponse: this.assembleFullResponse(baseResponse, specialNeedsResponse, followUpQuestions),
-      metadata: {
-        requirementsDetected: this.countDetectedRequirements(requirements),
-        priority: this.determinePriority(requirements),
-        suggestedActions: this.suggestActions(requirements)
-      }
-    };
-  }
+  static async generateResponse(message, session) {
+    const lowerMessage = message.toLowerCase();
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    let reply = '';
 
-  static generateBaseResponse(intent) {
-    const baseResponses = {
-      booking: "感谢您选择我们酒店！我可以协助您完成预订。",
-      inquiry: "很高兴为您提供信息！请问您想了解什么？",
-      cancellation: "我可以协助您处理取消预订的事宜。",
-      service_info: "我们提供多种服务和设施，很高兴为您介绍。",
-      complaint: "很抱歉给您带来不便，我会尽力协助解决问题。",
-      general_inquiry: "您好！请问需要什么服务？例如订房、查询价格、取消订单等等。"
-    };
-    
-    return baseResponses[intent[0]] || baseResponses.general_inquiry;
-  }
+    // 先偵測意圖與槽位
+    const { intent, entities } = await detectIntentAndEntities(message);
 
-  static generateSpecialNeedsResponse(requirements) {
-    const responses = [];
-    
-    // 符号数量响应
-    if (requirements.symbolCount.count > 0) {
-      responses.push(`注意到您使用了${requirements.symbolCount.count}个标点符号，表达很清晰。`);
-    }
-    
-    // 无障碍需求响应
-    if (requirements.accessible.required) {
-      let accessibleResponse = "我们提供完善的无障碍设施";
-      if (requirements.accessible.type.includes('wheelchair')) {
-        accessibleResponse += "，包括轮椅通道、无障碍客房和专用卫生间";
-      }
-      if (requirements.accessible.urgency === 'urgent') {
-        accessibleResponse += "。我们可以立即为您安排！";
-      } else {
-        accessibleResponse += "，可以为您特别安排。";
-      }
-      responses.push(accessibleResponse);
-    }
-    
-    // 素食需求响应
-    if (requirements.vegetarian.required) {
-      const vegType = {
-        vegan: "严格全素",
-        lacto_ovo: "蛋奶素",
-        buddhist: "佛教斋食",
-        general_vegetarian: "素食"
-      }[requirements.vegetarian.type];
-      
-      let vegResponse = `我们为${vegType}客人提供专门的餐饮选择`;
-      if (requirements.vegetarian.strictness === 'strict') {
-        vegResponse += "，并确保完全无交叉污染";
-      }
-      responses.push(vegResponse + "。");
-    }
-    
-    // 过敏需求响应
-    if (requirements.special.allergy.length > 0) {
-      const allergyNames = {
-        nuts: "坚果", seafood: "海鲜", gluten: "麸质", dairy: "奶制品"
-      };
-      const allergies = requirements.special.allergy.map(a => allergyNames[a]).join('、');
-      responses.push(`已记录您的${allergies}过敏需求，厨房会特别注意。`);
-    }
-    
-    return responses;
-  }
+    switch (session.step) {
+      case 'init':
+        const qaAnswer = QAService.handleQuestion(message);
+        if (qaAnswer) {
+          reply = qaAnswer;
+          break;
+        }
+        if (intent === 'check_availability' && entities.checkInDate && entities.nights) {
+          session.data.checkInDate = entities.checkInDate;
+          session.data.nights = entities.nights;
+          session.step = 'guests';
+          reply = `您想查詢${entities.checkInDate}起住${entities.nights}晚，請問有幾位旅客？`;
+          break;
+        }
+        if (intent === 'select_room_type') {
+          session.data.roomType = entities.roomType;
+          session.step = 'date';
+          reply = `您選擇的是 ${entities.roomType}，請告訴我入住日期（格式：YYYY-MM-DD）`;
+          break;
+        }
+        reply = '您好，歡迎使用 AI 訂房助理！請問需要什麼幫助？';
+        break;
 
-  static generateFollowUpQuestions(requirements) {
-    const questions = [];
-    
-    if (requirements.accessible.required && !requirements.accessible.type.includes('wheelchair')) {
-      questions.push("请问您需要什么具体的无障碍设施？如轮椅通道、视觉辅助等");
-    }
-    
-    if (requirements.vegetarian.required && requirements.vegetarian.type === 'general_vegetarian') {
-      questions.push("您偏好哪种素食？全素、蛋奶素或其他特定要求？");
-    }
-    
-    if (requirements.special.allergy.length > 0) {
-      questions.push("除了已提到的过敏原，还有其他需要避免的食物吗？");
-    }
-    
-    if (requirements.intent.includes('booking') && this.countDetectedRequirements(requirements) > 0) {
-      questions.push("需要我为您查找符合这些需求的可用客房吗？");
-    }
-    
-    return questions;
-  }
+      case 'date':
+        const { checkInDate, nights } = extractDateAndNights(message);
+        if (checkInDate && nights) {
+          session.data.checkInDate = checkInDate;
+          session.data.nights = nights;
+          session.step = 'guests';
+          reply = `已記錄入住日期：${checkInDate}，入住${nights}晚。請問有幾位旅客？`;
+        } else if (dateRegex.test(message)) {
+          session.data.checkInDate = message;
+          session.step = 'nights';
+          reply = '入住日期已記錄。請問您要入住幾晚？';
+        } else {
+          reply = '請輸入正確格式的入住日期，例如 2024-12-25，或提供「2024-12-25 共3晚」這樣的格式。';
+        }
+        break;
 
-  static assembleFullResponse(base, specialNeeds, followUp) {
-    let fullResponse = base;
-    
-    if (specialNeeds.length > 0) {
-      fullResponse += " " + specialNeeds.join(" ");
+      case 'nights':
+        const nightsInput = parseInt(message);
+        if (nightsInput > 0 && nightsInput <= 30) {
+          session.data.nights = nightsInput;
+          session.step = 'guests';
+          reply = '請問有幾位旅客？';
+        } else {
+          reply = '請輸入有效的住宿天數（1-30天）';
+        }
+        break;
+
+      case 'guests':
+        const guests = parseInt(message);
+        if (guests > 0 && guests <= 6) {
+          session.data.guestCount = guests;
+          session.step = 'confirm';
+
+          const priceResult = pricingService.calculateRoomPrice(
+            session.data.roomType === '豪華雙人房' ? 'deluxe' :
+            session.data.roomType === '套房' ? 'suite' : 'standard',
+            session.data.nights, session.data.guestCount
+          );
+          session.data.totalPrice = priceResult.totalPrice;
+          reply =
+            `旅客數：${guests}位\n` +
+            `房型：${session.data.roomType}\n` +
+            `入住：${session.data.checkInDate}\n` +
+            `住宿：${session.data.nights}晚\n` +
+            `總價：${priceResult.totalPrice} TWD\n` +
+            `請回覆「確認」完成訂房，或「取消」重新開始。`;
+        } else {
+          reply = '請輸入有效的旅客人數（1-6位）';
+        }
+        break;
+
+      case 'confirm':
+        if (/確認|是的|確定|ok|yes/.test(lowerMessage)) {
+          session.step = 'completed';
+          reply = `🎉 訂房成功！感謝使用 AI 訂房助理。`;
+        } else if (/取消|不要了|重新開始/.test(lowerMessage)) {
+          session.step = 'init';
+          session.data = {};
+          reply = '訂房已取消，請問還需要什麼服務？';
+        } else {
+          reply = '請回覆「確認」完成訂房，或「取消」重新開始。';
+        }
+        break;
+
+      case 'completed':
+        reply = '您的訂單已完成，如需其他服務請告訴我！';
+        break;
+
+      default:
+        session.step = 'init';
+        reply = '會話重置，請問需要什麼服務？';
+        break;
     }
-    
-    if (followUp.length > 0) {
-      fullResponse += " " + followUp.join(" ");
-    }
-    
-    return fullResponse;
-  }
 
-  static countDetectedRequirements(requirements) {
-    let count = 0;
-    if (requirements.symbolCount.count > 0) count++;
-    if (requirements.accessible.required) count++;
-    if (requirements.vegetarian.required) count++;
-    if (requirements.special.allergy.length > 0) count++;
-    if (requirements.special.religious) count++;
-    if (requirements.special.medical) count++;
-    return count;
-  }
-
-  static determinePriority(requirements) {
-    if (requirements.accessible.urgency === 'urgent') return 'high';
-    if (requirements.sentiment === 'urgent' || requirements.sentiment === 'negative') return 'high';
-    if (this.countDetectedRequirements(requirements) > 2) return 'medium';
-    return 'normal';
-  }
-
-  static suggestActions(requirements) {
-    const actions = [];
-    if (requirements.accessible.required) actions.push('assign_accessible_room');
-    if (requirements.vegetarian.required) actions.push('note_dietary_restriction');
-    if (requirements.special.allergy.length > 0) actions.push('flag_allergies');
-    if (requirements.intent.includes('booking')) actions.push('check_availability');
-    return actions;
+    return { reply, step: session.step, sessionData: session.data };
   }
 }
 
-// 主聊天服务
+// ==================== 聊天路由 ====================
 router.post('/chat', async (req, res) => {
   try {
     const { message, sessionId = 'default' } = req.body;
-    
     if (!message || message.trim() === '') {
       return res.status(400).json({
-        error: '消息不能为空',
-        suggestion: '请提供您的查询或需求'
+        error: '[translate:消息不能为空]',
+        suggestion: '[translate:请提供您的查询或需求]'
       });
     }
 
-    console.log('收到消息:', message);
-    
-    // 检测所有需求
-    const requirements = RequirementDetector.detectAllRequirements(message);
-    console.log('检测到需求:', JSON.stringify(requirements, null, 2));
-    
-    // 生成智能响应
-    const response = ResponseGenerator.generateResponse(message, requirements);
-    
-    // 记录日志
-    console.log('Chat Request:', {
-      sessionId,
-      message,
-      requirementsDetected: response.metadata.requirementsDetected,
-      priority: response.metadata.priority
-    });
+    const session = getOrCreateSession(sessionId);
+    const requirements = await RequirementDetector.detectAllRequirements(message);
+    const response = await ResponseGenerator.generateResponse(message, session);
 
-    // 返回完整响应
+    sessions.set(sessionId, session);
+
     res.json({
       success: true,
-      response: response.fullResponse,
-      detailedResponse: {
-        main: response.mainResponse,
-        specialNeeds: response.specialNeeds,
-        followUpQuestions: response.followUp
-      },
-      requirements: {
-        symbolCount: requirements.symbolCount.count,
-        accessible: requirements.accessible.required,
-        vegetarian: requirements.vegetarian.required,
-        allergies: requirements.special.allergy,
-        urgent: requirements.accessible.urgency === 'urgent'
-      },
-      metadata: {
-        ...response.metadata,
-        timestamp: new Date().toISOString(),
-        sessionId: sessionId
-      }
+      reply: response.reply,
+      sessionId,
+      step: response.step,
+      requirements: requirements.family.children ? {
+        summary: {
+          hasSpecialRequirements: true,
+          mainPoints: [translate '兒童相關'],
+          requirementCount: 1
+        },
+        details: requirements
+      } : null,
+      timestamp: new Date().toISOString()
     });
-
   } catch (error) {
-    console.error('Chat service error:', error);
+    console.error('聊天服務錯誤:', error);
     res.status(500).json({
-      error: '处理您的请求时出现错误',
-      suggestion: '请稍后重试或联系客服'
+      error: '[translate:處理您的請求時出現錯誤]',
+      suggestion: '[translate:請稍後重試或聯繫客服]'
     });
   }
 });
 
-// 健康检查端点
+// ==================== 健康檢查 ====================
 router.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    version: '3.0',
+    version: '4.0',
     timestamp: new Date().toISOString(),
     features: [
-      'symbol_count_detection',
-      'accessibility_need_detection', 
-      'vegetarian_detection',
-      'allergy_detection',
-      'religious_diet_detection',
-      'medical_diet_detection',
-      'sentiment_analysis',
-      'intent_recognition'
-    ]
+      'smart_qa_service',
+      'booking_workflow',
+      'family_travel_detection',
+      'group_booking_detection',
+      'long_stay_detection',
+      'requirement_analysis',
+      'session_management'
+    ],
+    activeSessions: sessions.size
   });
 });
+
+// ==================== 過期會話清理 ====================
+setInterval(() => {
+  const now = new Date();
+  const expirationTime = 30 * 60 * 1000; // 30分鐘
+  let cleanedCount = 0;
+
+  for (const [sessionId, session] of sessions.entries()) {
+    const sessionTime = new Date(session.lastActive);
+    if (now - sessionTime > expirationTime) {
+      sessions.delete(sessionId);
+      cleanedCount++;
+    }
+  }
+
+  if (cleanedCount > 0) {
+    console.log(`[translate:🗑️ 清理了] ${cleanedCount} [translate:個過期會話]`);
+  }
+}, 60 * 60 * 1000); // 每小時清理一次
 
 module.exports = router;

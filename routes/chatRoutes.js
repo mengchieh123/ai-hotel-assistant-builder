@@ -146,13 +146,18 @@ const pricingService = {
   }
 };
 
+<<<<<<< HEAD
 // ==================== 回應生成器 - 完全修復版 ====================
+=======
+// ==================== 回應生成器 - 完全重寫版 ====================
+>>>>>>> b5601fe80ddd21d3bcadab68584c9c58bd484964
 class ResponseGenerator {
   static generateResponse(message, session) {
     const lowerMessage = message.toLowerCase();
     let reply = '';
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
+<<<<<<< HEAD
     console.log(`🔍 [FIXED] 步驟: ${session.step}, 訊息: "${message}"`);
 
     // 🚨 關鍵修復：首先檢查是否為房型
@@ -198,6 +203,57 @@ class ResponseGenerator {
 
       case 'room':
         // 在房型選擇階段，如果不是有效房型就提示
+=======
+    console.log(`🔍 [DEBUG] 步驟: ${session.step}, 訊息: "${message}"`);
+
+    // 🚨 關鍵修復：在所有階段之前先檢查是否為房型選擇
+    const isRoomType = /標準|豪華|套房/.test(lowerMessage);
+    if (isRoomType) {
+      console.log(`✅ 檢測到房型選擇: ${message}`);
+      const roomMap = { '標準': 'standard', '豪華': 'deluxe', '套房': 'suite' };
+      const matchedKey = Object.keys(roomMap).find(k => lowerMessage.includes(k));
+      
+      if (session.step === 'init' || session.step === 'room') {
+        session.data.roomType = roomMap[matchedKey] || 'standard';
+        session.step = 'date';
+        reply = `🏨 您選擇的是 ${matchedKey} 房型。請告訴我入住日期（格式：YYYY-MM-DD）`;
+        console.log(`✅ 成功設置房型: ${matchedKey}, 轉到日期步驟`);
+        return { reply, step: session.step, sessionData: session.data };
+      }
+    }
+
+    // 🚨 關鍵修復：在 init 階段，先檢查是否為訂房意圖
+    if (session.step === 'init') {
+      if (/訂房|預訂|預定|訂房間|我要訂|想訂/.test(lowerMessage)) {
+        session.step = 'room';
+        reply = '🏨 歡迎使用 AI 訂房助理！請問需要哪種房型？（標準雙人房/豪華雙人房/套房）';
+        console.log(`✅ 檢測到訂房意圖，轉到房型選擇`);
+        return { reply, step: session.step, sessionData: session.data };
+      }
+      
+      // 只有當不是房型選擇時才處理問答
+      if (!isRoomType) {
+        const qaAnswer = QAService.handleQuestion(message);
+        if (qaAnswer) {
+          reply = qaAnswer;
+          console.log(`✅ 返回問答結果`);
+          return { reply, step: session.step, sessionData: session.data };
+        }
+      }
+
+      if (/附近|周邊|景點|好玩|旅遊|觀光/.test(lowerMessage)) {
+        reply = '🏞️ 附近推薦景點：\n• 鼎泰豐 (150m)\n• 新光三越 (100m)\n• 大安森林公園 (200m)\n\n需要詳細資訊嗎？';
+        return { reply, step: session.step, sessionData: session.data };
+      }
+
+      reply = '您好！請問需要什麼服務？例如：訂房、查詢價格、取消訂單、會員服務、附近景點查詢等等。';
+      return { reply, step: session.step, sessionData: session.data };
+    }
+
+    // 其他階段的處理
+    switch (session.step) {
+      case 'room':
+>>>>>>> b5601fe80ddd21d3bcadab68584c9c58bd484964
         const qaAnswerRoom = QAService.handleQuestion(message);
         if (qaAnswerRoom) {
           reply = qaAnswerRoom + '\n\n🏨 請選擇房型：標準雙人房、豪華雙人房或套房';
@@ -249,8 +305,12 @@ class ResponseGenerator {
           );
           session.data.totalPrice = priceResult.totalPrice;
           
+<<<<<<< HEAD
           reply = `👥 旅客數: ${guests} 位\n\n` +
                   `📋 訂房摘要：\n` +
+=======
+          reply = `👥 旅客數: ${guests} 位\n\n📋 訂房摘要：\n` +
+>>>>>>> b5601fe80ddd21d3bcadab68584c9c58bd484964
                   `• 房型: ${this.getRoomTypeName(session.data.roomType)}\n` +
                   `• 入住: ${session.data.checkInDate}\n` +
                   `• 住宿: ${session.data.nights} 晚\n` +
@@ -272,9 +332,13 @@ class ResponseGenerator {
           const bookingId = 'BKG-' + Date.now();
           session.data.bookingId = bookingId;
           session.step = 'completed';
+<<<<<<< HEAD
           
           reply = `🎉 訂房成功！\n\n` +
                   `📄 訂單編號: ${bookingId}\n` +
+=======
+          reply = `🎉 訂房成功！\n\n📄 訂單編號: ${bookingId}\n` +
+>>>>>>> b5601fe80ddd21d3bcadab68584c9c58bd484964
                   `• 房型: ${this.getRoomTypeName(session.data.roomType)}\n` +
                   `• 入住: ${session.data.checkInDate}\n` +
                   `• 住宿: ${session.data.nights} 晚\n` +
@@ -286,7 +350,11 @@ class ResponseGenerator {
           session.data = {};
           reply = '訂房已取消。請問需要什麼其他服務？';
         } else {
+<<<<<<< HEAD
           const qaAnswerConfirm = QAService.handleQuestion(message);
+=======
+          const qaAnswerConfirm = QAService.handleQuestion(message, session.data);
+>>>>>>> b5601fe80ddd21d3bcadab68584c9c58bd484964
           if (qaAnswerConfirm) {
             reply = qaAnswerConfirm + '\n\n📋 您的訂房摘要：\n' +
               `• 房型: ${this.getRoomTypeName(session.data.roomType)}\n` +
@@ -307,7 +375,11 @@ class ResponseGenerator {
         break;
     }
 
+<<<<<<< HEAD
     console.log(`💬 [FIXED] 最終回應步驟: ${session.step}`);
+=======
+    console.log(`💬 [DEBUG] 最終回應步驟: ${session.step}`);
+>>>>>>> b5601fe80ddd21d3bcadab68584c9c58bd484964
     return { reply, step: session.step, sessionData: session.data };
   }
 
