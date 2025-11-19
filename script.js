@@ -92,7 +92,7 @@ class HotelBookingAssistant {
   }
 
   async sendToAI(message) {
-    const response = await fetch("/api/chat", {
+    const response = await fetch("/chat", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
