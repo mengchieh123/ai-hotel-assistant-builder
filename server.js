@@ -44,6 +44,22 @@ const memberAccounts = {
   'dia789': { level: 'diamond', name: '林大為', points: 8900 }
 };
 
+// ==================== 新增：前端頁面路由 ====================
+// 服務主頁面
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/public/index.html');
+});
+
+// 服務其他 HTML 頁面
+app.get('/:page', (req, res) => {
+  const page = req.params.page;
+  if (page.endsWith('.html')) {
+    res.sendFile(__dirname + '/public/' + page);
+  } else {
+    res.sendFile(__dirname + '/public/' + page + '.html');
+  }
+});
+
 // ==================== 基本健康檢查路由 ====================
 app.get('/health', (req, res) => {
   console.log('✅ 健康檢查請求收到');
