@@ -1,10 +1,15 @@
 const express = require('express');
 const cors = require('cors');
 const app = express();
+
+// ==================== 修復：Railway 端口配置 ====================
+// Railway 使用 process.env.PORT，確保正確綁定
 const PORT = process.env.PORT || 8080;
 
+// 重要：綁定到 0.0.0.0 而不是 localhost
+const HOST = '0.0.0.0';
+
 // ==================== 新增：靜態文件服務配置 ====================
-// 服務前端靜態文件
 app.use(express.static('public'));
 app.use(express.static('.')); // 也服務根目錄的 HTML 文件
 
@@ -1666,15 +1671,14 @@ console.log('🔄 正在啟動 Express 伺服器...');
 console.log(`📁 當前工作目錄: ${process.cwd()}`);
 console.log(`🔧 Node.js 版本: ${process.version}`);
 console.log(`🌍 環境變數 PORT: ${process.env.PORT}`);
-console.log(`🏠 監聽地址: 0.0.0.0:${PORT}`);
+console.log(`🏠 監聽地址: ${HOST}:${PORT}`);
 
-const server = app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`\n🚀 飯店客服系統已啟動`);
   console.log(`📍 服務端口: ${PORT}`);
   console.log(`🌐 健康檢查: http://0.0.0.0:${PORT}/health`);
   console.log(`💬 聊天端點: http://0.0.0.0:${PORT}/api/chat`);
   console.log(`📊 會話管理: http://0.0.0.0:${PORT}/api/sessions`);
-  console.log(`🔕 n8n 整合: ${n8nService.enabled ? '已啟用' : '未啟用'}`);
   console.log(`\n✅ 系統準備就緒，等待請求...\n`);
 });
 
