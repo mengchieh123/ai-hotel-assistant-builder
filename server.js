@@ -591,8 +591,15 @@ function processMessage(message, session) {
 // ==================== 主要對話路由 ====================
 app.post('/chat', async (req, res) => {
   const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` } = req.body;
+    
+// 新增：意圖分類
+  const intent = classifyIntent(message);
+  console.log(`🎯 識別意圖: ${intent}`, { message });
   
-  if (!message) {
+  // 新增：會話狀態管理
+  updateSessionState(sessionId, intent, message);
+  
+    if (!message) {
     return res.status(400).json({ 
       error: '訊息內容不能為空',
       reply: '請輸入您想詢問的內容。'
