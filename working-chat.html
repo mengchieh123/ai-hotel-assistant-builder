@@ -6,21 +6,164 @@
     <title>飯店AI訂房助理</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Microsoft JhengHei', Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
-        .chat-container { max-width: 800px; margin: 0 auto; background: white; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; }
-        .header { background: linear-gradient(135deg, #2c3e50, #34495e); color: white; padding: 20px; text-align: center; }
-        .chat-messages { height: 500px; overflow-y: auto; padding: 20px; background: #f8f9fa; }
-        .message { margin-bottom: 15px; display: flex; align-items: flex-start; }
-        .user-message { justify-content: flex-end; }
-        .bot-message { justify-content: flex-start; }
-        .message-bubble { max-width: 70%; padding: 12px 16px; border-radius: 18px; line-height: 1.4; }
-        .user-message .message-bubble { background: linear-gradient(135deg, #007bff, #0056b3); color: white; }
-        .bot-message .message-bubble { background: white; color: #333; border: 1px solid #e0e0e0; }
-        .input-area { padding: 20px; background: white; border-top: 1px solid #e0e0e0; display: flex; gap: 10px; }
-        .message-input { flex: 1; padding: 12px 16px; border: 2px solid #e0e0e0; border-radius: 25px; font-size: 16px; }
-        .send-button { padding: 12px 24px; background: linear-gradient(135deg, #007bff, #0056b3); color: white; border: none; border-radius: 25px; cursor: pointer; }
-        .typing { padding: 10px; color: #666; font-style: italic; }
-        .session-info { font-size: 12px; opacity: 0.7; margin-top: 5px; }
+        body { 
+            font-family: 'Microsoft JhengHei', Arial, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            min-height: 100vh; 
+            padding: 20px; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .chat-container { 
+            width: 100%;
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: white; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+            overflow: hidden; 
+            display: flex;
+            flex-direction: column;
+            height: 90vh;
+        }
+        .header { 
+            background: linear-gradient(135deg, #2c3e50, #34495e); 
+            color: white; 
+            padding: 20px; 
+            text-align: center; 
+        }
+        .chat-messages { 
+            flex: 1;
+            overflow-y: auto; 
+            padding: 20px; 
+            background: #f8f9fa; 
+            display: flex;
+            flex-direction: column;
+        }
+        .message { 
+            margin-bottom: 15px; 
+            display: flex; 
+            align-items: flex-start; 
+        }
+        .user-message { 
+            justify-content: flex-end; 
+        }
+        .bot-message { 
+            justify-content: flex-start; 
+        }
+        .message-bubble { 
+            max-width: 70%; 
+            padding: 12px 16px; 
+            border-radius: 18px; 
+            line-height: 1.4; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .user-message .message-bubble { 
+            background: linear-gradient(135deg, #007bff, #0056b3); 
+            color: white; 
+        }
+        .bot-message .message-bubble { 
+            background: white; 
+            color: #333; 
+            border: 1px solid #e0e0e0; 
+        }
+        .quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+        .quick-reply-btn {
+            padding: 10px 15px;
+            background: #f1f3f4;
+            border: 1px solid #dadce0;
+            border-radius: 18px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .quick-reply-btn:hover {
+            background: #e8f0fe;
+            border-color: #1a73e8;
+        }
+        .input-area { 
+            padding: 20px; 
+            background: white; 
+            border-top: 1px solid #e0e0e0; 
+            display: flex; 
+            gap: 10px; 
+        }
+        .message-input { 
+            flex: 1; 
+            padding: 12px 16px; 
+            border: 2px solid #e0e0e0; 
+            border-radius: 25px; 
+            font-size: 16px; 
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .message-input:focus {
+            border-color: #007bff;
+        }
+        .send-button { 
+            padding: 12px 24px; 
+            background: linear-gradient(135deg, #007bff, #0056b3); 
+            color: white; 
+            border: none; 
+            border-radius: 25px; 
+            cursor: pointer; 
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+        .send-button:hover {
+            transform: translateY(-2px);
+        }
+        .send-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .typing { 
+            padding: 10px; 
+            color: #666; 
+            font-style: italic; 
+        }
+        .session-info { 
+            font-size: 12px; 
+            opacity: 0.7; 
+            margin-top: 5px; 
+        }
+        .service-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid #007bff;
+        }
+        .service-card h3 {
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        .service-card p {
+            margin-bottom: 15px;
+            color: #555;
+        }
+        .service-card button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .service-card button:hover {
+            background: #0056b3;
+        }
     </style>
 </head>
 <body>
@@ -36,6 +179,7 @@
                     🤖 <strong>歡迎使用飯店智能訂房助理！</strong><br><br>
                     我可以為您提供：<br>
                     🏨 訂房服務<br>
+                    🚗 <strong>接送機服務</strong><br>
                     💰 價格查詢<br>
                     🎯 景點推薦<br>
                     🍽️ 餐廳推薦<br><br>
@@ -43,6 +187,15 @@
                 </div>
             </div>
         </div>
+        
+        <div class="quick-replies" id="quickReplies">
+            <button class="quick-reply-btn" data-service="訂房服務">🏨 訂房服務</button>
+            <button class="quick-reply-btn" data-service="接送機服務">🚗 接送機服務</button>
+            <button class="quick-reply-btn" data-service="價格查詢">💰 價格查詢</button>
+            <button class="quick-reply-btn" data-service="景點推薦">🎯 景點推薦</button>
+            <button class="quick-reply-btn" data-service="餐廳推薦">🍽️ 餐廳推薦</button>
+        </div>
+        
         <div class="input-area">
             <input type="text" class="message-input" id="messageInput" placeholder="輸入您的訊息...">
             <button class="send-button" id="sendButton">傳送</button>
@@ -54,6 +207,7 @@
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         const sessionIdDisplay = document.getElementById('sessionId');
+        const quickReplies = document.getElementById('quickReplies');
         
         // 生成或恢復 sessionId - 保持對話上下文
         let sessionId = localStorage.getItem('hotelSessionId');
@@ -62,6 +216,9 @@
             localStorage.setItem('hotelSessionId', sessionId);
         }
         sessionIdDisplay.textContent = sessionId;
+
+        // 接送機服務表單連結
+        const airportTransferFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSfre2hV96gCFwawR-7B9eZbDk9wpU_JKxdcFHlw18fd72MXqw/viewform?usp=header';
 
         function addMessage(message, isUser = false) {
             const messageDiv = document.createElement('div');
@@ -92,6 +249,67 @@
             }
         }
 
+        // 處理接送機服務
+        function handleAirportTransfer() {
+            addMessage('🚗 我需要預約機場接送服務', true);
+            
+            showTyping();
+            
+            setTimeout(() => {
+                hideTyping();
+                
+                // 創建接送機服務卡片
+                const serviceCard = document.createElement('div');
+                serviceCard.className = 'service-card';
+                serviceCard.innerHTML = `
+                    <h3>🚗 尊榮禮賓車服務</h3>
+                    <p>我們很榮幸為您提供便捷的機場接送服務，讓您的旅程從一開始就輕鬆無憂。</p>
+                    <p>請點擊以下按鈕，前往我們的接送服務預訂系統：</p>
+                    <button id="bookTransferBtn">立即預訂機場接送</button>
+                `;
+                
+                chatMessages.appendChild(serviceCard);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                
+                // 添加按鈕事件
+                document.getElementById('bookTransferBtn').addEventListener('click', function() {
+                    window.open(airportTransferFormUrl, '_blank');
+                    addMessage('✅ 已為您開啟機場接送服務預訂表單，請在新開啟的頁面填寫需求。');
+                });
+            }, 1000);
+        }
+
+        // 處理其他服務
+        function handleOtherService(service) {
+            addMessage(`我需要${service}`, true);
+            
+            showTyping();
+            
+            setTimeout(() => {
+                hideTyping();
+                
+                let reply = '';
+                switch(service) {
+                    case '訂房服務':
+                        reply = '🏨 好的，我來協助您預訂房間。請問您需要什麼房型？入住和退房日期是什麼時候？';
+                        break;
+                    case '價格查詢':
+                        reply = '💰 我可以為您查詢房價。請告訴我您想查詢的日期和房型？';
+                        break;
+                    case '景點推薦':
+                        reply = '🎯 我很樂意為您推薦周邊景點。請問您對什麼類型的景點感興趣？（例如：自然風景、歷史古蹟、購物中心等）';
+                        break;
+                    case '餐廳推薦':
+                        reply = '🍽️ 我可以為您推薦餐廳。請問您偏好什麼類型的料理？（例如：中式、西式、日式、素食等）';
+                        break;
+                    default:
+                        reply = `關於${service}，請提供更多詳細資訊，我們將為您服務。`;
+                }
+                
+                addMessage(reply);
+            }, 1000);
+        }
+
         async function sendMessage() {
             const message = messageInput.value.trim();
             if (!message) return;
@@ -102,6 +320,17 @@
             showTyping();
 
             try {
+                // 檢查是否為接送機服務相關訊息
+                if (message.includes('接送') || message.includes('機場') || message.includes('接機') || message.includes('送機')) {
+                    setTimeout(() => {
+                        hideTyping();
+                        handleAirportTransfer();
+                        sendButton.disabled = false;
+                        messageInput.focus();
+                    }, 1000);
+                    return;
+                }
+
                 const API_URL = 'https://ai-hotel-assistant-builder-production.up.railway.app/chat';
                 const proxy = 'https://corsproxy.io/?';
                 const url = proxy + encodeURIComponent(API_URL);
@@ -113,7 +342,7 @@
                     },
                     body: JSON.stringify({
                         message: message,
-                        sessionId: sessionId  // 使用相同的 sessionId 保持對話上下文
+                        sessionId: sessionId
                     })
                 });
 
@@ -136,6 +365,19 @@
                 messageInput.focus();
             }
         }
+
+        // 快速回覆按鈕事件
+        document.querySelectorAll('.quick-reply-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const service = this.getAttribute('data-service');
+                
+                if (service === '接送機服務') {
+                    handleAirportTransfer();
+                } else {
+                    handleOtherService(service);
+                }
+            });
+        });
 
         sendButton.addEventListener('click', sendMessage);
         messageInput.addEventListener('keypress', (e) => {
