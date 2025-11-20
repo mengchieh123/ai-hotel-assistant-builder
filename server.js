@@ -119,6 +119,30 @@ function classifyIntent(message) {
   }
 }
 
+// ==================== 補充定義 updateSessionState ====================
+function updateSessionState(sessionId, intent, message) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  switch(intent) {
+    case 'reset':
+      session.step = 'welcome';
+      session.data = {};
+      session.context = {};
+      break;
+    case 'booking':
+      session.step = 'start_booking';
+      break;
+    case 'membership':
+      session.step = 'member_login';
+      break;
+    default:
+      // 不改變現有狀態
+      break;
+  }
+  session.lastActivity = Date.now();
+}
+
 // ==================== 健康檢查路由 ====================
 app.get('/health', (req, res) => {
   res.status(200).json({ 
