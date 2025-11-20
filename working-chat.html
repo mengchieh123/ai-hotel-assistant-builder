@@ -164,6 +164,37 @@
         .service-card button:hover {
             background: #0056b3;
         }
+        .room-types {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .room-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid #e0e0e0;
+        }
+        .room-card h4 {
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        .room-features {
+            list-style: none;
+            margin: 10px 0;
+        }
+        .room-features li {
+            padding: 5px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .room-price {
+            font-weight: bold;
+            color: #007bff;
+            font-size: 18px;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
@@ -220,6 +251,34 @@
         // 接送機服務表單連結
         const airportTransferFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSfre2hV96gCFwawR-7B9eZbDk9wpU_JKxdcFHlw18fd72MXqw/viewform?usp=header';
 
+        // 房型資料
+        const roomTypes = [
+            {
+                name: "標準雙人房",
+                price: "NT$ 2,800/晚",
+                features: ["雙人床", "免費WiFi", "平面電視", "迷你冰箱", "獨立衛浴"],
+                description: "適合商務旅客或情侶出遊"
+            },
+            {
+                name: "豪華家庭房",
+                price: "NT$ 4,200/晚",
+                features: ["兩張雙人床", "免費WiFi", "平面電視", "迷你冰箱", "獨立衛浴", "小客廳"],
+                description: "適合家庭旅遊，可容納2-4人"
+            },
+            {
+                name: "行政套房",
+                price: "NT$ 6,500/晚",
+                features: ["特大雙人床", "免費WiFi", "55吋電視", "迷你酒吧", "按摩浴缸", "獨立客廳", "行政酒廊權益"],
+                description: "豪華享受，尊榮服務"
+            },
+            {
+                name: "海景套房",
+                price: "NT$ 8,800/晚",
+                features: ["特大雙人床", "180度海景", "免費WiFi", "65吋電視", "陽台", "按摩浴缸", "迷你廚房"],
+                description: "絕美海景，浪漫體驗"
+            }
+        ];
+
         function addMessage(message, isUser = false) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
@@ -247,6 +306,30 @@
             if (typingIndicator) {
                 typingIndicator.remove();
             }
+        }
+
+        // 顯示房型資訊
+        function showRoomTypes() {
+            const roomTypesHTML = `
+                <div class="room-types">
+                    ${roomTypes.map(room => `
+                        <div class="room-card">
+                            <h4>${room.name}</h4>
+                            <div class="room-price">${room.price}</div>
+                            <p>${room.description}</p>
+                            <ul class="room-features">
+                                ${room.features.map(feature => `<li>✓ ${feature}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            addMessage(`
+                🏨 <strong>我們提供以下房型：</strong><br><br>
+                ${roomTypesHTML}
+                <br>請問您對哪種房型感興趣？需要我為您查詢空房情況嗎？
+            `);
         }
 
         // 處理接送機服務
@@ -291,8 +374,8 @@
                 let reply = '';
                 switch(service) {
                     case '訂房服務':
-                        reply = '🏨 好的，我來協助您預訂房間。請問您需要什麼房型？入住和退房日期是什麼時候？';
-                        break;
+                        showRoomTypes();
+                        return;
                     case '價格查詢':
                         reply = '💰 我可以為您查詢房價。請告訴我您想查詢的日期和房型？';
                         break;
@@ -325,6 +408,17 @@
                     setTimeout(() => {
                         hideTyping();
                         handleAirportTransfer();
+                        sendButton.disabled = false;
+                        messageInput.focus();
+                    }, 1000);
+                    return;
+                }
+
+                // 檢查是否為房型相關查詢
+                if (message.includes('房型') || message.includes('房種') || message.includes('房間類型') || message.includes('有什麼房')) {
+                    setTimeout(() => {
+                        hideTyping();
+                        showRoomTypes();
                         sendButton.disabled = false;
                         messageInput.focus();
                     }, 1000);
