@@ -1,0 +1,7 @@
+node_modules/
+venv-gpt4all/
+.git/
+.DS_Store
+*.log
+*.backup
+venv-*/
