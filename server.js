@@ -99,6 +99,26 @@ const roomCapacityData = {
   }
 };
 
+// ==================== 定義 classifyIntent 函數 ====================
+function classifyIntent(message) {
+  const lowerMsg = message.toLowerCase();
+  if (lowerMsg.includes('訂房') || lowerMsg.includes('預訂')) {
+    return 'booking';
+  } else if (lowerMsg.includes('價格') || lowerMsg.includes('價錢') || lowerMsg.includes('多少錢')) {
+    return 'price_query';
+  } else if (lowerMsg.includes('景點') || lowerMsg.includes('觀光')) {
+    return 'attractions';
+  } else if (lowerMsg.includes('餐廳') || lowerMsg.includes('美食')) {
+    return 'restaurant';
+  } else if (lowerMsg.includes('會員') || lowerMsg.includes('折扣') || lowerMsg.includes('優惠')) {
+    return 'membership';
+  } else if (lowerMsg.includes('重置') || lowerMsg.includes('重新開始')) {
+    return 'reset';
+  } else {
+    return 'unknown';
+  }
+}
+
 // ==================== 健康檢查路由 ====================
 app.get('/health', (req, res) => {
   res.status(200).json({ 
