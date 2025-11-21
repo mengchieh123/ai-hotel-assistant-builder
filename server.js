@@ -1,13 +1,14 @@
 const express = require('express');
 const cors = require('cors');
-// 確保您已安裝 node-fetch，如果您的環境不支持原生的 fetch，需要這樣引入：
-// const fetch = require('node-fetch');
+// 🚨 修正：明確引入 node-fetch，確保在所有 Node.js 環境中運行
+const fetch = require('node-fetch');
 
 const app = express();
 
 // --- LLM 配置與工具 ---
 const MODEL_NAME = 'gemini-2.5-flash-preview-09-2025';
-const apiKey = ""; // 如果您想使用除了 gemini-2.5-flash-preview-09-2025 以外的模型，請在此處提供您的 API Key
+// 🚨🚨 這裡是您的 Gemini API Key (AIzaSyBMOdSKtUDMcwXXbg_Zu0cXMOPedmyr_Q0)。如果留空，AI 功能將被禁用。
+const apiKey = ""; 
 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 const MAX_RETRIES = 5;
 const INITIAL_BACKOFF_MS = 1000;
@@ -48,7 +49,8 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-const PORT = process.env.PORT || 8081;
+// 將 Port 設置為 8080 (與您的日誌一致)
+const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 
 app.use(express.static('public'));
@@ -63,7 +65,7 @@ app.get('/health', (req, res) => {
 // 會話存儲
 const sessions = new Map();
 
-// 智能意圖分類器（保留不變） 
+// 智能意圖分類器
 class SmartIntentClassifier {
   static classify(message) {
     const lowerMessage = message.toLowerCase();
@@ -91,7 +93,7 @@ class SmartIntentClassifier {
   }
 }
 
-// 會話狀態管理器（保留不變）
+// 會話狀態管理器
 class SessionManager {
   constructor() {
     this.sessions = new Map();
@@ -152,6 +154,12 @@ class ResponseGenerator {
 
   // --- Gemini LLM 整合邏輯 ---
   static async getGeminiResponse(session) {
+    // 🚨 關鍵優化：API Key 檢查
+    if (!apiKey) {
+        console.warn("[Gemini API] API Key is empty. Skipping LLM call and returning fallback response.");
+        return this.generateFallbackResponse("🚨 錯誤：API 金鑰遺失或無效。請在 `server.js` 中設置您的 **Gemini API Key** (開頭為 AIzaSy...) 以啟用 AI 查詢功能。");
+    }
+
     // 提取對話歷史，轉換為 Gemini API 格式
     const contents = session.conversationHistory.map(item => ({
       role: item.role === 'user' ? 'user' : 'model',
@@ -194,16 +202,16 @@ class ResponseGenerator {
         return text;
       } else {
         console.error("[Gemini API] No text in response:", JSON.stringify(result, null, 2));
-        return this.generateFallbackResponse();
+        return this.generateFallbackResponse("抱歉，API 回覆結構異常，請稍後再試。");
       }
     } catch (e) {
       console.error("Error communicating with Gemini API:", e);
-      return this.generateFallbackResponse();
+      return this.generateFallbackResponse("抱歉，API 連線發生錯誤，請檢查您的網路或 API Key 是否有效。");
     }
   }
   
-  static generateFallbackResponse() {
-    return "抱歉，目前我的 AI 大腦無法處理您的查詢，但我可以為您轉接人工客服，請問您需要哪方面的協助？";
+  static generateFallbackResponse(reason = "抱歉，目前我的 AI 大腦無法處理您的查詢，但我可以為您轉接人工客服，請問您需要哪方面的協助？") {
+    return reason;
   }
 
   static generateMultiIntentResponse(intents, session, message) {
@@ -274,7 +282,7 @@ class ResponseGenerator {
     return resp + (isMultiIntent ? "\n" : "");
   }
   static generateGeneralResponse() {
-    // 這裡已被 getGeminiResponse 取代，但作為 fallback 保持簡短
+    // 作為 LLM 失敗時的最終 fallback 保持簡短
     return "您好！我是飯店AI助理，可協助您訂房、接送、餐廳、景點、購物等服務。";
   }
 
