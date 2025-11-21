@@ -1,19 +1,20 @@
 {
   "name": "ai-hotel-assistant",
-  "version": "5.5.0",
+  "version": "5.6.0",
   "description": "AI Hotel Assistant Service with Modular Business Logic and Attractions - Full Stack Application",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "keep-alive": "while true; do node server.js; sleep 10; done",
-    "frontend": "npx serve frontend -s -l 3000",
-    "frontend:dev": "npx live-server frontend --port=3000",
+    "keep-alive": "node keep-alive.js",
+    "frontend": "npx serve . -s -l 8080",
+    "frontend:dev": "npx live-server . --port=3000 --entry-file=working-chat.html",
     "build:frontend": "echo 'Frontend is static HTML, no build required'",
-    "deploy:fullstack": "npm start & npm run frontend",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy:fullstack": "npm start",
+    "test": "node test-health.js",
     "test:api": "node test-api.js",
-    "test:frontend": "echo 'Open http://localhost:3000 to test frontend'"
+    "test:frontend": "echo 'Open http://localhost:8080/working-chat.html to test frontend'",
+    "test:gemini": "node test-gemini.js"
   },
   "dependencies": {
     "body-parser": "^1.20.2",
@@ -21,14 +22,14 @@
     "cors": "^2.8.5",
     "dayjs": "^1.11.19",
     "express": "^4.21.2",
-    "serve": "^14.0.0"
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
     "live-server": "^1.2.2",
     "nodemon": "^3.0.1"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "author": "AI Hotel Assistant Team",
   "license": "MIT",
