@@ -15,6 +15,11 @@ app.use(express.static('public'));
 app.use(express.static('.'));
 app.use(express.json());
 
+// 健康檢查路由 (Health Check Route)
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: "OK", uptime: process.uptime() });
+});
+
 // 會話存儲
 const sessions = new Map();
 
