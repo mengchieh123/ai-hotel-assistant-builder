@@ -11,16 +11,16 @@ const API_BASE = "https://generativelanguage.googleapis.com";
 const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
 const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
-// --- 指數退避重試配置 ---
+// --- 指數退避重試配置 (不變) ---
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
 
-// 指數退避重試函數
 async function fetchWithRetry(url, options, attempt = 1) {
     try {
         const response = await fetch(url, options);
 
         if (response.status === 429 && attempt < MAX_RETRIES) {
+            // ... (重試邏輯不變)
             const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
             console.warn(`[Gemini API] Rate limit hit. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt})`);
             await new Promise(resolve => setTimeout(resolve, delay));
@@ -35,6 +35,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
         return response;
     } catch (error) {
         if (attempt < MAX_RETRIES) {
+            // ... (錯誤重試邏輯不變)
             console.error(`[Gemini API] Request failed: ${error.message}. Retrying...`);
             const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
             await new Promise(resolve => setTimeout(resolve, delay));
@@ -59,7 +60,7 @@ app.get('/health', (req, res) => {
 // 會話存儲
 const sessions = new Map();
 
-// 智能意圖分類器
+// 智能意圖分類器 (與前一版本相同)
 class SmartIntentClassifier {
     static classify(message) {
         const lowerMessage = message.toLowerCase();
@@ -80,13 +81,7 @@ class SmartIntentClassifier {
     }
 
     static containsDatePatterns(message) {
-        const datePatterns = [
-            /\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/,    
-            /\d{1,2}\/\d{1,2}/,                     
-            /\d{1,2}月\d{1,2}日/,                   
-            /\d{1,2}月\d{1,2}號/,                   
-            /明天|後天|週末|下週|月底/
-        ];
+        const datePatterns = [/\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/, /\d{1,2}\/\d{1,2}/, /\d{1,2}月\d{1,2}日/, /\d{1,2}月\d{1,2}號/, /明天|後天|週末|下週|月底/];
         return datePatterns.some(pattern => pattern.test(message));
     }
 
@@ -100,7 +95,7 @@ class SmartIntentClassifier {
     }
 }
 
-// 會話狀態管理器
+// 會話狀態管理器 (與前一版本相同)
 class SessionManager {
     constructor() {this.sessions = new Map();}
     getSession(sessionId) {
@@ -131,7 +126,7 @@ class SessionManager {
     }
 }
 
-// 回應生成器（優化 LLM 整合）
+// 回應生成器（LLM 邏輯與靜態回應與前一版本相同）
 class ResponseGenerator {
     static async generateResponse(intents, session, message) {
         if (intents.includes('date_input') && this.isInBookingFlow(session)) {
@@ -194,6 +189,7 @@ class ResponseGenerator {
 
     // --- Gemini LLM 整合邏輯 ---
     static async getGeminiResponse(session) {
+        // 🚨 檢查金鑰
         if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY_HERE") {
             console.warn("[Gemini API] API Key is empty. Skipping LLM call and returning fallback response.");
             return this.generateFallbackResponse("🚨 錯誤：API 金鑰遺失或無效。請在 `server.js` 中設置您的 **Gemini API Key** (開頭為 AIzaSy...) 以啟用 AI 查詢功能。");
@@ -237,30 +233,47 @@ class ResponseGenerator {
             }
         } catch (e) {
             console.error("Error communicating with Gemini API:", e);
-            return this.generateFallbackResponse("抱歉，API 連線發生錯誤，請檢查您的網路或 API Key 是否有效。");
+            // 🚨 這是最關鍵的日誌，如果金鑰錯誤或網路問題，會印出在這裡
+            return this.generateFallbackResponse("抱歉，API 連線發生錯誤，請檢查您的網路或 API Key 是否有效。詳細錯誤已記錄於後端日誌。");
         }
     }
     
     static generateFallbackResponse(reason = "抱歉，目前我的 AI 大腦無法處理您的查詢，但我可以為您轉接人工客服。") {
         return reason;
     }
-
-    // ... (generateMultiIntentResponse, generateBookingResponse, etc. 保持與前一版本邏輯相同，此處省略以保持程式碼簡潔)
     static generateMultiIntentResponse(intents, session, message) {
         let response = "感謝您的查詢！我來為您詳細介紹：\n\n";
-        // ... (省略詳細意圖處理邏輯)
-        return response + this.generateSmartSuggestions(intents, session);
+        intents.forEach(intent => {
+            switch (intent) {
+                case 'booking': response += ResponseGenerator.generateBookingResponse(session, message, true); break;
+                case 'transfer': response += ResponseGenerator.generateTransferResponse(session, true); break;
+                case 'restaurant': response += ResponseGenerator.generateRestaurantResponse(session, message, true); break;
+                case 'pricing': response += ResponseGenerator.generatePricingResponse(session, true); break;
+                case 'member': response += ResponseGenerator.generateMemberResponse(session, true); break;
+                case 'attractions': response += ResponseGenerator.generateAttractionsResponse(session, true); break;
+                case 'shopping': response += ResponseGenerator.generateShoppingResponse(session, true); break;
+                case 'medical': response += ResponseGenerator.generateMedicalResponse(session, true); break;
+                case 'facilities': response += ResponseGenerator.generateFacilitiesResponse(session, true); break;
+                case 'date_input': 
+                    response += "📅 日期資訊已記錄。\n";
+                    break;
+            }
+        });
+        return response + ResponseGenerator.generateSmartSuggestions(intents, session);
     }
     static generateBookingResponse(session, message, isMultiIntent = false) {
         let resp = isMultiIntent ? "🏨 **訂房服務**\n" : "";
-        if(session.userType === 'family') resp += "• 推薦家庭房型及親子設施。\n";
-        else if(session.userType === 'group') resp += "• 提供團體優惠。\n";
         resp += "請告訴我入住人數、房型與日期。當您提供完整資訊後，我們將會啟動**專門的訂房 API 流程**來完成預訂！";
         return resp + (isMultiIntent ? "\n" : "");
     }
     static generateTransferResponse(session, isMultiIntent = false) {
         let resp = isMultiIntent ? "🚗 **機場接送服務**\n" : "";
         resp += "24小時機場接送，費用600 TWD單程";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+    static generateRestaurantResponse(session, message, isMultiIntent = false) {
+        let resp = isMultiIntent ? "🍽️ **餐廳推薦**\n" : "";
+        resp += message.includes('海鮮') ? "• 港灣海鮮樓\n• 海味坊\n" : "• 龍鳳廳\n• 櫻花日本料理\n• 星空牛排館\n";
         return resp + (isMultiIntent ? "\n" : "");
     }
     static generatePricingResponse(session, isMultiIntent = false) {
@@ -324,7 +337,6 @@ app.post('/api/booking', async (req, res) => {
 
 // 💡 關鍵修正：主要對話路由 /api/chat
 app.post('/api/chat', async (req, res) => {
-    // 🚨 DEBUG LOG: Log the entire body received from the client
     console.log("DEBUG: Received Request Body:", req.body); 
 
     // ✅ 最終修正：優先檢查 'prompt' 欄位！
@@ -338,7 +350,7 @@ app.post('/api/chat', async (req, res) => {
          console.error(`ERROR 400 TRIGGERED: rawMessage is empty. Full body: ${JSON.stringify(req.body)}`);
          return res.status(400).json({ 
              success: false, 
-             reply: "🚨 錯誤：後端收到的請求體是空的，無法解析訊息內容 (prompt/message/text/query)。請檢查前端程式碼。",
+             reply: "🚨 錯誤：後端收到的請求體是空的，無法解析訊息內容。",
              sessionId,
              errorCode: "EMPTY_MESSAGE"
          });
