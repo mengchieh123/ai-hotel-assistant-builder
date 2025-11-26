@@ -1,0 +1,15 @@
+
+
+# Server Configuration
+PORT=3000
+NODE_ENV=production
+
+# OpenAI Configuration
+OPENAI_API_KEY=sk-your-api-key-here
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_MAX_TOKENS=1000
+OPENAI_TEMPERATURE=0.7
+
+# Assistant Configuration
+ASSISTANT_NAME="台北晶華酒店 AI 助手"
+ASSISTANT_LANGUAGE=zh-TW

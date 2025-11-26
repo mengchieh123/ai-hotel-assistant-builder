@@ -1,0 +1,12 @@
+{
+  "name": "hotel-ai-intent-modules",
+  "version": "1.0.0",
+  "description": "模組化意圖分類系統 for 飯店AI助理",
+  "main": "intentModules.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": ["ai", "intent", "classification", "hotel", "chatbot"],
+  "author": "AI Hotel Assistant Team",
+  "license": "MIT"
+}
