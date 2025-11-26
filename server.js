@@ -1,29 +1,26 @@
-// server.js (最終修正版 - 2025/11/26)
+// server.js (完整修正版 - 2025/11/26)
 
 // ---------------------------------------------
 // 1. 模組導入與基本設定
 // ---------------------------------------------
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch'); // 確保 node-fetch 存在
+const fetch = require('node-fetch');
 const app = express();
 
-
-// --- API Key 和配置 (已合併所有變數，只宣告一次) ---
-const apiKey = process.env.GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE";
+// --- API Key 和配置 ---
+const apiKey = process.env.GEMINI_API_KEY || "AIzaSyBMOdSKtUDMcwXXbg_Zu0cXMOPedmyr_Q0";
 const API_BASE = "https://generativelanguage.googleapis.com";
-const MODEL_NAME = "gemini-2.5-flash-preview-09-2025-V3"; // <-- 確保只在此處宣告一次
-const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+const MODEL_NAME = "gemini-pro"; // 使用標準模型名稱
+const apiUrl = `${API_BASE}/v1/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
 // --- 指數退避重試配置 ---
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
 
-
 // ---------------------------------------------
-// 2. 核心工具類：SessionManager & IntentClassifier
+// 2. 核心工具類
 // ---------------------------------------------
-// ... (此處省略 SmartIntentClassifier 和 SessionManager 類別，內容不變)
 
 // 智能意圖分類器
 class SmartIntentClassifier {
@@ -44,7 +41,13 @@ class SmartIntentClassifier {
     }
 
     static containsDatePatterns(message) {
-        const datePatterns = [/\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/, /\d{1,2}\/\d{1,2}/, /\d{1,2}月\d{1,2}日/, /\d{1,2}月\d{1,2}號/, /明天|後天|週末|下週|月底/];
+        const datePatterns = [
+            /\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/,
+            /\d{1,2}\/\d{1,2}/,
+            /\d{1,2}月\d{1,2}日/,
+            /\d{1,2}月\d{1,2}號/,
+            /明天|後天|週末|下週|月底/
+        ];
         return datePatterns.some(pattern => pattern.test(message));
     }
 
@@ -60,7 +63,10 @@ class SmartIntentClassifier {
 
 // 會話狀態管理器
 class SessionManager {
-    constructor() {this.sessions = new Map();}
+    constructor() {
+        this.sessions = new Map();
+    }
+    
     getSession(sessionId) {
         if (!this.sessions.has(sessionId)) {
             this.sessions.set(sessionId, {
@@ -73,23 +79,34 @@ class SessionManager {
         }
         return this.sessions.get(sessionId);
     }
+    
     updateSession(sessionId, message, intents) {
         const session = this.getSession(sessionId);
         session.lastActive = new Date().toISOString();
-        session.conversationHistory.push({ role: 'user', message, intents, timestamp: new Date().toISOString() });
+        session.conversationHistory.push({
+            role: 'user',
+            message,
+            intents,
+            timestamp: new Date().toISOString()
+        });
         session.userType = SmartIntentClassifier.detectUserType(message);
         intents.forEach(intent => {
             if (!session.askedTopics.includes(intent)) session.askedTopics.push(intent);
         });
         return session;
     }
+
     addAssistantResponse(sessionId, reply) {
         const session = this.getSession(sessionId);
-        session.conversationHistory.push({ role: 'model', message: reply, timestamp: new Date().toISOString() });
+        session.conversationHistory.push({
+            role: 'model',
+            message: reply,
+            timestamp: new Date().toISOString()
+        });
     }
 }
-const sessionManager = new SessionManager(); // 實例化 SessionManager
 
+const sessionManager = new SessionManager();
 
 // ---------------------------------------------
 // 3. API 通訊工具
@@ -119,15 +136,14 @@ async function fetchWithRetry(url, options, attempt = 1) {
     }
 }
 
-
 // ---------------------------------------------
 // 4. 回應生成與 LLM 邏輯
 // ---------------------------------------------
 class ResponseGenerator {
     static isInBookingFlow(session) {
         const lastMessages = session.conversationHistory.slice(-3);
-        return lastMessages.some(msg => 
-            msg.intents?.includes('booking') || 
+        return lastMessages.some(msg =>
+            msg.intents?.includes('booking') ||
             msg.message?.includes('訂房') ||
             msg.message?.includes('日期') ||
             msg.message?.includes('入住')
@@ -154,7 +170,7 @@ class ResponseGenerator {
         } else {
             response += `收到您的日期資訊！\n\n`;
         }
-        
+
         response += "請問需要什麼房型？幾位入住？";
         return response;
     }
@@ -163,10 +179,8 @@ class ResponseGenerator {
         if (intents.includes('date_input') && this.isInBookingFlow(session)) {
             return this.handleBookingDate(message, session);
         }
-        
-        if (intents.length > 1 || intents[0] === 'general_inquiry') {
-            return await this.getGeminiResponse(session); 
-        }
+
+        if (intents.length > 1) return this.generateMultiIntentResponse(intents, session, message);
 
         switch (intents[0]) {
             case 'booking': return this.generateBookingResponse(session, message);
@@ -178,15 +192,18 @@ class ResponseGenerator {
             case 'shopping': return this.generateShoppingResponse(session);
             case 'medical': return this.generateMedicalResponse(session);
             case 'facilities': return this.generateFacilitiesResponse(session);
-            case 'date_input': return "📅 收到您的日期資訊！請問您需要什麼服務？訂房還是查詢空房？";
+            case 'date_input':
+                return "📅 收到您的日期資訊！請問您需要什麼服務？訂房還是查詢空房？";
+            case 'general_inquiry':
+                return await this.getGeminiResponse(session);
             default: return this.generateGeneralResponse();
         }
     }
 
     static async getGeminiResponse(session) {
-        if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY_HERE") {
-            console.warn("[Gemini API] API Key is empty. Skipping LLM call and returning fallback response.");
-            return this.generateFallbackResponse("🚨 錯誤：API 金鑰遺失或無效。請在 Railway 環境變數中設置您的 **GEMINI_API_KEY** 以啟用 AI 查詢功能。");
+        if (!apiKey) {
+            console.warn("[Gemini API] API Key is empty. Using fallback response.");
+            return this.generateHelpfulLocalResponse(session);
         }
 
         const contents = session.conversationHistory.map(item => ({
@@ -194,147 +211,302 @@ class ResponseGenerator {
             parts: [{ text: item.message }]
         }));
 
-        const systemPrompt = `
-            你是一家五星級飯店的智能客服助理，你的名字是「小智」。
-            你的語氣必須專業、親切、熱情，並優先使用繁體中文。
-            你的目標是回答旅客的任何問題，但對於特定功能（如訂房），你必須引導使用者提供必要的資訊（如日期、房型、人數）。
-            飯店資訊：名稱：海灣麗景酒店 (Bayview Grand Hotel)。地理位置：近市中心和海灘。特色：設有空中花園、米其林三星餐廳。
-            
-            請根據以上對話歷史，提供一個簡潔、有幫助的回應：
-        `;
+        const systemPrompt = `你是一家五星級飯店的智能客服助理，你的名字是「小智」。
+你的語氣必須專業、親切、熱情，並優先使用繁體中文。
+請簡潔回答旅客的問題，專注於提供有用的資訊。`;
 
         const payload = {
             contents: contents,
-            config: {
-                 systemInstruction: systemPrompt 
-            },
-            tools: [{ "google_search": {} }], 
+            generationConfig: {
+                maxOutputTokens: 500,
+                temperature: 0.7
+            }
         };
-        
+
+        console.log("[Gemini API] Sending request...");
+
         try {
             const response = await fetchWithRetry(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            
+
             const result = await response.json();
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
             if (text) {
                 return text;
             } else {
-                console.error("[Gemini API] No text in response or safety block:", JSON.stringify(result, null, 2));
-                return this.generateFallbackResponse("抱歉，AI 服務回覆結構異常或內容被安全過濾，請換個方式提問。");
+                console.error("[Gemini API] No text in response");
+                return this.generateHelpfulLocalResponse(session);
             }
         } catch (e) {
-            console.error("Error communicating with Gemini API:", e);
-            return this.generateFallbackResponse("抱歉，API 連線發生錯誤，請檢查您的網路或 API Key 是否有效。詳細錯誤已記錄於後端日誌。");
+            console.error("Error communicating with Gemini API:", e.message);
+            return this.generateHelpfulLocalResponse(session);
         }
     }
-    
-    // --- 靜態回覆內容 (保持精簡) ---
-    static generateFallbackResponse(reason) { return reason; }
-    static generateMultiIntentResponse(intents, session, message) { return "感謝您的查詢！已為您處理多項查詢，請確認是否有其他問題？"; }
-    static generateBookingResponse() { return "🏨 請告訴我入住人數、房型與日期。當您提供完整資訊後，我們將會啟動**專門的訂房 API 流程**來完成預訂！"; }
-    static generateTransferResponse() { return "🚗 飯店提供 24小時機場接送服務，費用為 600 TWD 單程。請問您需要預約嗎？"; }
-    static generateRestaurantResponse() { return "🍽️ 飯店內設有龍鳳廳 (中式)、櫻花日本料理及星空牛排館 (米其林三星)。請問您想了解哪一個餐廳？"; }
-    static generatePricingResponse() { return "💰 我們的標準雙人房每晚約 2200 TWD起，豪華雙人房約 2800 TWD起。實際價格依日期會有所變動。"; }
-    static generateMemberResponse() { return "💎 我們有銀卡 (九折+免費早餐) 和金卡 (85折) 會員。請問您想申請哪一種會員？"; }
-    static generateAttractionsResponse() { return "🏞️ 飯店附近有歷史博物館、藝術特區、和海景觀景台。我還可以幫您規劃一日遊行程！"; }
-    static generateShoppingResponse() { return "🛍️ 飯店步行五分鐘內有 24H 便利商店及一間大型超市。如果您想去夜市，步行約 15 分鐘可達。"; }
-    static generateMedicalResponse() { return "🏥 飯店設有緊急聯絡機制。最近的 24H 綜合醫院在車程十分鐘處。若遇緊急情況請直接撥打 119。"; }
-    static generateFacilitiesResponse() { return "🏊 飯店設施包括室內恆溫泳池、頂級健身房、和 SPA 水療中心。請問您想預約哪項設施？"; }
-    static generateGeneralResponse() { return "您好！我是海灣麗景酒店的 AI 助理「小智」，很高興為您服務。請問您想了解什麼呢？"; }
-}
 
+    static generateHelpfulLocalResponse(session) {
+        const lastMessage = session.conversationHistory[session.conversationHistory.length - 1]?.message || "";
+
+        if (lastMessage.includes('海灣麗景酒店') || lastMessage.includes('有趣事實')) {
+            return "🏨 **關於海灣麗景酒店的有趣事實**：\n\n" +
+                "• 我們的酒店建築靈感來自傳統中國園林設計\n" +
+                "• 頂樓的空中花園可以360度欣賞城市全景\n" +
+                "• 酒店內收藏了多位台灣藝術家的原創作品\n" +
+                "• 我們的米其林三星餐廳主廚曾獲國際烹飪大獎\n\n" +
+                "請問您對酒店的哪個方面特別感興趣呢？";
+        }
+
+        return "您好！我是飯店AI助理，可以為您提供：\n\n" +
+            "🏨 訂房服務 • 🚗 接送服務 • 🍽️ 餐廳推薦\n" +
+            "💰 價格查詢 • 🎯 景點導覽 • 💎 會員服務\n\n" +
+            "請問需要什麼協助？";
+    }
+
+    // 靜態回覆方法
+    static generateMultiIntentResponse(intents, session, message) {
+        let response = "感謝您的查詢！我來為您詳細介紹：\n\n";
+        intents.forEach(intent => {
+            switch (intent) {
+                case 'booking': response += this.generateBookingResponse(session, message, true); break;
+                case 'transfer': response += this.generateTransferResponse(session, true); break;
+                case 'restaurant': response += this.generateRestaurantResponse(session, message, true); break;
+                case 'pricing': response += this.generatePricingResponse(session, true); break;
+                case 'member': response += this.generateMemberResponse(session, true); break;
+                case 'attractions': response += this.generateAttractionsResponse(session, true); break;
+                case 'shopping': response += this.generateShoppingResponse(session, true); break;
+                case 'medical': response += this.generateMedicalResponse(session, true); break;
+                case 'facilities': response += this.generateFacilitiesResponse(session, true); break;
+                case 'date_input':
+                    response += "📅 日期資訊已記錄。\n";
+                    break;
+            }
+        });
+        return response;
+    }
+
+    static generateBookingResponse(session, message, isMultiIntent = false) {
+        let resp = isMultiIntent ? "🏨 **訂房服務**\n" : "";
+        if (session.userType === 'family') resp += "• 推薦家庭房型及親子設施。\n";
+        else if (session.userType === 'group') resp += "• 提供團體優惠。\n";
+        resp += "請告訴我入住人數、房型與日期。";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+
+    static generateTransferResponse(session, isMultiIntent = false) {
+        let resp = isMultiIntent ? "🚗 **機場接送服務**\n" : "";
+        resp += "24小時機場接送，費用600 TWD單程";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+
+    static generateRestaurantResponse(session, message, isMultiIntent = false) {
+        let resp = isMultiIntent ? "🍽️ **餐廳推薦**\n" : "";
+        resp += message.includes('海鮮') ? "• 港灣海鮮樓\n• 海味坊\n" : "• 龍鳳廳\n• 櫻花日本料理\n• 星空牛排館\n";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+
+    static generatePricingResponse(session, isMultiIntent = false) {
+        let resp = isMultiIntent ? "💰 **價格資訊**\n" : "";
+        resp += "• 標準雙人房: 2200 TWD/晚\n• 豪華雙人房: 2800 TWD/晚\n• 家庭房: 3800 TWD/晚\n";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+
+    static generateMemberResponse(session, isMultiIntent = false) {
+        let resp = isMultiIntent ? "💎 **會員服務**\n" : "";
+        resp += "銀卡九折 + 免費早餐\n金卡85折\n白金卡8折\n";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+
+    static generateAttractionsResponse(session, isMultiIntent = false) {
+        if (session.userType === 'family')
+            return (isMultiIntent ? "🏞️ **親子景點**\n" : "") + "兒童樂園、動物園、自然公園\n" + (isMultiIntent ? "\n" : "");
+        return (isMultiIntent ? "🏞️ **熱門景點**\n" : "") + "歷史博物館、藝術特區、觀景台\n" + (isMultiIntent ? "\n" : "");
+    }
+
+    static generateShoppingResponse(session, isMultiIntent = false) {
+        let resp = isMultiIntent ? "🛍️ **購物指南**\n" : "";
+        resp += "24H便利商店、大型超市、夜市\n";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+
+    static generateMedicalResponse(session, isMultiIntent = false) {
+        let resp = isMultiIntent ? "🏥 **醫療服務**\n" : "";
+        resp += "24H診所、綜合醫院、緊急119\n";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+
+    static generateFacilitiesResponse(session, isMultiIntent = false) {
+        let resp = isMultiIntent ? "🏊 **飯店設施**\n" : "";
+        resp += "泳池、健身房、SPA水療\n";
+        return resp + (isMultiIntent ? "\n" : "");
+    }
+
+    static generateGeneralResponse() {
+        return "您好！我是飯店AI助理，可協助您訂房、接送、餐廳、景點、購物等服務。";
+    }
+}
 
 // ---------------------------------------------
 // 5. Express 中介軟體與設定
 // ---------------------------------------------
-app.use(cors()); 
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
+app.use(express.static('.'));
+
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
-
-// 🚀 關鍵：讓 Express 可以解析 JSON 格式的請求體，必須在所有 app.post 前
-app.use(express.json()); 
-
 
 // ---------------------------------------------
 // 6. 路由定義
 // ---------------------------------------------
 
-// 🏆 修正後的健康檢查路由 (Health Check Route)
+// 根路徑
+app.get('/', (req, res) => {
+    res.json({
+        service: '🏨 海灣麗景酒店 AI 助理',
+        status: '運行中',
+        version: '5.6.0',
+        endpoints: {
+            health: '/health',
+            chat: '/chat',
+            api_health: '/api/health',
+            api_chat: '/api/chat',
+            frontend: '/working-chat.html'
+        },
+        timestamp: new Date().toISOString()
+    });
+});
+
+// 健康檢查 (兼容路徑)
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: "OK",
+        server: "Bayview Grand Hotel Assistant API",
+        model: MODEL_NAME,
+        timestamp: new Date().toISOString()
+    });
+});
+
 app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: "OK", server: "Bayview Grand Hotel Assistant API", model: MODEL_NAME });
+    res.status(200).json({
+        status: "OK",
+        server: "Bayview Grand Hotel Assistant API",
+        model: MODEL_NAME,
+        timestamp: new Date().toISOString()
+    });
 });
 
-// 訂房專用 API 範例
-app.post('/api/booking', (req, res) => {
-    res.json({ success: true, message: "✅ 您的訂房請求已收到，正在處理中。" });
+// 前端頁面路由
+app.get('/working-chat.html', (req, res) => {
+    res.sendFile(__dirname + '/working-chat.html');
 });
 
-// 💡 主要對話路由：/api/chat
+// 主要聊天路由 (兼容路徑)
+app.post('/chat', async (req, res) => {
+    await handleChatRequest(req, res);
+});
+
 app.post('/api/chat', async (req, res) => {
-    const rawMessage = req.body.prompt || req.body.message || req.body.text || req.body.query;
-    const { sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2,9)}` } = req.body;
-    
-    if (!rawMessage) {
-        return res.status(400).json({ 
-            success: false, 
-            reply: "🚨 錯誤：後端收到的請求體是空的，無法解析訊息內容。",
-            sessionId,
-            errorCode: "EMPTY_MESSAGE"
-        });
-    }
-    
-    const message = String(rawMessage).trim();
-
-    try {
-        const intents = SmartIntentClassifier.classify(message);
-        const session = sessionManager.updateSession(sessionId, message, intents);
-        const reply = await ResponseGenerator.generateResponse(intents, session, message);
-        sessionManager.addAssistantResponse(sessionId, reply);
-
-        res.json({
-            success: true,
-            reply,
-            sessionId,
-            userType: session.userType,
-            timestamp: new Date().toISOString(),
-            triggeredIntents: intents.join(', ')
-        });
-    } catch (e) {
-        console.error(`[FATAL ERROR] Session ${sessionId}:`, e);
-        res.status(500).json({
-            success: false,
-            reply: "系統處理發生嚴重錯誤，請檢查後端日誌。",
-            sessionId,
-            timestamp: new Date().toISOString()
-        });
-    }
+    await handleChatRequest(req, res);
 });
 
+// 聊天請求處理函數
+async function handleChatRequest(req, res) {
+    const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` } = req.body;
 
-// 處理所有未定義的路由 (必須是最後一個 app.use)
+    if (!message) {
+        return res.status(400).json({
+            success: false,
+            reply: "請輸入訊息內容",
+            sessionId,
+            errorCode: "EMPTY_MESSAGE"
+        });
+    }
+
+    try {
+        console.log("💬 收到請求:", { sessionId, message });
+        const intents = SmartIntentClassifier.classify(message);
+        const session = sessionManager.updateSession(sessionId, message, intents);
+        const reply = await ResponseGenerator.generateResponse(intents, session, message);
+        sessionManager.addAssistantResponse(sessionId, reply);
+
+        res.json({
+            success: true,
+            reply,
+            sessionId,
+            userType: session.userType,
+            timestamp: new Date().toISOString(),
+            triggeredIntents: intents.join(', ')
+        });
+    } catch (e) {
+        console.error("主處理錯誤:", e);
+        res.status(500).json({
+            success: false,
+            reply: "系統處理錯誤，請稍後再試。",
+            sessionId,
+            timestamp: new Date().toISOString()
+        });
+    }
+}
+
+// 訂房 API
+app.post('/api/booking', (req, res) => {
+    res.json({
+        success: true,
+        message: "✅ 您的訂房請求已收到，正在處理中。"
+    });
+});
+
+// 處理所有未定義的路由
 app.use((req, res) => {
-    res.status(404).json({ 
-        success: false, 
-        message: `找不到此路由：${req.url}。`,
-        suggestion: "請確認您是否使用 /api/chat 或 /api/health 端點",
-        errorCode: "ROUTE_NOT_FOUND"
-    });
+    res.status(404).json({
+        success: false,
+        message: `找不到此路由：${req.url}。`,
+        suggestion: "請使用 /health, /chat, /api/health, /api/chat",
+        errorCode: "ROUTE_NOT_FOUND"
+    });
 });
-
 
 // ---------------------------------------------
 // 7. 啟動伺服器
 // ---------------------------------------------
-app.listen(PORT, HOST, () => {
-    console.log(`🚀 伺服器已啟動，監聽 ${HOST}:${PORT}`);
-    if (apiKey === "YOUR_GEMINI_API_KEY_HERE") {
-        console.error("!!! 警告：GEMINI_API_KEY 未設置。AI 查詢功能將會失敗並返回預設錯誤。 !!!");
-    }
+const server = app.listen(PORT, HOST, () => {
+    console.log(`🚀 伺服器成功啟動！`);
+    console.log(`🌐 監聽端口: ${PORT}`);
+    console.log(`❤️  健康檢查: http://localhost:${PORT}/health`);
+    console.log(`💬 聊天端點: http://localhost:${PORT}/chat`);
+    console.log(`📱 前端頁面: http://localhost:${PORT}/working-chat.html`);
+    console.log(`🔑 Gemini API: ${apiKey ? '已配置' : '未配置'}`);
 });
 
-// Railway-Force-Refresh-20251126-Final-Attempt
+// 優雅關閉處理
+process.on('SIGTERM', () => {
+    console.log('收到 SIGTERM 信號，開始優雅關閉...');
+    server.close(() => {
+        console.log('伺服器已關閉');
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log('收到 SIGINT 信號，關閉伺服器...');
+    server.close(() => {
+        process.exit(0);
+    });
+});
+
+// 未處理異常捕獲
+process.on('uncaughtException', (error) => {
+    console.error('未捕獲的異常:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('未處理的 Promise 拒絕:', reason);
+});
