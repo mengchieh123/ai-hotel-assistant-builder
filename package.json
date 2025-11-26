@@ -23,6 +23,7 @@
     "dayjs": "^1.11.19",
     "express": "^4.21.2",
     "node-cron": "^3.0.3"
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
     "live-server": "^1.2.2",
