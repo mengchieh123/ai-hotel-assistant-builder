@@ -6,7 +6,9 @@
 const express = require('express');
 const cors = require('cors');
 // 在 Node.js 較舊版本環境，確保 node-fetch 存在
-const fetch = require('node-fetch'); 
+const fetch = require('node-fetch');
+// 原始: const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
+const MODEL_NAME = "gemini-2.5-flash-preview-09-2025-V3"; // <-- V3 確保是新的版本號
 const app = express();
 
 
