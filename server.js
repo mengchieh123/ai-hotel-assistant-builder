@@ -426,9 +426,16 @@ app.get('/api/booking', (req, res) => {
 
 // 💡 FIX: 主要對話路由現在使用 /api/chat
 app.post('/api/chat', async (req, res) => {
-    const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2,9)}` } = req.body;
+    // 🚨 DEBUG LOG: Log the entire body received from the client
+    console.log("DEBUG: Received Request Body:", req.body); 
+
+    // 關鍵修正：同時檢查 message 和 text 欄位
+    const rawMessage = req.body.message || req.body.text;
+    const { sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2,9)}` } = req.body;
     
-    if (!message) return res.status(400).json({ error: "訊息內容不能為空", reply:"請輸入您想詢問的內容。"});
+    if (!rawMessage) return res.status(400).json({ error: "訊息內容不能為空", reply:"請輸入您想詢問的內容。"});
+    
+    const message = String(rawMessage).trim(); // 確保它是字串且去除空白
 
     try {
         console.log("💬 收到請求:", {sessionId, message});
