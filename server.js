@@ -1,22 +1,18 @@
-// server.js
+// server.js (最終修正版 - 2025/11/26)
 
 // ---------------------------------------------
 // 1. 模組導入與基本設定
 // ---------------------------------------------
 const express = require('express');
 const cors = require('cors');
-// 在 Node.js 較舊版本環境，確保 node-fetch 存在
-const fetch = require('node-fetch');
-// 原始: const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
-const MODEL_NAME = "gemini-2.5-flash-preview-09-2025-V3"; // <-- V3 確保是新的版本號
+const fetch = require('node-fetch'); // 確保 node-fetch 存在
 const app = express();
 
 
-// --- API Key 和配置 ---
-// 🚨🚨 建議透過 Railway 的 Environment Variables 設定 GEMINI_API_KEY
+// --- API Key 和配置 (已合併所有變數，只宣告一次) ---
 const apiKey = process.env.GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE";
 const API_BASE = "https://generativelanguage.googleapis.com";
-const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
+const MODEL_NAME = "gemini-2.5-flash-preview-09-2025-V3"; // <-- 確保只在此處宣告一次
 const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
 // --- 指數退避重試配置 ---
@@ -27,6 +23,7 @@ const INITIAL_BACKOFF_MS = 1000;
 // ---------------------------------------------
 // 2. 核心工具類：SessionManager & IntentClassifier
 // ---------------------------------------------
+// ... (此處省略 SmartIntentClassifier 和 SessionManager 類別，內容不變)
 
 // 智能意圖分類器
 class SmartIntentClassifier {
@@ -97,21 +94,15 @@ const sessionManager = new SessionManager(); // 實例化 SessionManager
 // ---------------------------------------------
 // 3. API 通訊工具
 // ---------------------------------------------
-
-/**
- * 帶有指數退避和重試的 Fetch 函數
- */
 async function fetchWithRetry(url, options, attempt = 1) {
     try {
         const response = await fetch(url, options);
-
         if (response.status === 429 && attempt < MAX_RETRIES) {
             const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
             console.warn(`[Gemini API] Rate limit hit. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt})`);
             await new Promise(resolve => setTimeout(resolve, delay));
             return fetchWithRetry(url, options, attempt + 1);
         }
-
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`API response error: ${response.status} ${response.statusText} - ${errorText}`);
@@ -133,7 +124,6 @@ async function fetchWithRetry(url, options, attempt = 1) {
 // 4. 回應生成與 LLM 邏輯
 // ---------------------------------------------
 class ResponseGenerator {
-    // 靜態回覆處理邏輯 (與前一版本相同)
     static isInBookingFlow(session) {
         const lastMessages = session.conversationHistory.slice(-3);
         return lastMessages.some(msg => 
@@ -262,12 +252,12 @@ class ResponseGenerator {
 // ---------------------------------------------
 // 5. Express 中介軟體與設定
 // ---------------------------------------------
-app.use(cors()); 
+app.use(cors()); 
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 
 // 🚀 關鍵：讓 Express 可以解析 JSON 格式的請求體，必須在所有 app.post 前
-app.use(express.json()); 
+app.use(express.json()); 
 
 
 // ---------------------------------------------
@@ -275,66 +265,65 @@ app.use(express.json());
 // ---------------------------------------------
 
 // 🏆 修正後的健康檢查路由 (Health Check Route)
-// 確保路徑是 /api/health，匹配前端和標準 API 慣例
 app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: "OK", server: "Bayview Grand Hotel Assistant API", model: MODEL_NAME });
+    res.status(200).json({ status: "OK", server: "Bayview Grand Hotel Assistant API", model: MODEL_NAME });
 });
 
 // 訂房專用 API 範例
 app.post('/api/booking', (req, res) => {
-    res.json({ success: true, message: "✅ 您的訂房請求已收到，正在處理中。" });
+    res.json({ success: true, message: "✅ 您的訂房請求已收到，正在處理中。" });
 });
 
 // 💡 主要對話路由：/api/chat
 app.post('/api/chat', async (req, res) => {
-    const rawMessage = req.body.prompt || req.body.message || req.body.text || req.body.query;
-    const { sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2,9)}` } = req.body;
-    
-    if (!rawMessage) {
-        return res.status(400).json({ 
-            success: false, 
-            reply: "🚨 錯誤：後端收到的請求體是空的，無法解析訊息內容。",
-            sessionId,
-            errorCode: "EMPTY_MESSAGE"
-        });
-    }
-    
-    const message = String(rawMessage).trim();
+    const rawMessage = req.body.prompt || req.body.message || req.body.text || req.body.query;
+    const { sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2,9)}` } = req.body;
+    
+    if (!rawMessage) {
+        return res.status(400).json({ 
+            success: false, 
+            reply: "🚨 錯誤：後端收到的請求體是空的，無法解析訊息內容。",
+            sessionId,
+            errorCode: "EMPTY_MESSAGE"
+        });
+    }
+    
+    const message = String(rawMessage).trim();
 
-    try {
-        const intents = SmartIntentClassifier.classify(message);
-        const session = sessionManager.updateSession(sessionId, message, intents);
-        const reply = await ResponseGenerator.generateResponse(intents, session, message);
-        sessionManager.addAssistantResponse(sessionId, reply);
+    try {
+        const intents = SmartIntentClassifier.classify(message);
+        const session = sessionManager.updateSession(sessionId, message, intents);
+        const reply = await ResponseGenerator.generateResponse(intents, session, message);
+        sessionManager.addAssistantResponse(sessionId, reply);
 
-        res.json({
-            success: true,
-            reply,
-            sessionId,
-            userType: session.userType,
-            timestamp: new Date().toISOString(),
-            triggeredIntents: intents.join(', ')
-        });
-    } catch (e) {
-        console.error(`[FATAL ERROR] Session ${sessionId}:`, e);
-        res.status(500).json({
-            success: false,
-            reply: "系統處理發生嚴重錯誤，請檢查後端日誌。",
-            sessionId,
-            timestamp: new Date().toISOString()
-        });
-    }
+        res.json({
+            success: true,
+            reply,
+            sessionId,
+            userType: session.userType,
+            timestamp: new Date().toISOString(),
+            triggeredIntents: intents.join(', ')
+        });
+    } catch (e) {
+        console.error(`[FATAL ERROR] Session ${sessionId}:`, e);
+        res.status(500).json({
+            success: false,
+            reply: "系統處理發生嚴重錯誤，請檢查後端日誌。",
+            sessionId,
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
 
 // 處理所有未定義的路由 (必須是最後一個 app.use)
 app.use((req, res) => {
-    res.status(404).json({ 
-        success: false, 
-        message: `找不到此路由：${req.url}。`,
-        suggestion: "請確認您是否使用 /api/chat 或 /api/health 端點",
-        errorCode: "ROUTE_NOT_FOUND"
-    });
+    res.status(404).json({ 
+        success: false, 
+        message: `找不到此路由：${req.url}。`,
+        suggestion: "請確認您是否使用 /api/chat 或 /api/health 端點",
+        errorCode: "ROUTE_NOT_FOUND"
+    });
 });
 
 
@@ -342,8 +331,10 @@ app.use((req, res) => {
 // 7. 啟動伺服器
 // ---------------------------------------------
 app.listen(PORT, HOST, () => {
-    console.log(`🚀 伺服器已啟動，監聽 ${HOST}:${PORT}`);
-    if (apiKey === "YOUR_GEMINI_API_KEY_HERE") {
-        console.error("!!! 警告：GEMINI_API_KEY 未設置。AI 查詢功能將會失敗並返回預設錯誤。 !!!");
-    }
+    console.log(`🚀 伺服器已啟動，監聽 ${HOST}:${PORT}`);
+    if (apiKey === "YOUR_GEMINI_API_KEY_HERE") {
+        console.error("!!! 警告：GEMINI_API_KEY 未設置。AI 查詢功能將會失敗並返回預設錯誤。 !!!");
+    }
 });
+
+// Railway-Force-Refresh-20251126-Final-Attempt
