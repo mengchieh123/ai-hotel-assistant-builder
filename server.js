@@ -5,7 +5,7 @@ const app = express();
 
 // --- API Key 和配置 ---
 // 🚨🚨 請在這裡填入您的 Gemini API Key (開頭是 AIzaSy...)！
-const apiKey = "AIzaSyCbhgYh8yS2UgBrgmVFMz8KAZ76FiZ3NTQ" 
+const apiKey = process.env.GEMINI_API_KEY
 const API_BASE = "https://generativelanguage.googleapis.com";
 const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
 const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
