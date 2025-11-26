@@ -8,7 +8,7 @@ const app = express();
 // --- LLM 配置與工具 ---
 const MODEL_NAME = 'gemini-2.5-flash-preview-09-2025';
 // 🚨🚨 這裡是您的 Gemini API Key
-const apiKey = "AIzaSyCbhgYh8yS2UgBrgmVFMz8KAZ76FiZ3NTQ";
+const apiKey = "AIzaSyCbhgYh8yS2UgBrgmVFMz8KAZ76FiZ3NTQ"
 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 const MAX_RETRIES = 5;
 const INITIAL_BACKOFF_MS = 1000;
