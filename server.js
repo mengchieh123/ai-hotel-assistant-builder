@@ -29,7 +29,6 @@ async function fetchWithRetry(url, options, attempt = 1) {
 
         if (!response.ok) {
             const errorText = await response.text();
-            // 在這裡捕獲 404 錯誤，但這是 API 呼叫的 404，不是Express路由的 404
             throw new Error(`API response error: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
@@ -229,7 +228,7 @@ class ResponseGenerator {
     // --- Gemini LLM 整合邏輯 ---
     static async getGeminiResponse(session) {
         // 🚨 關鍵優化：API Key 檢查
-        if (!apiKey) {
+        if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY_HERE") {
             console.warn("[Gemini API] API Key is empty. Skipping LLM call and returning fallback response.");
             return this.generateFallbackResponse("🚨 錯誤：API 金鑰遺失或無效。請在 `server.js` 中設置您的 **Gemini API Key** (開頭為 AIzaSy...) 以啟用 AI 查詢功能。");
         }
@@ -385,9 +384,8 @@ class ResponseGenerator {
 
 const sessionManager = new SessionManager();
 
-// 💡 NEW: 新增訂房專用路由，模擬外部訂房系統的 API
-// 如果前端程式碼誤呼叫了 /booking，現在至少不會回傳 404
-app.post('/booking', async (req, res) => {
+// 💡 FIX: 訂房專用路由現在使用 /api/booking
+app.post('/api/booking', async (req, res) => {
     const { sessionId, roomType, checkIn, checkOut, guests, contactInfo } = req.body;
     
     // 這裡應該是調用真實的訂房系統 API，並處理資料庫邏輯。
@@ -416,18 +414,18 @@ app.post('/booking', async (req, res) => {
         }
     });
 });
-// 💡 NEW: 處理如果前端誤發送 GET 請求給 booking 路由
-app.get('/booking', (req, res) => {
+// 💡 FIX: 處理如果前端誤發送 GET 請求給 booking 路由
+app.get('/api/booking', (req, res) => {
      res.status(405).json({
          success: false,
-         message: "不支援 GET /booking 路由。請使用 POST 方法進行訂房。",
+         message: "不支援 GET /api/booking 路由。請使用 POST 方法進行訂房。",
          errorCode: "METHOD_NOT_ALLOWED"
      });
 });
 
 
-// 主要對話路由
-app.post('/chat', async (req, res) => {
+// 💡 FIX: 主要對話路由現在使用 /api/chat
+app.post('/api/chat', async (req, res) => {
     const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2,9)}` } = req.body;
     
     if (!message) return res.status(400).json({ error: "訊息內容不能為空", reply:"請輸入您想詢問的內容。"});
