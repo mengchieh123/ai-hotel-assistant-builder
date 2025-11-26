@@ -1,65 +1,32 @@
+// server.js
+
+// ---------------------------------------------
+// 1. 模組導入與基本設定
+// ---------------------------------------------
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch'); 
+// 在 Node.js 較舊版本環境，確保 node-fetch 存在
+const fetch = require('node-fetch'); 
 const app = express();
 
+
 // --- API Key 和配置 ---
-// 🚨🚨 請在這裡填入您的 Gemini API Key (開頭是 AIzaSy...)！
-const apiKey = process.env.GEMINI_API_KEY
+// 🚨🚨 建議透過 Railway 的 Environment Variables 設定 GEMINI_API_KEY
+const apiKey = process.env.GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE";
 const API_BASE = "https://generativelanguage.googleapis.com";
 const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
 const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
-// --- 指數退避重試配置 (不變) ---
+// --- 指數退避重試配置 ---
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
 
-async function fetchWithRetry(url, options, attempt = 1) {
-    try {
-        const response = await fetch(url, options);
 
-        if (response.status === 429 && attempt < MAX_RETRIES) {
-            // ... (重試邏輯不變)
-            const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
-            console.warn(`[Gemini API] Rate limit hit. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt})`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return fetchWithRetry(url, options, attempt + 1);
-        }
+// ---------------------------------------------
+// 2. 核心工具類：SessionManager & IntentClassifier
+// ---------------------------------------------
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`API response error: ${response.status} ${response.statusText} - ${errorText}`);
-        }
-
-        return response;
-    } catch (error) {
-        if (attempt < MAX_RETRIES) {
-            // ... (錯誤重試邏輯不變)
-            console.error(`[Gemini API] Request failed: ${error.message}. Retrying...`);
-            const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return fetchWithRetry(url, options, attempt + 1);
-        }
-        throw new Error(`[Gemini API] Final attempt failed after ${MAX_RETRIES} retries: ${error.message}`);
-    }
-}
-
-// --- Express 中介軟體與設定 ---
-app.use(cors());
-const PORT = process.env.PORT || 8080;
-const HOST = '0.0.0.0';
-
-app.use(express.json()); 
-
-// --- 健康檢查路由 (Health Check Route) ---
-app.get('/health', (req, res) => {
-    res.status(200).json({ status: "OK", server: "Bayview Grand Hotel Assistant API" });
-});
-
-// 會話存儲
-const sessions = new Map();
-
-// 智能意圖分類器 (與前一版本相同)
+// 智能意圖分類器
 class SmartIntentClassifier {
     static classify(message) {
         const lowerMessage = message.toLowerCase();
@@ -73,9 +40,7 @@ class SmartIntentClassifier {
         if (/(購物|夜市|商店|超市|便利商店)/.test(lowerMessage)) intents.push('shopping');
         if (/(醫院|醫療|診所|醫生|藥局)/.test(lowerMessage)) intents.push('medical');
         if (/(設施|泳池|健身房|spa|按摩)/.test(lowerMessage)) intents.push('facilities');
-        
         if (this.containsDatePatterns(message)) intents.push('date_input');
-        
         return intents.length ? intents : ['general_inquiry'];
     }
 
@@ -94,7 +59,7 @@ class SmartIntentClassifier {
     }
 }
 
-// 會話狀態管理器 (與前一版本相同)
+// 會話狀態管理器
 class SessionManager {
     constructor() {this.sessions = new Map();}
     getSession(sessionId) {
@@ -121,36 +86,52 @@ class SessionManager {
     }
     addAssistantResponse(sessionId, reply) {
         const session = this.getSession(sessionId);
-        session.conversationHistory.push({ role: 'assistant', message: reply, timestamp: new Date().toISOString() });
+        session.conversationHistory.push({ role: 'model', message: reply, timestamp: new Date().toISOString() });
+    }
+}
+const sessionManager = new SessionManager(); // 實例化 SessionManager
+
+
+// ---------------------------------------------
+// 3. API 通訊工具
+// ---------------------------------------------
+
+/**
+ * 帶有指數退避和重試的 Fetch 函數
+ */
+async function fetchWithRetry(url, options, attempt = 1) {
+    try {
+        const response = await fetch(url, options);
+
+        if (response.status === 429 && attempt < MAX_RETRIES) {
+            const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
+            console.warn(`[Gemini API] Rate limit hit. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return fetchWithRetry(url, options, attempt + 1);
+        }
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API response error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+        return response;
+    } catch (error) {
+        if (attempt < MAX_RETRIES) {
+            console.error(`[Gemini API] Request failed: ${error.message}. Retrying...`);
+            const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return fetchWithRetry(url, options, attempt + 1);
+        }
+        throw new Error(`[Gemini API] Final attempt failed after ${MAX_RETRIES} retries: ${error.message}`);
     }
 }
 
-// 回應生成器（LLM 邏輯與靜態回應與前一版本相同）
+
+// ---------------------------------------------
+// 4. 回應生成與 LLM 邏輯
+// ---------------------------------------------
 class ResponseGenerator {
-    static async generateResponse(intents, session, message) {
-        if (intents.includes('date_input') && this.isInBookingFlow(session)) {
-            return this.handleBookingDate(message, session);
-        }
-        
-        if (intents.length > 1) return this.generateMultiIntentResponse(intents, session, message);
-
-        switch (intents[0]) {
-            case 'booking': return this.generateBookingResponse(session, message);
-            case 'transfer': return this.generateTransferResponse(session);
-            case 'restaurant': return this.generateRestaurantResponse(session, message);
-            case 'pricing': return this.generatePricingResponse(session);
-            case 'member': return this.generateMemberResponse(session);
-            case 'attractions': return this.generateAttractionsResponse(session);
-            case 'shopping': return this.generateShoppingResponse(session);
-            case 'medical': return this.generateMedicalResponse(session);
-            case 'facilities': return this.generateFacilitiesResponse(session);
-            case 'date_input': return "📅 收到您的日期資訊！請問您需要什麼服務？訂房還是查詢空房？";
-            case 'general_inquiry': 
-                return await this.getGeminiResponse(session);
-            default: return this.generateGeneralResponse();
-        }
-    }
-
+    // 靜態回覆處理邏輯 (與前一版本相同)
     static isInBookingFlow(session) {
         const lastMessages = session.conversationHistory.slice(-3);
         return lastMessages.some(msg => 
@@ -186,12 +167,34 @@ class ResponseGenerator {
         return response;
     }
 
-    // --- Gemini LLM 整合邏輯 ---
+    static async generateResponse(intents, session, message) {
+        if (intents.includes('date_input') && this.isInBookingFlow(session)) {
+            return this.handleBookingDate(message, session);
+        }
+        
+        if (intents.length > 1 || intents[0] === 'general_inquiry') {
+            return await this.getGeminiResponse(session); 
+        }
+
+        switch (intents[0]) {
+            case 'booking': return this.generateBookingResponse(session, message);
+            case 'transfer': return this.generateTransferResponse(session);
+            case 'restaurant': return this.generateRestaurantResponse(session, message);
+            case 'pricing': return this.generatePricingResponse(session);
+            case 'member': return this.generateMemberResponse(session);
+            case 'attractions': return this.generateAttractionsResponse(session);
+            case 'shopping': return this.generateShoppingResponse(session);
+            case 'medical': return this.generateMedicalResponse(session);
+            case 'facilities': return this.generateFacilitiesResponse(session);
+            case 'date_input': return "📅 收到您的日期資訊！請問您需要什麼服務？訂房還是查詢空房？";
+            default: return this.generateGeneralResponse();
+        }
+    }
+
     static async getGeminiResponse(session) {
-        // 🚨 檢查金鑰
         if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY_HERE") {
             console.warn("[Gemini API] API Key is empty. Skipping LLM call and returning fallback response.");
-            return this.generateFallbackResponse("🚨 錯誤：API 金鑰遺失或無效。請在 `server.js` 中設置您的 **Gemini API Key** (開頭為 AIzaSy...) 以啟用 AI 查詢功能。");
+            return this.generateFallbackResponse("🚨 錯誤：API 金鑰遺失或無效。請在 Railway 環境變數中設置您的 **GEMINI_API_KEY** 以啟用 AI 查詢功能。");
         }
 
         const contents = session.conversationHistory.map(item => ({
@@ -205,12 +208,14 @@ class ResponseGenerator {
             你的目標是回答旅客的任何問題，但對於特定功能（如訂房），你必須引導使用者提供必要的資訊（如日期、房型、人數）。
             飯店資訊：名稱：海灣麗景酒店 (Bayview Grand Hotel)。地理位置：近市中心和海灘。特色：設有空中花園、米其林三星餐廳。
             
-            請根據以下對話歷史，提供一個簡潔、有幫助的回應：
+            請根據以上對話歷史，提供一個簡潔、有幫助的回應：
         `;
 
         const payload = {
             contents: contents,
-            systemInstruction: { parts: [{ text: systemPrompt }] },
+            config: {
+                 systemInstruction: systemPrompt 
+            },
             tools: [{ "google_search": {} }], 
         };
         
@@ -227,140 +232,75 @@ class ResponseGenerator {
             if (text) {
                 return text;
             } else {
-                console.error("[Gemini API] No text in response:", JSON.stringify(result, null, 2));
-                return this.generateFallbackResponse("抱歉，API 回覆結構異常，請稍後再試。");
+                console.error("[Gemini API] No text in response or safety block:", JSON.stringify(result, null, 2));
+                return this.generateFallbackResponse("抱歉，AI 服務回覆結構異常或內容被安全過濾，請換個方式提問。");
             }
         } catch (e) {
             console.error("Error communicating with Gemini API:", e);
-            // 🚨 這是最關鍵的日誌，如果金鑰錯誤或網路問題，會印出在這裡
             return this.generateFallbackResponse("抱歉，API 連線發生錯誤，請檢查您的網路或 API Key 是否有效。詳細錯誤已記錄於後端日誌。");
         }
     }
     
-    static generateFallbackResponse(reason = "抱歉，目前我的 AI 大腦無法處理您的查詢，但我可以為您轉接人工客服。") {
-        return reason;
-    }
-    static generateMultiIntentResponse(intents, session, message) {
-        let response = "感謝您的查詢！我來為您詳細介紹：\n\n";
-        intents.forEach(intent => {
-            switch (intent) {
-                case 'booking': response += ResponseGenerator.generateBookingResponse(session, message, true); break;
-                case 'transfer': response += ResponseGenerator.generateTransferResponse(session, true); break;
-                case 'restaurant': response += ResponseGenerator.generateRestaurantResponse(session, message, true); break;
-                case 'pricing': response += ResponseGenerator.generatePricingResponse(session, true); break;
-                case 'member': response += ResponseGenerator.generateMemberResponse(session, true); break;
-                case 'attractions': response += ResponseGenerator.generateAttractionsResponse(session, true); break;
-                case 'shopping': response += ResponseGenerator.generateShoppingResponse(session, true); break;
-                case 'medical': response += ResponseGenerator.generateMedicalResponse(session, true); break;
-                case 'facilities': response += ResponseGenerator.generateFacilitiesResponse(session, true); break;
-                case 'date_input': 
-                    response += "📅 日期資訊已記錄。\n";
-                    break;
-            }
-        });
-        return response + ResponseGenerator.generateSmartSuggestions(intents, session);
-    }
-    static generateBookingResponse(session, message, isMultiIntent = false) {
-        let resp = isMultiIntent ? "🏨 **訂房服務**\n" : "";
-        resp += "請告訴我入住人數、房型與日期。當您提供完整資訊後，我們將會啟動**專門的訂房 API 流程**來完成預訂！";
-        return resp + (isMultiIntent ? "\n" : "");
-    }
-    static generateTransferResponse(session, isMultiIntent = false) {
-        let resp = isMultiIntent ? "🚗 **機場接送服務**\n" : "";
-        resp += "24小時機場接送，費用600 TWD單程";
-        return resp + (isMultiIntent ? "\n" : "");
-    }
-    static generateRestaurantResponse(session, message, isMultiIntent = false) {
-        let resp = isMultiIntent ? "🍽️ **餐廳推薦**\n" : "";
-        resp += message.includes('海鮮') ? "• 港灣海鮮樓\n• 海味坊\n" : "• 龍鳳廳\n• 櫻花日本料理\n• 星空牛排館\n";
-        return resp + (isMultiIntent ? "\n" : "");
-    }
-    static generatePricingResponse(session, isMultiIntent = false) {
-        let resp = isMultiIntent ? "💰 **價格資訊**\n" : "";
-        resp += "• 標準雙人房: 2200 TWD/晚\n• 豪華雙人房: 2800 TWD/晚\n• 家庭房: 3800 TWD/晚\n";
-        return resp + (isMultiIntent ? "\n" : "");
-    }
-    static generateMemberResponse(session, isMultiIntent = false) {
-        let resp = isMultiIntent ? "💎 **會員服務**\n" : "";
-        resp += "銀卡九折 + 免費早餐\n金卡85折\n白金卡8折\n";
-        return resp + (isMultiIntent ? "\n" : "");
-    }
-    static generateAttractionsResponse(session, isMultiIntent = false) {
-        if(session.userType==='family')
-            return (isMultiIntent?"🏞️ **親子景點**\n":"") + "兒童樂園、動物園、自然公園\n" + (isMultiIntent?"\n":"");
-        return (isMultiIntent?"🏞️ **熱門景點**\n":"") + "歷史博物館、藝術特區、觀景台\n" + (isMultiIntent?"\n":"");
-    }
-    static generateShoppingResponse(session, isMultiIntent = false) {
-        let resp = isMultiIntent ? "🛍️ **購物指南**\n" : "";
-        resp += "24H便利商店、大型超市、夜市\n";
-        return resp + (isMultiIntent ? "\n" : "");
-    }
-    static generateMedicalResponse(session, isMultiIntent = false) {
-        let resp = isMultiIntent ? "🏥 **醫療服務**\n" : "";
-        resp += "24H診所、綜合醫院、緊急119\n";
-        return resp + (isMultiIntent ? "\n" : "");
-    }
-    static generateFacilitiesResponse(session, isMultiIntent = false) {
-        let resp = isMultiIntent ? "🏊 **飯店設施**\n" : "";
-        resp += "泳池、健身房、SPA水療\n";
-        return resp + (isMultiIntent ? "\n" : "");
-    }
-    static generateGeneralResponse() {
-        return "您好！我是飯店AI助理，可協助您訂房、接送、餐廳、景點、購物等服務。";
-    }
-    static generateSmartSuggestions(intents, session) {
-        const allIntents = ['booking', 'transfer', 'restaurant', 'attractions', 'shopping', 'facilities'];
-        const unused = allIntents.filter(i => !intents.includes(i));
-        if (unused.length===0) return "";
-        let sugg = "\n💡 **您可能還想了解**:\n";
-        for (let i=0; i< Math.min(3,unused.length); i++) {
-            switch(unused[i]){
-                case 'booking': sugg += "• 訂房流程與優惠\n"; break;
-                case 'transfer': sugg += "• 交通與接送服務\n"; break;
-                case 'restaurant': sugg += "• 更多美食推薦\n"; break;
-                case 'attractions': sugg += "• 周邊景點介紹\n"; break;
-                case 'shopping': sugg += "• 購物指南\n"; break;
-                case 'facilities': sugg += "• 飯店設施使用\n"; break;
-            }
-        }
-        return sugg;
-    }
+    // --- 靜態回覆內容 (保持精簡) ---
+    static generateFallbackResponse(reason) { return reason; }
+    static generateMultiIntentResponse(intents, session, message) { return "感謝您的查詢！已為您處理多項查詢，請確認是否有其他問題？"; }
+    static generateBookingResponse() { return "🏨 請告訴我入住人數、房型與日期。當您提供完整資訊後，我們將會啟動**專門的訂房 API 流程**來完成預訂！"; }
+    static generateTransferResponse() { return "🚗 飯店提供 24小時機場接送服務，費用為 600 TWD 單程。請問您需要預約嗎？"; }
+    static generateRestaurantResponse() { return "🍽️ 飯店內設有龍鳳廳 (中式)、櫻花日本料理及星空牛排館 (米其林三星)。請問您想了解哪一個餐廳？"; }
+    static generatePricingResponse() { return "💰 我們的標準雙人房每晚約 2200 TWD起，豪華雙人房約 2800 TWD起。實際價格依日期會有所變動。"; }
+    static generateMemberResponse() { return "💎 我們有銀卡 (九折+免費早餐) 和金卡 (85折) 會員。請問您想申請哪一種會員？"; }
+    static generateAttractionsResponse() { return "🏞️ 飯店附近有歷史博物館、藝術特區、和海景觀景台。我還可以幫您規劃一日遊行程！"; }
+    static generateShoppingResponse() { return "🛍️ 飯店步行五分鐘內有 24H 便利商店及一間大型超市。如果您想去夜市，步行約 15 分鐘可達。"; }
+    static generateMedicalResponse() { return "🏥 飯店設有緊急聯絡機制。最近的 24H 綜合醫院在車程十分鐘處。若遇緊急情況請直接撥打 119。"; }
+    static generateFacilitiesResponse() { return "🏊 飯店設施包括室內恆溫泳池、頂級健身房、和 SPA 水療中心。請問您想預約哪項設施？"; }
+    static generateGeneralResponse() { return "您好！我是海灣麗景酒店的 AI 助理「小智」，很高興為您服務。請問您想了解什麼呢？"; }
 }
-const sessionManager = new SessionManager();
 
-// --- 訂房專用路由 ---
-app.post('/api/booking', async (req, res) => {
-    // 這裡應調用真實訂房系統 API
-    res.json({ success: true, message: "✅ 恭喜！您的訂房已成功。" });
+
+// ---------------------------------------------
+// 5. Express 中介軟體與設定
+// ---------------------------------------------
+app.use(cors()); 
+const PORT = process.env.PORT || 8080;
+const HOST = '0.0.0.0';
+
+// 🚀 關鍵：讓 Express 可以解析 JSON 格式的請求體，必須在所有 app.post 前
+app.use(express.json()); 
+
+
+// ---------------------------------------------
+// 6. 路由定義
+// ---------------------------------------------
+
+// 🏆 修正後的健康檢查路由 (Health Check Route)
+// 確保路徑是 /api/health，匹配前端和標準 API 慣例
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: "OK", server: "Bayview Grand Hotel Assistant API", model: MODEL_NAME });
 });
 
-// 💡 關鍵修正：主要對話路由 /api/chat
-app.post('/api/chat', async (req, res) => {
-    console.log("DEBUG: Received Request Body:", req.body); 
+// 訂房專用 API 範例
+app.post('/api/booking', (req, res) => {
+    res.json({ success: true, message: "✅ 您的訂房請求已收到，正在處理中。" });
+});
 
-    // ✅ 最終修正：優先檢查 'prompt' 欄位！
+// 💡 主要對話路由：/api/chat
+app.post('/api/chat', async (req, res) => {
     const rawMessage = req.body.prompt || req.body.message || req.body.text || req.body.query;
-    
-    // 處理 Session ID
     const { sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2,9)}` } = req.body;
     
-    // 如果 rawMessage 仍為空，返回 400 錯誤
     if (!rawMessage) {
-         console.error(`ERROR 400 TRIGGERED: rawMessage is empty. Full body: ${JSON.stringify(req.body)}`);
-         return res.status(400).json({ 
-             success: false, 
-             reply: "🚨 錯誤：後端收到的請求體是空的，無法解析訊息內容。",
-             sessionId,
-             errorCode: "EMPTY_MESSAGE"
-         });
+        return res.status(400).json({ 
+            success: false, 
+            reply: "🚨 錯誤：後端收到的請求體是空的，無法解析訊息內容。",
+            sessionId,
+            errorCode: "EMPTY_MESSAGE"
+        });
     }
     
     const message = String(rawMessage).trim();
 
     try {
-        console.log("💬 收到請求:", {sessionId, message});
         const intents = SmartIntentClassifier.classify(message);
-        
         const session = sessionManager.updateSession(sessionId, message, intents);
         const reply = await ResponseGenerator.generateResponse(intents, session, message);
         sessionManager.addAssistantResponse(sessionId, reply);
@@ -374,21 +314,34 @@ app.post('/api/chat', async (req, res) => {
             triggeredIntents: intents.join(', ')
         });
     } catch (e) {
-        console.error("主處理錯誤:", e);
-        res.status(500).json({success:false, reply:"系統處理錯誤，請稍後再試。錯誤訊息: " + e.message, sessionId, timestamp:new Date().toISOString()})
+        console.error(`[FATAL ERROR] Session ${sessionId}:`, e);
+        res.status(500).json({
+            success: false,
+            reply: "系統處理發生嚴重錯誤，請檢查後端日誌。",
+            sessionId,
+            timestamp: new Date().toISOString()
+        });
     }
 });
 
-// 處理所有未定義的路由
+
+// 處理所有未定義的路由 (必須是最後一個 app.use)
 app.use((req, res) => {
     res.status(404).json({ 
         success: false, 
         message: `找不到此路由：${req.url}。`,
+        suggestion: "請確認您是否使用 /api/chat 或 /api/health 端點",
         errorCode: "ROUTE_NOT_FOUND"
     });
 });
 
 
+// ---------------------------------------------
+// 7. 啟動伺服器
+// ---------------------------------------------
 app.listen(PORT, HOST, () => {
     console.log(`🚀 伺服器已啟動，監聽 ${HOST}:${PORT}`);
+    if (apiKey === "YOUR_GEMINI_API_KEY_HERE") {
+        console.error("!!! 警告：GEMINI_API_KEY 未設置。AI 查詢功能將會失敗並返回預設錯誤。 !!!");
+    }
 });
