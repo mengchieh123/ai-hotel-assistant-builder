@@ -3,7 +3,7 @@ const router = express.Router();
 const OpenCC = require('opencc');
 const converter = new OpenCC('s2t.json'); // 簡體轉繁體
 
-console.log('🏨 加載完整功能版飯店AI助理 - 含多意圖處理');
+console.log('🏨 加載完整功能版飯店AI助理 - 含多意圖處理和日期識別');
 
 // ==================== 多意圖分析器 ====================
 class IntentAnalyzer {
@@ -44,7 +44,24 @@ class IntentAnalyzer {
       intents.push('member');
     }
     
+    // 🎯 新增：日期輸入意圖
+    if (this.containsDatePatterns(message)) {
+      intents.push('date_input');
+    }
+    
     return intents;
+  }
+
+  // 🆕 新增日期模式檢測方法
+  static containsDatePatterns(message) {
+    const datePatterns = [
+      /\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/,    // 11/27-11/28
+      /\d{1,2}\/\d{1,2}/,                     // 11/27
+      /\d{1,2}月\d{1,2}日/,                   // 11月27日
+      /\d{1,2}月\d{1,2}號/,                   // 11月27號
+      /明天|後天|週末|下週|月底/
+    ];
+    return datePatterns.some(pattern => pattern.test(message));
   }
 }
 
@@ -55,7 +72,8 @@ class ConversationManager {
       pendingIntents: [],
       confirmedInfo: {},
       missingInfo: {},
-      currentStep: 'welcome'
+      currentStep: 'welcome',
+      bookingFlow: false
     };
   }
   
@@ -64,12 +82,19 @@ class ConversationManager {
     this.context.pendingIntents = [...new Set([...this.context.pendingIntents, ...intents])];
     
     // 更新對話步驟
-    this.updateStep(intents);
+    this.updateStep(intents, message);
   }
   
-  updateStep(intents) {
+  updateStep(intents, message) {
+    // 🎯 新增：如果收到日期輸入且在訂房流程中，更新步驟
+    if (intents.includes('date_input') && this.context.bookingFlow) {
+      this.context.currentStep = 'booking_date_received';
+      return;
+    }
+    
     if (intents.includes('booking') && !this.context.confirmedInfo.booking) {
       this.context.currentStep = 'booking_start';
+      this.context.bookingFlow = true;
     } else if (intents.includes('transfer') && !this.context.confirmedInfo.transfer) {
       this.context.currentStep = 'transfer_inquiry';
     }
@@ -88,34 +113,90 @@ class ConversationManager {
     this.context.pendingIntents = this.context.pendingIntents.filter(i => i !== intent);
     this.context.confirmedInfo[intent] = true;
   }
+
+  // 🆕 新增：處理日期輸入
+  handleDateInput(dateMessage) {
+    let dateInfo = "📅 ";
+    
+    // 解析日期格式 11/27-11/28
+    const rangeMatch = dateMessage.match(/(\d{1,2})\/(\d{1,2})-(\d{1,2})\/(\d{1,2})/);
+    if (rangeMatch) {
+      const [_, startMonth, startDay, endMonth, endDay] = rangeMatch;
+      const nights = (parseInt(endDay) - parseInt(startDay)) || 1;
+      dateInfo += `好的！${startMonth}/${startDay} 到 ${endMonth}/${endDay}，共 ${nights} 晚住宿。`;
+      this.context.confirmedInfo.checkInDate = `${startMonth}/${startDay}`;
+      this.context.confirmedInfo.nights = nights;
+    }
+    // 解析單一日期 11/27
+    else if (/\d{1,2}\/\d{1,2}/.test(dateMessage)) {
+      const dateMatch = dateMessage.match(/(\d{1,2})\/(\d{1,2})/);
+      if (dateMatch) {
+        dateInfo += `收到入住日期 ${dateMatch[0]}！請問住幾晚？`;
+        this.context.confirmedInfo.checkInDate = dateMatch[0];
+      }
+    }
+    // 其他日期格式
+    else {
+      dateInfo += `收到您的日期資訊！`;
+    }
+    
+    return dateInfo;
+  }
+
+  // 🆕 新增：檢查是否在訂房流程中
+  isInBookingFlow() {
+    return this.context.bookingFlow || 
+           this.context.pendingIntents.includes('booking') ||
+           this.context.currentStep.includes('booking');
+  }
 }
 
 // ==================== 多意圖回應生成器 ====================
 class MultiIntentResponseGenerator {
   static generate(intents, context, message) {
     let response = "";
-    const lowerMessage = message.toLowerCase();
     
-    // 開頭確認
-    response += "感謝您的查詢！我來為您處理：\n\n";
+    // 🎯 新增：優先處理日期輸入
+    if (intents.includes('date_input') && context.isInBookingFlow()) {
+      const dateResponse = context.handleDateInput(message);
+      response += dateResponse + "\n\n";
+      
+      // 移除日期意圖，避免重複處理
+      intents = intents.filter(i => i !== 'date_input');
+      context.markIntentCompleted('date_input');
+      
+      // 如果還有其他意圖，繼續處理
+      if (intents.length > 0) {
+        response += "另外，";
+      }
+    }
+    
+    // 開頭確認（如果還沒有回應）
+    if (!response.includes("好的！") && !response.includes("收到")) {
+      response += "感謝您的查詢！我來為您處理：\n\n";
+    }
     
     // 處理每個意圖
     intents.forEach(intent => {
       switch(intent) {
         case 'booking':
-          response += this.generateBookingResponse(context, lowerMessage);
+          response += this.generateBookingResponse(context, message);
           break;
         case 'transfer':
-          response += this.generateTransferResponse(context, lowerMessage);
+          response += this.generateTransferResponse(context, message);
           break;
         case 'restaurant':
-          response += this.generateRestaurantResponse(context, lowerMessage);
+          response += this.generateRestaurantResponse(context, message);
           break;
         case 'pricing':
-          response += this.generatePricingResponse(context, lowerMessage);
+          response += this.generatePricingResponse(context, message);
           break;
         case 'member':
-          response += this.generateMemberResponse(context, lowerMessage);
+          response += this.generateMemberResponse(context, message);
+          break;
+        case 'date_input':
+          // 單獨的日期輸入，不在訂房流程中
+          response += "📅 收到您的日期資訊！請問您需要什麼服務？訂房還是查詢空房？\n\n";
           break;
       }
     });
@@ -129,16 +210,24 @@ class MultiIntentResponseGenerator {
   static generateBookingResponse(context, message) {
     let response = "🏨 **訂房服務**\n";
     
-    // 提取日期信息
-    const dateMatch = message.match(/(下週[一二三四五六日]|週[一二三四五六日]|\d+\/\d+)/);
-    if (dateMatch) {
-      response += `• 查詢日期: ${dateMatch[1]}\n`;
-    }
-    
-    // 提取天數信息
-    const nightsMatch = message.match(/(\d+)晚/);
-    if (nightsMatch) {
-      response += `• 住宿天數: ${nightsMatch[1]}晚\n`;
+    // 如果有確認的日期資訊，顯示出來
+    if (context.confirmedInfo.checkInDate) {
+      response += `• 查詢日期: ${context.confirmedInfo.checkInDate}\n`;
+      if (context.confirmedInfo.nights) {
+        response += `• 住宿天數: ${context.confirmedInfo.nights}晚\n`;
+      }
+    } else {
+      // 提取日期信息
+      const dateMatch = message.match(/(下週[一二三四五六日]|週[一二三四五六日]|\d+\/\d+)/);
+      if (dateMatch) {
+        response += `• 查詢日期: ${dateMatch[1]}\n`;
+      }
+      
+      // 提取天數信息
+      const nightsMatch = message.match(/(\d+)晚/);
+      if (nightsMatch) {
+        response += `• 住宿天數: ${nightsMatch[1]}晚\n`;
+      }
     }
     
     response += "• 需要確認: 入住人數、房型偏好\n\n";
@@ -201,6 +290,12 @@ class MultiIntentResponseGenerator {
     let questions = "📋 **請提供以下資訊：**\n";
     
     if (intents.includes('booking')) {
+      if (!context.confirmedInfo.checkInDate) {
+        questions += "• 📅 入住日期\n";
+      }
+      if (!context.confirmedInfo.nights && !context.confirmedInfo.checkInDate?.includes('-')) {
+        questions += "• ⏱️ 住宿天數\n";
+      }
       if (!context.confirmedInfo.guests) {
         questions += "• 👥 入住人數 (幾位大人/小孩)\n";
       }
@@ -212,6 +307,13 @@ class MultiIntentResponseGenerator {
     if (intents.includes('transfer')) {
       questions += "• ✈️ 航班資訊 (航班號、時間)\n";
       questions += "• 🚗 接送類型 (接機/送機)\n";
+    }
+    
+    // 🎯 新增：如果已經有日期資訊，調整問題順序
+    if (context.confirmedInfo.checkInDate && context.confirmedInfo.nights) {
+      questions = "📋 **請提供以下資訊完成訂房：**\n" +
+                 "• 👥 入住人數 (幾位大人/小孩)\n" +
+                 "• 🏨 偏好房型\n";
     }
     
     questions += "\n請逐一回覆，我將為您完成所有安排！";
@@ -394,7 +496,7 @@ class ResponseGenerator {
     console.log(`🎯 識別意圖:`, intents);
     
     // 如果有多個意圖，使用多意圖處理
-    if (intents.length > 1) {
+    if (intents.length > 1 || (intents.length === 1 && intents.includes('date_input') && session.conversationManager.isInBookingFlow())) {
       session.conversationManager.addUserMessage(message, intents);
       const multiResponse = MultiIntentResponseGenerator.generate(
         intents, 
@@ -597,7 +699,7 @@ router.post('/chat', async (req, res) => {
 router.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    version: '5.0',
+    version: '5.1',
     timestamp: new Date().toISOString(),
     features: [
       'multi_intent_processing',
@@ -606,7 +708,8 @@ router.get('/health', (req, res) => {
       'smart_qa_service',
       'booking_workflow',
       'family_travel_detection',
-      'session_management'
+      'session_management',
+      'date_pattern_recognition' // 🆕 新增功能
     ],
     activeSessions: sessions.size
   });

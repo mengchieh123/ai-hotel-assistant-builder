@@ -1,24 +1,71 @@
 const express = require('express');
 const cors = require('cors');
+// 🚨 修正：明確引入 node-fetch，確保在所有 Node.js 環境中運行
+const fetch = require('node-fetch');
+
 const app = express();
 
+// --- LLM 配置與工具 ---
+const MODEL_NAME = 'gemini-2.5-flash-preview-09-2025';
+// 🚨🚨 這裡是您的 Gemini API Key
+const apiKey = "AIzaSyBMOdSKtUDMcwXXbg_Zu0cXMOPedmyr_Q0"; 
+const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+const MAX_RETRIES = 5;
+const INITIAL_BACKOFF_MS = 1000;
+
+// 指數退避重試函數
+async function fetchWithRetry(url, options, attempt = 1) {
+    try {
+        const response = await fetch(url, options);
+
+        if (response.status === 429 && attempt < MAX_RETRIES) {
+            const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
+            console.warn(`[Gemini API] Rate limit hit. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return fetchWithRetry(url, options, attempt + 1);
+        }
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API response error: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        return response;
+    } catch (error) {
+        if (attempt < MAX_RETRIES) {
+            console.error(`[Gemini API] Request failed: ${error.message}. Retrying...`);
+            const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1) + Math.random() * 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return fetchWithRetry(url, options, attempt + 1);
+        }
+        throw new Error(`[Gemini API] Final attempt failed after ${MAX_RETRIES} retries: ${error.message}`);
+    }
+}
+
+// --- Express 中介軟體與設定 ---
 app.use(cors({
     origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://192.168.1.86:3000'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-const PORT = process.env.PORT || 8081;
+// 將 Port 設置為 8080 (與您的日誌一致)
+const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 
 app.use(express.static('public'));
 app.use(express.static('.'));
 app.use(express.json());
 
+// 健康檢查路由 (Health Check Route) - 確保部署成功
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: "OK", uptime: process.uptime() });
+});
+
 // 會話存儲
 const sessions = new Map();
 
-// 智能意圖分類器（優化） 
+// 智能意圖分類器
 class SmartIntentClassifier {
   static classify(message) {
     const lowerMessage = message.toLowerCase();
@@ -33,7 +80,25 @@ class SmartIntentClassifier {
     if (/(購物|夜市|商店|超市|便利商店)/.test(lowerMessage)) intents.push('shopping');
     if (/(醫院|醫療|診所|醫生|藥局)/.test(lowerMessage)) intents.push('medical');
     if (/(設施|泳池|健身房|spa|按摩)/.test(lowerMessage)) intents.push('facilities');
+    
+    // 🎯 新增：日期識別
+    if (this.containsDatePatterns(message)) {
+      intents.push('date_input');
+    }
+    
     return intents.length ? intents : ['general_inquiry'];
+  }
+
+  // 🆕 新增日期模式檢測方法
+  static containsDatePatterns(message) {
+    const datePatterns = [
+      /\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/,    // 11/27-11/28
+      /\d{1,2}\/\d{1,2}/,                     // 11/27
+      /\d{1,2}月\d{1,2}日/,                   // 11月27日
+      /\d{1,2}月\d{1,2}號/,                   // 11月27號
+      /明天|後天|週末|下週|月底/
+    ];
+    return datePatterns.some(pattern => pattern.test(message));
   }
 
   static detectUserType(message) {
@@ -46,7 +111,7 @@ class SmartIntentClassifier {
   }
 }
 
-// 會話狀態管理器（優化）
+// 會話狀態管理器
 class SessionManager {
   constructor() {
     this.sessions = new Map();
@@ -66,19 +131,33 @@ class SessionManager {
   updateSession(sessionId, message, intents) {
     const session = this.getSession(sessionId);
     session.lastActive = new Date().toISOString();
-    session.conversationHistory.push({ message, intents, timestamp: new Date().toISOString() });
+    session.conversationHistory.push({ role: 'user', message, intents, timestamp: new Date().toISOString() });
     session.userType = SmartIntentClassifier.detectUserType(message);
     intents.forEach(intent => {
       if (!session.askedTopics.includes(intent)) session.askedTopics.push(intent);
     });
     return session;
   }
+
+  // 新增一個方法來存儲助理的回覆
+  addAssistantResponse(sessionId, reply) {
+    const session = this.getSession(sessionId);
+    session.conversationHistory.push({ role: 'assistant', message: reply, timestamp: new Date().toISOString() });
+  }
 }
 
-// 回應生成器（優化）
+// 回應生成器（優化 LLM 整合）
 class ResponseGenerator {
-  static generateResponse(intents, session, message) {
+  static async generateResponse(intents, session, message) {
+    // 🎯 優先處理日期輸入（在訂房流程中）
+    if (intents.includes('date_input') && this.isInBookingFlow(session)) {
+      return this.handleBookingDate(message, session);
+    }
+    
+    // 如果有多重意圖，優先使用基於規則的合併回應
     if (intents.length > 1) return this.generateMultiIntentResponse(intents, session, message);
+
+    // 處理單一意圖
     switch (intents[0]) {
       case 'booking': return this.generateBookingResponse(session, message);
       case 'transfer': return this.generateTransferResponse(session);
@@ -89,8 +168,121 @@ class ResponseGenerator {
       case 'shopping': return this.generateShoppingResponse(session);
       case 'medical': return this.generateMedicalResponse(session);
       case 'facilities': return this.generateFacilitiesResponse(session);
+      case 'date_input':
+        // 單獨的日期輸入，不在訂房流程中
+        return "📅 收到您的日期資訊！請問您需要什麼服務？訂房還是查詢空房？";
+      case 'general_inquiry': 
+        // 對於一般查詢，呼叫 Gemini LLM
+        return await this.getGeminiResponse(session);
       default: return this.generateGeneralResponse();
     }
+  }
+
+  // 🆕 新增：檢查是否在訂房流程中
+  static isInBookingFlow(session) {
+    const lastMessages = session.conversationHistory.slice(-3);
+    return lastMessages.some(msg => 
+      msg.intents?.includes('booking') || 
+      msg.message?.includes('訂房') ||
+      msg.message?.includes('日期') ||
+      msg.message?.includes('入住')
+    );
+  }
+
+  // 🆕 新增：處理訂房日期
+  static handleBookingDate(dateMessage, session) {
+    let response = "📅 ";
+    
+    // 解析日期格式 11/27-11/28
+    const rangeMatch = dateMessage.match(/(\d{1,2})\/(\d{1,2})-(\d{1,2})\/(\d{1,2})/);
+    if (rangeMatch) {
+      const [_, startMonth, startDay, endMonth, endDay] = rangeMatch;
+      const nights = (parseInt(endDay) - parseInt(startDay)) || 1;
+      response += `好的！${startMonth}/${startDay} 到 ${endMonth}/${endDay}，共 ${nights} 晚住宿。\n\n`;
+    }
+    // 解析單一日期 11/27
+    else if (/\d{1,2}\/\d{1,2}/.test(dateMessage)) {
+      const dateMatch = dateMessage.match(/(\d{1,2})\/(\d{1,2})/);
+      if (dateMatch) {
+        response += `收到入住日期 ${dateMatch[0]}！請問住幾晚？\n\n`;
+      }
+    }
+    // 中文日期格式
+    else if (/\d{1,2}月\d{1,2}日/.test(dateMessage)) {
+      const dateMatch = dateMessage.match(/(\d{1,2})月(\d{1,2})日/);
+      if (dateMatch) {
+        response += `收到入住日期 ${dateMatch[0]}！\n\n`;
+      }
+    }
+    // 其他日期格式
+    else {
+      response += `收到您的日期資訊！\n\n`;
+    }
+    
+    response += "請問需要什麼房型？幾位入住？";
+    return response;
+  }
+
+  // --- Gemini LLM 整合邏輯 ---
+  static async getGeminiResponse(session) {
+    // 🚨 關鍵優化：API Key 檢查
+    if (!apiKey) {
+        console.warn("[Gemini API] API Key is empty. Skipping LLM call and returning fallback response.");
+        return this.generateFallbackResponse("🚨 錯誤：API 金鑰遺失或無效。請在 `server.js` 中設置您的 **Gemini API Key** (開頭為 AIzaSy...) 以啟用 AI 查詢功能。");
+    }
+
+    // 提取對話歷史，轉換為 Gemini API 格式
+    const contents = session.conversationHistory.map(item => ({
+      role: item.role === 'user' ? 'user' : 'model',
+      parts: [{ text: item.message }]
+    }));
+
+    const systemPrompt = `
+      你是一家五星級飯店的智能客服助理，你的名字是「小智」。
+      你的語氣必須專業、親切、熱情，並優先使用繁體中文。
+      你的目標是回答旅客的任何問題，但對於特定功能（如訂房），你必須引導使用者提供必要的資訊（如日期、房型、人數）。
+      你不需要重複提供我們在 SmartIntentClassifier 中已處理的靜態資訊，請專注於情境式、非結構化的回覆。
+      
+      飯店資訊：
+      - 名稱：海灣麗景酒店 (Bayview Grand Hotel)
+      - 地理位置：近市中心和海灘。
+      - 特色：設有空中花園、米其林三星餐廳。
+      
+      請根據以下對話歷史，提供一個簡潔、有幫助的回應：
+    `;
+
+    const payload = {
+      contents: contents,
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      tools: [{ "google_search": {} }], // 啟用 Google Search 進行 grounded generation
+    };
+    
+    console.log("[Gemini API] Sending request...");
+
+    try {
+      const response = await fetchWithRetry(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      const result = await response.json();
+      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (text) {
+        return text;
+      } else {
+        console.error("[Gemini API] No text in response:", JSON.stringify(result, null, 2));
+        return this.generateFallbackResponse("抱歉，API 回覆結構異常，請稍後再試。");
+      }
+    } catch (e) {
+      console.error("Error communicating with Gemini API:", e);
+      return this.generateFallbackResponse("抱歉，API 連線發生錯誤，請檢查您的網路或 API Key 是否有效。");
+    }
+  }
+  
+  static generateFallbackResponse(reason = "抱歉，目前我的 AI 大腦無法處理您的查詢，但我可以為您轉接人工客服，請問您需要哪方面的協助？") {
+    return reason;
   }
 
   static generateMultiIntentResponse(intents, session, message) {
@@ -106,12 +298,16 @@ class ResponseGenerator {
         case 'shopping': response += this.generateShoppingResponse(session, true); break;
         case 'medical': response += this.generateMedicalResponse(session, true); break;
         case 'facilities': response += this.generateFacilitiesResponse(session, true); break;
+        case 'date_input': 
+          response += "📅 日期資訊已記錄。\n";
+          break;
+        // 不在多意圖中呼叫 LLM，以防延遲過長
       }
     });
     return response + this.generateSmartSuggestions(intents, session);
   }
 
-  // 範例回應生成方法，其他保持一致並依照需要調整
+  // 保留所有靜態回應生成方法
   static generateBookingResponse(session, message, isMultiIntent = false) {
     let resp = isMultiIntent ? "🏨 **訂房服務**\n" : "";
     if(session.userType === 'family') resp += "• 推薦家庭房型及親子設施。\n";
@@ -160,6 +356,7 @@ class ResponseGenerator {
     return resp + (isMultiIntent ? "\n" : "");
   }
   static generateGeneralResponse() {
+    // 作為 LLM 失敗時的最終 fallback 保持簡短
     return "您好！我是飯店AI助理，可協助您訂房、接送、餐廳、景點、購物等服務。";
   }
 
@@ -185,7 +382,7 @@ class ResponseGenerator {
 const sessionManager = new SessionManager();
 
 // 主要對話路由
-app.post('/chat', (req, res) => {
+app.post('/chat', async (req, res) => {
   const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2,9)}` } = req.body;
   
   if (!message) return res.status(400).json({ error: "訊息內容不能為空", reply:"請輸入您想詢問的內容。"});
@@ -193,19 +390,27 @@ app.post('/chat', (req, res) => {
   try {
     console.log("💬 收到請求:", {sessionId, message});
     const intents = SmartIntentClassifier.classify(message);
+    
+    // 1. 更新會話狀態（將使用者訊息加入歷史記錄）
     const session = sessionManager.updateSession(sessionId, message, intents);
-    const reply = ResponseGenerator.generateResponse(intents, session, message);
+    
+    // 2. 產生回應 (現在是異步的，因為需要等待 LLM)
+    const reply = await ResponseGenerator.generateResponse(intents, session, message);
+
+    // 3. 儲存助理的回覆到歷史記錄
+    sessionManager.addAssistantResponse(sessionId, reply);
 
     res.json({
       success: true,
       reply,
       sessionId,
       userType: session.userType,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      triggeredIntents: intents.join(', ') // 新增回傳給前端參考
     });
   } catch (e) {
-    console.error(e);
-    res.json({success:false, reply:"系統處理錯誤，請稍後再試", sessionId, timestamp:new Date().toISOString()})
+    console.error("主處理錯誤:", e);
+    res.status(500).json({success:false, reply:"系統處理錯誤，請稍後再試。錯誤訊息: " + e.message, sessionId, timestamp:new Date().toISOString()})
   }
 });
 
