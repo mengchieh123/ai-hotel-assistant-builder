@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>飯店AI訂房助理</title>
     <style>
-        /* CSS 樣式保持不變，因為它們看起來非常專業且美觀 */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
             font-family: 'Microsoft JhengHei', Arial, sans-serif; 
@@ -305,12 +304,15 @@
             font-weight: bold;
             margin-top: 10px;
         }
-        /* 修正：為 Session Info 調整顏色，讓它更突出 */
-        .session-info {
-            font-size: 12px;
-            opacity: 1; /* 提高可見度 */
+        .success-message {
+            color: #28a745;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .debug-info {
+            font-size: 10px;
+            color: #6c757d;
             margin-top: 5px;
-            color: #ccc; /* 淺灰色 */
         }
     </style>
 </head>
@@ -330,14 +332,16 @@
             <div class="header-controls">
                 <button class="control-btn" onclick="showResetConfirm()">🔄 新對話</button>
                 <button class="control-btn" onclick="exportChat()">💾 匯出記錄</button>
+                <button class="control-btn" onclick="debugConnection()">🐛 除錯</button>
             </div>
-            <h1>🏨 台北ＸＸ酒店 AI訂房助理</h1>
+            <h1>🏨 海灣麗景酒店 AI訂房助理</h1>
             <div id="status" style="color: white; font-weight: bold;">🟢 服務連線中</div>
             <div class="session-info">會話ID: <span id="sessionId"></span></div>
         </div>
         
         <div class="chat-messages" id="chatMessages">
-            </div>
+            <!-- 聊天消息將在這裡顯示 -->
+        </div>
         
         <div class="quick-replies" id="quickReplies">
             <button class="quick-reply-btn" data-service="訂房服務">🏨 訂房服務</button>
@@ -370,8 +374,7 @@
 
         // 智能 Session 管理
         let sessionId = generateSessionId();
-        // 修正：chatHistory 儲存為 {role: 'user'/'model', text: '...'} 格式
-        let chatHistory = []; 
+        let chatHistory = [];
         let lastActivityTime = Date.now();
         const SESSION_TIMEOUT = 30 * 60 * 1000; // 30分鐘超時
 
@@ -384,14 +387,10 @@
                     const sessionData = JSON.parse(savedSession);
                     if (Date.now() - sessionData.lastActivity < SESSION_TIMEOUT) {
                         sessionId = sessionData.sessionId;
-                        // 修正：確保讀取的歷史記錄格式正確
-                        chatHistory = sessionData.chatHistory.filter(
-                            msg => msg.role && msg.text
-                        ) || [];
+                        chatHistory = sessionData.chatHistory || [];
                         restoreChatHistory();
                     } else {
-                        // 超時：創建新會話並給出提示
-                        createNewSession(true); 
+                        createNewSession(true);
                     }
                 } catch (e) {
                     console.error("Error parsing stored session, creating new one.", e);
@@ -404,17 +403,13 @@
             sessionIdDisplay.textContent = sessionId;
             setupEventListeners();
             startSessionMonitor();
-            checkBackendStatus(); 
+            checkBackendStatus();
         }
 
-        /**
-         * 創建新會話
-         * @param {boolean} isTimeout - 是否因超時而創建
-         */
         function createNewSession(isTimeout = false) {
             sessionId = generateSessionId();
             chatHistory = [];
-            chatMessages.innerHTML = ''; // 清空顯示
+            chatMessages.innerHTML = '';
             if (isTimeout) {
                 showSessionTimeoutWarning();
             } else {
@@ -431,12 +426,11 @@
         function saveSession() {
             const sessionData = {
                 sessionId: sessionId,
-                // 修正：只儲存 Gemini 兼容的對話歷史
-                chatHistory: chatHistory, 
+                chatHistory: chatHistory,
                 lastActivity: Date.now()
             };
             localStorage.setItem('hotelChatSession', JSON.stringify(sessionData));
-            sessionIdDisplay.textContent = sessionId; // 確保 ID 更新
+            sessionIdDisplay.textContent = sessionId;
         }
 
         function updateActivity() {
@@ -445,21 +439,19 @@
         }
 
         function startSessionMonitor() {
-            // 修正：Session Monitor 邏輯，避免無限重置
             setInterval(() => {
                 if (Date.now() - lastActivityTime > SESSION_TIMEOUT && chatHistory.length > 0) {
                     createNewSession(true);
                 }
-            }, 60000); // 每分鐘檢查一次
+            }, 60000);
         }
         
         async function checkBackendStatus() {
             try {
-                // 修正：使用 API_BASE_URL/health 進行檢查
-                const response = await fetch(`${API_BASE_URL}/health`); 
+                const response = await fetch(`${API_BASE_URL}/health`);
                 if (response.ok) {
                     statusDisplay.textContent = '🟢 連線正常';
-                    statusDisplay.style.color = 'white'; // 保持與 header 顏色一致
+                    statusDisplay.style.color = 'white';
                 } else {
                     statusDisplay.textContent = '🟠 後端錯誤或正在啟動...';
                     statusDisplay.style.color = '#ffc107';
@@ -472,12 +464,6 @@
         }
 
         // === 訊息處理 ===
-        /**
-         * 向聊天視窗添加訊息並更新歷史紀錄
-         * @param {string} content - 訊息內容 (可包含 HTML 如 <br>)
-         * @param {string} role - 訊息角色 ('user' 或 'model')
-         * @param {Date} timestamp - 訊息時間
-         */
         function addMessage(content, role = 'model', timestamp = new Date()) {
             const isUser = role === 'user';
             const messageDiv = document.createElement('div');
@@ -485,9 +471,8 @@
             
             const bubbleDiv = document.createElement('div');
             bubbleDiv.className = 'message-bubble';
-            bubbleDiv.innerHTML = content; 
+            bubbleDiv.innerHTML = content;
             
-            // 添加時間戳
             const timeDiv = document.createElement('div');
             timeDiv.className = 'message-time';
             timeDiv.textContent = timestamp.toLocaleTimeString('zh-TW', { 
@@ -499,16 +484,14 @@
             messageDiv.appendChild(bubbleDiv);
             chatMessages.appendChild(messageDiv);
             
-            // 修正：只將用戶和 AI 的實際對話計入 chatHistory
-            // 並且使用純文本格式，替換 <br> 為 \n
+            // 保存到历史记录（纯文本格式）
             if (role === 'user' || role === 'model') {
                 const pureText = content
                     .replace(/<br\s*\/?>/gi, '\n')
-                    .replace(/<\/?\w+[^>]*>/g, '') // 清理所有其他 HTML 標籤
+                    .replace(/<\/?\w+[^>]*>/g, '')
                     .trim();
 
-                // 檢查是否為系統卡片或歡迎訊息，不計入歷史
-                if (pureText.length > 0 && !content.includes('welcome-message')) { 
+                if (pureText.length > 0 && !content.includes('welcome-message')) {
                     chatHistory.push({
                         role: role,
                         text: pureText
@@ -536,20 +519,16 @@
             }
         }
 
-        // === 重置功能 (移到全域，以便 HTML 呼叫) ===
-        // 修正：將這些函數提升到全域（不再是 const，以確保 onclick 能正確找到）
+        // === 重置功能 ===
         window.showResetConfirm = function() {
             resetConfirm.classList.add('show');
             overlay.classList.add('show');
         }
 
         window.confirmReset = function() {
-            // 修正：調用 createNewSession()
-            createNewSession(); 
+            createNewSession();
             cancelReset();
-            
-            // 顯示重置成功的系統提示
-            addMessage(`🔄 已清除歷史記錄，開始新的對話！請問需要什麼協助？`, 'system-info');
+            addMessage(`🔄 已清除歷史記錄，開始新的對話！請問需要什麼協助？`, 'model');
         }
 
         window.cancelReset = function() {
@@ -558,13 +537,12 @@
         }
 
         function showSessionTimeoutWarning() {
-            // 修正：當會話重置時，不要再重複調用 createNewSession()
             addMessage(`
                 <div style="text-align: center; color: #764ba2;">
                     ⏰ <strong>會話超時：</strong> 由於長時間未活動，已清除歷史記錄。
                     <br>請發送訊息以開始新的對話。
                 </div>
-            `, 'system-info'); 
+            `, 'model');
         }
 
         // === 歡迎訊息 ===
@@ -573,14 +551,13 @@
             const welcomeDiv = document.createElement('div');
             welcomeDiv.className = 'welcome-message';
             welcomeDiv.innerHTML = `
-                <h2>🏨 歡迎使用台北ＸＸ酒店智能訂房助理！</h2>
-                <p>我是 Luna，我可以為您提供專業的訂房服務與旅遊諮詢</p>
+                <h2>🏨 歡迎使用海灣麗景酒店智能訂房助理！</h2>
+                <p>我是小智，我可以為您提供專業的訂房服務與旅遊諮詢</p>
                 <div style="margin-top: 15px; font-size: 14px; opacity: 0.9;">
-                    💡 <strong>提示：</strong> 點擊下方按鈕或直接輸入您的需求，例如「查詢房價」
+                    💡 <strong>提示：</strong> 點擊下方按鈕或直接輸入您的需求
                 </div>
             `;
-            // 這裡不使用 addMessage，避免將歡迎訊息計入 chatHistory
-            chatMessages.appendChild(welcomeDiv); 
+            chatMessages.appendChild(welcomeDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
@@ -589,18 +566,13 @@
             if (chatHistory.length === 0) {
                 showWelcomeMessage();
             } else {
-                // 從儲存的歷史記錄中恢復顯示，並將 \n 轉回 <br>
                 chatHistory.forEach(msg => {
-                    // 注意：這裡假設歷史記錄中的 text 已經是純文本
-                    addMessage(msg.text.replace(/\n/g, '<br>'), msg.role, new Date(Date.now()));
+                    addMessage(msg.text.replace(/\n/g, '<br>'), msg.role, new Date());
                 });
             }
         }
 
         // === 實用函數 ===
-        const airportTransferFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSfre2hV96gCFwawR-7B9eZbDk9wpU_JKxdcFHlw18fd72MXqw/viewform?usp=header';
-
-        // 這些函數保持不變，因為它們是前端的輔助邏輯
         function handleAirportTransfer() {
             sendMessageFromQuickReply('我需要預約機場接送服務');
         }
@@ -610,8 +582,8 @@
         }
         
         function sendMessageFromQuickReply(message) {
-              messageInput.value = message;
-              sendMessage();
+            messageInput.value = message;
+            sendMessage();
         }
 
         // === 事件監聽 ===
@@ -621,7 +593,6 @@
                 if (e.key === 'Enter') sendMessage();
             });
             
-            // 快速回覆按鈕
             document.querySelectorAll('.quick-reply-btn').forEach(button => {
                 button.addEventListener('click', function() {
                     const service = this.getAttribute('data-service');
@@ -636,12 +607,11 @@
             messageInput.focus();
         }
 
-        // === 訊息發送 (核心修正點) ===
+        // === 訊息發送 (核心修正) ===
         async function sendMessage() {
             const prompt = messageInput.value.trim();
             if (!prompt) return;
 
-            // 智能會話重置檢測
             if (shouldResetSession(prompt)) {
                 confirmReset();
                 return;
@@ -655,55 +625,79 @@
             statusDisplay.style.color = '#ffc107';
 
             try {
-                // 修正點：chatHistory 應該包含所有歷史對話，而不是排除最後一條
-                // 因為 addMessage 已經將當前用戶訊息加入 chatHistory 了
+                // 🚨 修正：使用正确的数据格式
+                const requestBody = {
+                    message: prompt,
+                    sessionId: sessionId
+                };
+
+                console.log("📤 Sending request:", requestBody);
+
                 const response = await fetch(API_CHAT_ENDPOINT, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        // 傳送完整的 chatHistory 給後端
-                        history: chatHistory 
-                    })
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
                 });
 
+                console.log("📥 Response status:", response.status);
+
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    let errorDetails = { message: `HTTP error! status: ${response.status}` };
+                    let errorDetails = `HTTP error! status: ${response.status}`;
                     try {
-                        errorDetails = JSON.parse(errorText);
+                        const errorData = await response.json();
+                        errorDetails += ` - ${errorData.message || JSON.stringify(errorData)}`;
                     } catch (e) {
-                        // 如果不是 JSON，使用原始文本
-                        errorDetails.message += `. Details: ${errorText.substring(0, 100)}...`; 
+                        const errorText = await response.text();
+                        errorDetails += ` - ${errorText.substring(0, 200)}`;
                     }
-                    throw new Error(errorDetails.message || `HTTP error! status: ${response.status}`);
+                    throw new Error(errorDetails);
                 }
 
                 const data = await response.json();
+                console.log("✅ Server response:", data);
                 
-                if (data.text) {
-                    const replyContent = data.text.replace(/\n/g, '<br>'); 
-                    addMessage(replyContent, 'model'); // 將 AI 回覆加入歷史紀錄
+                if (data.success && data.reply) {
+                    const replyContent = data.reply.replace(/\n/g, '<br>');
+                    
+                    // 添加调试信息
+                    let debugInfo = '';
+                    if (data.triggeredIntents) {
+                        debugInfo = `<div class="debug-info">識別意圖: ${data.triggeredIntents}</div>`;
+                    }
+                    
+                    addMessage(replyContent + debugInfo, 'model');
                     statusDisplay.textContent = '🟢 連線正常';
                     statusDisplay.style.color = 'white';
                 } else {
-                    throw new Error(data.error || 'AI未返回有效回應，請檢查後端日誌。');
+                    throw new Error(data.reply || '伺服器返回無效回應');
                 }
 
             } catch (error) {
-                console.error('Error:', error);
+                console.error('💥 Send message error:', error);
                 
-                // 顯示錯誤訊息
+                let errorMessage = "❌ 服務暫時不可用，請稍後再試";
+                if (error.message.includes('400')) {
+                    errorMessage = "❌ 請求格式錯誤，請刷新頁面重試";
+                } else if (error.message.includes('500')) {
+                    errorMessage = "❌ 伺服器內部錯誤，請稍後再試";
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorMessage = "❌ 網路連線失敗，請檢查網路連接";
+                }
+                
                 addMessage(`
                     <div class="error-message">
-                        ❌ 服務連線失敗，請檢查後端是否已正確部署或 API Key 是否有效。
-                        <br>錯誤細節：${error.message.substring(0, 150)}
+                        ${errorMessage}
+                        <br><small>錯誤細節：${error.message.substring(0, 100)}</small>
                     </div>
                 `, 'model');
                 
                 statusDisplay.textContent = '🔴 連線錯誤';
                 statusDisplay.style.color = '#dc3545';
                 
-                // 由於發送失敗，需要從歷史記錄中刪除剛才失敗的用戶訊息
+                // 移除失败的用户消息
                 chatHistory.pop();
                 saveSession();
             } finally {
@@ -735,6 +729,42 @@
             a.download = `飯店客服對話_${new Date().toLocaleDateString('zh-TW')}.txt`;
             a.click();
             URL.revokeObjectURL(url);
+        }
+
+        // === 除錯功能 ===
+        window.debugConnection = async function() {
+            console.log("🔍 開始連接診斷...");
+            
+            // 測試健康檢查
+            try {
+                const healthResponse = await fetch(`${API_BASE_URL}/health`);
+                const healthText = await healthResponse.text();
+                console.log("🏥 健康檢查:", healthResponse.status, healthText);
+                addMessage(`<div class="success-message">🏥 健康檢查: ${healthResponse.status} - 服務正常</div>`, 'model');
+            } catch (e) {
+                console.error("❌ 健康檢查失敗:", e);
+                addMessage(`<div class="error-message">❌ 健康檢查失敗: ${e.message}</div>`, 'model');
+            }
+            
+            // 測試聊天端點
+            try {
+                console.log("📤 發送測試消息...");
+                const testResponse = await fetch(API_CHAT_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: "測試連接",
+                        sessionId: "debug_session_" + Date.now()
+                    })
+                });
+                console.log("📥 測試響應狀態:", testResponse.status);
+                const testData = await testResponse.json();
+                console.log("✅ 測試響應數據:", testData);
+                addMessage(`<div class="success-message">✅ 聊天端點測試: ${testResponse.status} - 連接成功</div>`, 'model');
+            } catch (e) {
+                console.error("❌ 測試消息失敗:", e);
+                addMessage(`<div class="error-message">❌ 聊天端點測試失敗: ${e.message}</div>`, 'model');
+            }
         }
 
         // 初始化
