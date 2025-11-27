@@ -1,4 +1,4 @@
-// server.js (最終修正版 - 2025/11/27)
+// server.js (最終修正版 - 增強錯誤處理 - 2025/11/27)
 
 // ---------------------------------------------
 // 1. 模組導入與基本設定
@@ -103,7 +103,6 @@ class RuleEngine {
                 shouldProcess: true,
                 priority: 100,
                 response: "🚨 **緊急狀況處理**\n\n我們已收到您的緊急求助！請立即：\n\n• 撥打緊急專線：02-1199-1199\n• 聯絡前台：分機 0\n• 或直接前往一樓服務台\n\n我們的工作人員會立即為您提供協助！",
-                immediateAction: true
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -181,7 +180,6 @@ class RuleEngine {
                 '台中': { temp: 24, condition: '晴朗', humidity: 60 },
                 '高雄': { temp: 28, condition: '晴朗', humidity: 70 },
                 '花蓮': { temp: 23, condition: '陰天', humidity: 75 },
-                '台南': { temp: 26, condition: '多雲', humidity: 68 }
             };
             
             const weather = weatherData[mentionedCity] || { temp: 25, condition: '晴朗', humidity: 65 };
@@ -295,6 +293,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
         const response = await fetch(url, options);
         
         if (!response.ok) {
+            // 錯誤處理不影響重試邏輯，但增加日誌
             const errorText = await response.text();
             
             // 400/404 錯誤不重試
@@ -385,7 +384,11 @@ class ResponseGenerator {
                 return await this.getGeminiResponse(session);
             } catch (error) {
                 console.error("AI 服務失敗，使用規則回覆:", error);
-                // 使用 general rule as fallback
+                // 🎯 修正邏輯：如果 error.cause 中包含 Fallback，則使用它
+                if (error.cause) {
+                    return error.cause; // 返回我們在 getGeminiResponse 中設定的 fallback
+                }
+                // 否則使用 general rule as fallback
                 return RuleEngine.generalRule(intents, session, message).response; 
             }
         }
@@ -410,12 +413,8 @@ class ResponseGenerator {
                 role: item.role === 'user' ? 'user' : 'model',
                 parts: [{ text: item.message }]
             }));
-
-            // 🚨 修正：確保使用 fetchWithRetry
             
-            const systemInstruction = {
-                parts: [{
-                    text: `你是一家五星級「海灣麗景酒店」的智能客服助理「小智」。
+            const systemInstructionText = `你是一家五星級「海灣麗景酒店」的智能客服助理「小智」。
                     
 角色設定：
 - 語氣：專業、親切、熱情，使用繁體中文
@@ -426,14 +425,12 @@ class ResponseGenerator {
 **重要限制：除非用戶明確詢問訂房，否則不要主動推銷或引導至訂房流程。**
 **重要限制：在回答完用戶問題後，僅在必要時進行後續追問，否則應等待用戶的下一個問題。**
 
-請根據用戶的問題提供準確、有用的飯店相關資訊。`
-                }]
-            };
-            
+請根據用戶的問題提供準確、有用的飯店相關資訊。`;
+
             const payload = {
                 contents: contents,
-                config: { // 修正為 config 屬性，而不是 systemInstruction
-                    systemInstruction: systemInstruction.parts[0].text,
+                config: {
+                    systemInstruction: systemInstructionText,
                     maxOutputTokens: 500,
                     temperature: 0.7,
                 }
@@ -441,7 +438,7 @@ class ResponseGenerator {
 
             console.log("[Gemini API] Sending request...");
 
-            const response = await fetchWithRetry(apiUrl, { // 使用 fetchWithRetry
+            const response = await fetchWithRetry(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -453,13 +450,17 @@ class ResponseGenerator {
             if (text) {
                 return text;
             } else {
-                // 如果 API 返回空結果，可能是 safety filter 或其他錯誤
+                // 🎯 修正邏輯：如果 API 返回空結果，使用 Fallback 並拋出錯誤
                 console.error("[Gemini API] Received empty text from API:", JSON.stringify(result, null, 2));
-                throw new Error("No valid text in response");
+                // 確保 sessionId 存在
+                const lastUserMessage = session.conversationHistory.at(-1)?.message || "";
+                const fallbackReply = RuleEngine.generalRule([], session, lastUserMessage).response;
+                // 拋出帶有 cause 的錯誤，讓 generateResponse 捕獲並使用 fallbackReply
+                throw new Error("No valid text in response, using fallback.", { cause: fallbackReply });
             }
         } catch (error) {
             console.error("Error communicating with Gemini API:", error.message);
-            throw error; // 重新拋出錯誤，讓上層的 try-catch 處理 fallback
+            throw error;
         }
     }
 
@@ -505,7 +506,7 @@ app.get('/', (req, res) => {
     res.json({
         service: '🏨 海灣麗景酒店 AI 助理',
         status: '運行中',
-        version: '5.7.2', // 版本號更新
+        version: '5.7.3', // 版本號更新
         endpoints: {
             health: '/health',
             chat: '/chat',
