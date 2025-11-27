@@ -1,130 +1,523 @@
-// server.js - AI 訂房助理 Web API
+
+require('dotenv').config(); // <-- 這是必須加入的第一行！
+
+// server.js (完整修復版 - 2025/11/27)
 
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
-const yaml = require('js-yaml');
-require('dotenv').config(); // 加載 .env 檔案中的環境變數
-
-// 引入 Anthropic SDK (假設您已安裝: npm install @anthropic-ai/sdk)
-// const Anthropic = require('@anthropic-ai/sdk');
-// const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }); 
-
-// --- 1. 載入規格檔案 (從 YAML 載入) ---
-const CLAUDE_TOOLS = yaml.load(fs.readFileSync('claude-tools-spec.yaml', 'utf8')).tools;
-const BUSINESS_RULES = yaml.load(fs.readFileSync('business-specs.yaml', 'utf8'));
-
-// --- 2. 模擬工具執行函數 (在您的伺服器上運行) ---
-const TOOL_FUNCTIONS = {
-    book_room: (args) => {
-        const rules = BUSINESS_RULES.core_business_rules;
-        console.log(`[TOOL EXEC] 正在處理訂房: ${JSON.stringify(args)}`);
-        // 這裡未來會呼叫真實的訂房 API
-        return {
-            status: "success",
-            order_id: `WEB-TPE-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-            message: `訂房成功。房型: ${args.room_type}，入住時間: ${rules.入住時間}。`
-        };
-    },
-    retrieve_member_benefits: (args) => {
-        const member_info = BUSINESS_RULES.member_rules[args.member_id];
-        console.log(`[TOOL EXEC] 查詢會員權益: ${args.member_id}`);
-        if (member_info) {
-             return { status: "success", benefits: member_info };
-        } else {
-             return { status: "failure", message: `查無會員 ID: ${args.member_id}` };
-        }
-    },
-    search_attractions_and_facilities: (args) => {
-        console.log(`[TOOL EXEC] 查詢設施: ${args.query_type}`);
-        const results = args.query_type === '設施' 
-            ? ["豪華室內泳池", "24H 健身房", "頂樓空中花園"]
-            : ["歷史博物館", "城市購物中心", "港灣夜市"];
-        return { status: "success", results: results };
-    }
-};
-
+// 引入 node-fetch 以確保在 Node.js 環境中使用 fetch
+const nodeFetch = require('node-fetch'); 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Middleware 設置
-app.use(cors({ origin: '*' })); // 允許所有來源 (開發階段)
-app.use(express.json());       // 解析 POST 請求中的 JSON 數據
+// API 配置
+// 請確保您的環境變數 (例如 .env 檔案) 中有 GEMINI_API_KEY
+const apiKey = process.env.GEMINI_API_KEY;
+const API_BASE = "https://generativelanguage.googleapis.com";
 
-// --- 3. 模擬 Claude 響應函數 (將來會替換為真實 API 呼叫) ---
-function simulateClaudeResponse(userMessage, tools) {
-    // 這裡的判斷邏輯與您終端機版本相同，用於模擬 Claude 的決策
-    if (/(訂房|預訂|房型)/.test(userMessage)) {
-        return {
-            type: "tool_call",
-            tool_calls: [{
-                id: "call_01",
-                name: "book_room",
-                arguments: {
-                    check_in_date: "2026-03-01", check_out_date: "2026-03-03",
-                    room_type: "豪華雙人房", guest_count: 2, member_id: "金卡會員"
-                }
-            }]
-        };
-    } 
-    // ... 其他判斷邏輯略，這裡我們只演示訂房
-    else {
-        return { type: "text", text: "您好！我是小智，請給我您的需求。" };
+// --- 新增的診斷代碼 ---
+console.log(`[診斷] process.env.GEMINI_API_KEY: ${process.env.GEMINI_API_KEY}`);
+console.log(`[診斷] process.env.API_KEY (如果您的變數是這個): ${process.env.API_KEY}`);
+// ----------------------
+
+
+const MODEL_NAME = "gemini-2.5-flash"; 
+const apiUrl = `${API_BASE}/v1/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+
+// ----------------------------------------------------------------
+// 已修復的 fetchWithRetry 函式 (修正了括號和錯誤邏輯)
+// ----------------------------------------------------------------
+async function fetchWithRetry(url, options, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            console.log(`[Gemini API] Sending request to: ${url}`);
+            const response = await nodeFetch(url, options);
+
+            if (response.ok) {
+                return response;
+            }
+
+            // 處理需要重試的錯誤碼 (429: 限速, 5xx: 伺服器錯誤)
+            if (response.status === 429 || response.status >= 500) {
+                console.warn(`[Gemini API] Request failed with status ${response.status}. Retrying in ${2 ** i}s...`);
+            } else {
+                // 對於其他客戶端錯誤 (如 400/403/404)，不重試直接拋出錯誤
+                const errorText = await response.text();
+                throw new Error(`API returned status ${response.status}: ${errorText}`);
+            }
+        } catch (error) {
+            if (i === retries - 1) {
+                // 如果這是最後一次嘗試，則拋出錯誤
+                throw new Error(`Error communicating with Gemini API: ${error.message}`);
+            }
+            console.error(`[Gemini API] Request failed: ${error.message}. Retrying...`);
+        }
+        // 指數退避 (Exponential Backoff)
+        await new Promise(resolve => setTimeout(resolve, (2 ** i) * 1000));
+    }
+    // 如果循環結束（所有重試都失敗），確保拋出錯誤
+    throw new Error("Gemini API request failed after all retries.");
+}
+
+// 智能意圖分類器
+class SmartIntentClassifier {
+    static classify(message) {
+        const lowerMessage = message.toLowerCase();
+        const intents = new Set();
+        
+        if (/(訂房|預訂|入住|房間|住.*晚|房型|幫我訂)/.test(lowerMessage)) intents.add('booking');
+        if (/(接送|機場|接機|送機|交通|距離|多遠)/.test(lowerMessage)) intents.add('transfer');
+        if (/(餐廳|推薦|美食|吃|海鮮|晚餐|早餐|訂位)/.test(lowerMessage)) intents.add('restaurant');
+        if (/(價格|價錢|多少錢|房價|費用)/.test(lowerMessage)) intents.add('pricing');
+        if (/(會員|積分|優惠|折扣)/.test(lowerMessage)) intents.add('member');
+        if (/(景點|觀光|好玩|旅遊|推薦.*地方)/.test(lowerMessage)) intents.add('attractions');
+        if (/(購物|夜市|商店|超市)/.test(lowerMessage)) intents.add('shopping');
+        if (/(醫院|醫療|診所|醫生|藥局)/.test(lowerMessage)) intents.add('medical');
+        if (/(設施|泳池|健身房|spa|按摩)/.test(lowerMessage)) intents.add('facilities');
+        if (/(天氣|氣象|溫度|下雨)/.test(lowerMessage)) intents.add('weather');
+        if (/(行程|規劃|安排|一日遊)/.test(lowerMessage)) intents.add('itinerary');
+        if (this.containsDatePatterns(message)) intents.add('date_input');
+        if (/(緊急|救命|幫忙|協助)/.test(lowerMessage)) intents.add('emergency');
+        
+        return intents.size > 0 ? Array.from(intents) : ['general_inquiry'];
+    }
+
+    static containsDatePatterns(message) {
+        const datePatterns = [
+            /\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/,
+            /\d{1,2}\/\d{1,2}/,
+            /\d{1,2}月\d{1,2}日/,
+            /\d{1,2}月\d{1,2}號/,
+            /明天|後天|週末|下週|月底/
+        ];
+        return datePatterns.some(pattern => pattern.test(message));
+    }
+
+    static detectUserType(message) {
+        const lowerMessage = message.toLowerCase();
+        if (/(家庭|小孩|兒童|親子)/.test(lowerMessage)) return 'family';
+        if (/(團體|大型|多人|公司)/.test(lowerMessage)) return 'group';
+        if (/(商務|會議|出差)/.test(lowerMessage)) return 'business';
+        if (/(情侶|夫妻|蜜月)/.test(lowerMessage)) return 'couple';
+        return 'individual';
     }
 }
 
+// 規則引擎
+class RuleEngine {
+    static process(intents, session, message) {
+        // 先檢查特定意圖規則
+        const specificRules = [
+            this.transferRule,
+            this.pricingRule, 
+            this.weatherRule,
+            this.restaurantRule,
+            this.facilityRule
+        ];
 
-// --- 4. 主要 /chat 路由 (API 核心) ---
-app.post('/chat', async (req, res) => {
-    const userMessage = req.body.message;
-    if (!userMessage) {
-        return res.status(400).send({ error: 'Message field is required.' });
+        for (const rule of specificRules) {
+            const result = rule(intents, session, message);
+            if (result.shouldProcess) {
+                console.log(`🎯 規則觸發: ${rule.name}`);
+                return result;
+            }
+        }
+
+        // 檢查訂房流程
+        const bookingResult = this.bookingFlowRule(intents, session, message);
+        if (bookingResult.shouldProcess) {
+            console.log(`🎯 訂房流程觸發`);
+            return bookingResult;
+        }
+
+        // 最後檢查其他規則
+        for (const rule of [this.emergencyRule, this.generalRule]) {
+            const result = rule(intents, session, message);
+            if (result.shouldProcess) {
+                return result;
+            }
+        }
+
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    static transferRule(intents, session, message) {
+        if (intents.includes('transfer') || /(接機|接送|機場)/.test(message.toLowerCase())) {
+            return {
+                shouldProcess: true,
+                priority: 95,
+                response: "🚗 **機場接送服務**\n\n我們提供24小時機場接送服務！\n\n• 桃園機場：600 TWD/單程\n• 松山機場：400 TWD/單程\n• 高雄機場：500 TWD/單程\n\n請提供航班資訊和接送需求。"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    static pricingRule(intents, session, message) {
+        if (intents.includes('pricing') || /(價格|價錢|多少錢)/.test(message.toLowerCase())) {
+            return {
+                shouldProcess: true,
+                priority: 95,
+                response: "💰 **房價資訊**\n\n• 標準雙人房：2,200 TWD/晚\n• 豪華海景房：3,200 TWD/晚\n• 家庭套房：3,800 TWD/晚\n• 行政套房：4,800 TWD/晚\n\n需要為您推薦適合的房型嗎？"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    static restaurantRule(intents, session, message) {
+        if (intents.includes('restaurant') || /(餐廳|推薦|美食|吃)/.test(message.toLowerCase())) {
+            return {
+                shouldProcess: true,
+                priority: 95,
+                response: "🍽️ **餐廳推薦**\n\n• 龍鳳廳：粵式料理 ⭐⭐⭐\n• 星空牛排館：頂級牛排\n• 櫻花日本料理：懷石料理\n• 海灣咖啡廳：國際自助餐\n\n需要為您預訂位子嗎？"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    static weatherRule(intents, session, message) {
+        if (intents.includes('weather')) {
+            const cities = ['台北', '台中', '高雄', '花蓮', '台南'];
+            const mentionedCity = cities.find(city => message.includes(city)) || '台北';
+            const weatherData = {
+                '台北': { temp: 22, condition: '多雲' },
+                '台中': { temp: 24, condition: '晴朗' },
+                '高雄': { temp: 28, condition: '晴朗' }
+            };
+            const weather = weatherData[mentionedCity] || { temp: 25, condition: '晴朗' };
+            
+            const response = `🌤️ **${mentionedCity}天氣**\n\n` +
+                `• 溫度：${weather.temp}°C\n` +
+                `• 天氣：${weather.condition}\n\n` +
+                `適合外出活動，建議攜帶${weather.temp < 25 ? '薄外套' : '防曬用品'}`;
+
+            return {
+                shouldProcess: true,
+                priority: 85,
+                response: response
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    static facilityRule(intents, session, message) {
+        if (intents.includes('facilities') || /(設施|泳池|健身房)/.test(message.toLowerCase())) {
+            return {
+                shouldProcess: true,
+                priority: 80,
+                response: "🏊 **飯店設施**\n\n• 泳池：06:00-22:00\n• 健身房：24小時\n• SPA：需預約\n• WiFi：全館免費\n\n需要預約設施嗎？"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    static bookingFlowRule(intents, session, message) {
+        const hasBookingIntent = intents.includes('booking');
+        const hasDateIntent = intents.includes('date_input');
+        
+        if (hasBookingIntent || hasDateIntent) {
+            let response = "";
+            let nextStep = "";
+            
+            if (!hasDateIntent && !session.askedTopics.includes('date')) {
+                response = "🏨 **訂房服務**\n\n請告訴我入住日期和退房日期？\n例如：12/25-12/28";
+                nextStep = "ask_date";
+            } else if (hasDateIntent && !session.askedTopics.includes('room_type')) {
+                response = "📅 收到日期！請問需要什麼房型？\n\n• 標準雙人房 (2,200 TWD)\n• 豪華海景房 (3,200 TWD)\n• 家庭套房 (3,800 TWD)";
+                nextStep = "ask_room_type";
+            } else if (session.askedTopics.includes('room_type') && !session.askedTopics.includes('guests')) {
+                response = "🛏️ 收到房型選擇！請問有幾位入住？";
+                nextStep = "ask_guests";
+            } else {
+                response = "✅ 已收到訂房資訊！請確認或回覆「確認訂房」。";
+                nextStep = "confirm_booking";
+            }
+
+            return {
+                shouldProcess: true,
+                priority: 90,
+                response: response,
+                nextStep: nextStep,
+                updateSession: true
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    static emergencyRule(intents, session, message) {
+        if (intents.includes('emergency') || /(救命|火災|小偷)/.test(message.toLowerCase())) {
+            return {
+                shouldProcess: true,
+                priority: 100,
+                response: "🚨 **緊急狀況**\n\n請立即聯絡：\n• 緊急專線：02-1199-1199\n• 前台：分機 0\n\n工作人員會立即協助！"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    static generalRule(intents, session, message) {
+        if (intents.includes('general_inquiry') || intents.length === 0) {
+            return {
+                shouldProcess: true,
+                priority: 10,
+                response: "👋 您好！我是海灣麗景酒店AI助理\n\n可協助：訂房、接送、餐廳推薦、價格查詢等服務。\n\n請問需要什麼協助？"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+}
+
+// 會話管理
+class SessionManager {
+    constructor() {
+        this.sessions = new Map();
+    }
+    
+    getSession(sessionId) {
+        if (!this.sessions.has(sessionId)) {
+            this.sessions.set(sessionId, {
+                userType: 'unknown',
+                askedTopics: [],
+                conversationHistory: [],
+                lastActive: new Date().toISOString()
+            });
+        }
+        return this.sessions.get(sessionId);
+    }
+    
+    updateSession(sessionId, message, intents) {
+        const session = this.getSession(sessionId);
+        session.lastActive = new Date().toISOString();
+        session.conversationHistory.push({
+            role: 'user',
+            message,
+            intents,
+            timestamp: new Date().toISOString()
+        });
+        session.userType = SmartIntentClassifier.detectUserType(message);
+        intents.forEach(intent => {
+            if (!session.askedTopics.includes(intent)) session.askedTopics.push(intent);
+        });
+        return session;
+    }
+
+    addAssistantResponse(sessionId, reply) {
+        const session = this.getSession(sessionId);
+        session.conversationHistory.push({
+            role: 'model',
+            message: reply,
+            timestamp: new Date().toISOString()
+        });
+    }
+}
+
+const sessionManager = new SessionManager();
+
+// 回應生成
+class ResponseGenerator {
+    static async generateResponse(intents, session, message) {
+        console.log(`🎯 意圖識別: ${intents.join(', ')}`);
+        
+        // 使用規則引擎
+        const ruleResult = RuleEngine.process(intents, session, message);
+        if (ruleResult.shouldProcess && ruleResult.priority >= 50) {
+            if (ruleResult.updateSession && ruleResult.nextStep) {
+                session.askedTopics.push(ruleResult.nextStep);
+            }
+            return ruleResult.response;
+        }
+
+        // 處理日期輸入
+        if (intents.includes('date_input') && this.isInBookingFlow(session)) {
+            return this.handleBookingDate(message, session);
+        }
+
+        // 複雜問題使用 AI (包括 member 為了讓 AI 創作宣傳語)
+        const complexIntents = ['attractions', 'itinerary', 'shopping', 'member', 'general_inquiry']; 
+        const shouldUseAI = intents.some(intent => complexIntents.includes(intent));
+
+        if (shouldUseAI) {
+            console.log('⚠️ 偵測到複雜意圖，交給 AI 處理。');
+            try {
+                return await this.getGeminiResponse(session);
+            } catch (error) {
+                console.error("AI 服務失敗，使用規則回覆:", error);
+                return this.generateRuleBasedResponse(session);
+            }
+        }
+
+        return ruleResult.response || this.generateRuleBasedResponse(session);
+    }
+
+    static isInBookingFlow(session) {
+        const lastMessages = session.conversationHistory.slice(-3);
+        return lastMessages.some(msg =>
+            msg.intents?.includes('booking') ||
+            msg.message?.includes('訂房') ||
+            msg.message?.includes('日期')
+        );
+    }
+
+    static handleBookingDate(dateMessage, session) {
+        let response = "📅 ";
+        const rangeMatch = dateMessage.match(/(\d{1,2})\/(\d{1,2})-(\d{1,2})\/(\d{1,2})/);
+        if (rangeMatch) {
+            const [_, startMonth, startDay, endMonth, endDay] = rangeMatch;
+            const nights = (parseInt(endDay) > parseInt(startDay)) ? (parseInt(endDay) - parseInt(startDay)) : 1; 
+            response += `好的！${startMonth}/${startDay} 到 ${endMonth}/${endDay}，共 ${nights} 晚。\n\n`;
+        } else {
+            response += `收到日期資訊！\n\n`;
+        }
+        response += "請問需要什麼房型？幾位入住？";
+        return response;
+    }
+
+    // ----------------------------------------------------------------
+    // 已修復的 getGeminiResponse 函式 (修正語法錯誤和 API 邏輯)
+    // ----------------------------------------------------------------
+    static async getGeminiResponse(session) {
+        if (!apiKey) {
+            return this.generateRuleBasedResponse(session);
+        }
+
+        try {
+            const contents = session.conversationHistory.map(item => ({
+                role: item.role === 'user' ? 'user' : 'model',
+                parts: [{ text: item.message }]
+            }));
+
+            const systemInstruction = {
+                parts: [{
+                    text: `你是五星級飯店客服助理「小智」，用繁體中文專業、親切地回答問題。`
+                }]
+            };
+            
+            const payload = {
+                contents: contents,
+                systemInstruction: systemInstruction,
+                generationConfig: {
+                    maxOutputTokens: 500,
+                    temperature: 0.7,
+                }
+            };
+
+            // 使用修復後的 fetchWithRetry
+            const response = await fetchWithRetry(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            // 在 fetchWithRetry 成功返回 response.ok 時，解析 JSON
+            const result = await response.json();
+            const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            if (text) {
+                return text;
+            } else {
+                // 如果 API 沒給文字，但沒拋出錯誤，就視為無效回應
+                throw new Error("No valid text response from Gemini API");
+            }
+        } catch (error) { 
+            console.error("Gemini API error:", error.message);
+            // 當 AI 呼叫失敗時，嘗試使用規則引擎作為備用
+            return this.generateRuleBasedResponse(session);
+        }
+    }
+
+    static generateRuleBasedResponse(session) {
+        const lastUserMessage = session.conversationHistory
+            .filter(msg => msg.role === 'user')
+            .pop()?.message || "";
+
+        const intents = SmartIntentClassifier.classify(lastUserMessage);
+        const ruleResult = RuleEngine.process(intents, session, lastUserMessage);
+        
+        if (ruleResult.shouldProcess) {
+            return ruleResult.response;
+        }
+
+        return "👋 您好！我是海灣麗景酒店AI助理\n\n可協助訂房、接送、餐廳推薦等服務。\n請問需要什麼協助？";
+    }
+}
+
+// Express 設定
+app.use(cors({ origin: '*' }));
+app.use(express.json());
+app.use(express.static('.'));
+
+const PORT = process.env.PORT || 8080;
+
+// 路由
+app.get('/', (req, res) => {
+    res.json({
+        service: '🏨 海灣麗景酒店 AI 助理',
+        status: '運行中',
+        version: '6.0.0', // 更新版本號
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/health', (req, res) => {
+    res.json({ status: "OK", model: MODEL_NAME });
+});
+
+app.get('/working-chat.html', (req, res) => {
+    res.sendFile(__dirname + '/working-chat.html');
+});
+
+app.post('/api/chat', async (req, res) => {
+    const { message, sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` } = req.body;
+
+    if (!message) {
+        return res.status(400).json({
+            success: false,
+            reply: "請輸入訊息內容",
+            sessionId
+        });
     }
 
     try {
-        // 步驟 A: 模擬第一次呼叫 Claude (傳入工具定義)
-        const claudeDecision = simulateClaudeResponse(userMessage, CLAUDE_TOOLS);
+        console.log("💬 收到請求:", { sessionId, message });
+        const intents = SmartIntentClassifier.classify(message);
+        const session = sessionManager.updateSession(sessionId, message, intents);
+        const reply = await ResponseGenerator.generateResponse(intents, session, message);
+        sessionManager.addAssistantResponse(sessionId, reply);
 
-        if (claudeDecision.type === "tool_call") {
-            const toolCall = claudeDecision.tool_calls[0];
-            
-            // 步驟 B: 執行伺服器上的實際工具函數
-            const toolFunction = TOOL_FUNCTIONS[toolCall.name];
-            if (!toolFunction) {
-                return res.status(500).send({ error: `Tool not implemented: ${toolCall.name}` });
-            }
-            
-            const toolResult = toolFunction(toolCall.arguments);
-
-            // 步驟 C: 將工具結果作為上下文回傳給 Claude (這裡仍然是模擬回覆)
-            let finalResponseText;
-            if (toolCall.name === 'book_room') {
-                finalResponseText = `✅ 訂房成功！訂單編號: ${toolResult.order_id}。您的房型已確認。`;
-            } else {
-                 finalResponseText = JSON.stringify(toolResult); // 簡化處理
-            }
-            
-            // 實際項目中：這裡要執行第二次 Claude API 呼叫
-
-            return res.json({ 
-                response: finalResponseText,
-                tool_used: toolCall.name 
-            });
-
-        } else {
-            // 步驟 D: Claude 直接回覆文本
-            return res.json({ response: claudeDecision.text });
-        }
-        
-    } catch (error) {
-        console.error("Chat Error:", error);
-        res.status(500).send({ error: 'Internal Server Error' });
+        res.json({
+            success: true,
+            reply,
+            sessionId,
+            userType: session.userType,
+            timestamp: new Date().toISOString(),
+            triggeredIntents: intents.join(', ')
+        });
+    } catch (e) {
+        console.error("處理錯誤:", e);
+        res.status(500).json({
+            success: false,
+            reply: "系統錯誤，請稍後再試。",
+            sessionId
+        });
     }
 });
 
+// 啟動伺服器
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 伺服器啟動完成！`);
+    console.log(`🌐 端口: ${PORT}`);
+    console.log(`🔑 Gemini API: ${apiKey ? '已配置' : '未配置'}`);
+    console.log(`🤖 規則引擎: 已啟用`);
+    console.log(`🔄 Fetch重試: 已修復 (v6.0.0)`);
+});
 
-// 啟動服務器
-app.listen(PORT, () => {
-    console.log(`\n🎉 Web API 服務器已啟動: http://localhost:${PORT}`);
-    console.log(`API Endpoint: POST http://localhost:${PORT}/chat`);
+process.on('SIGTERM', () => {
+    server.close(() => {
+        console.log('伺服器已關閉');
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    server.close(() => {
+        process.exit(0);
+    });
 });
