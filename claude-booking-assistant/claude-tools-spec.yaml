@@ -1,0 +1,51 @@
+tools:
+- name: book_room
+  description: 處理客房預訂和創建訂單。此工具必須在用戶明確提供日期、房型和入住人數後才調用。
+  input_schema:
+    type: object
+    properties:
+      check_in_date:
+        type: string
+        description: 旅客入住日期，嚴格使用 YYYY-MM-DD 格式。
+      check_out_date:
+        type: string
+        description: 旅客退房日期，嚴格使用 YYYY-MM-DD 格式。
+      room_type:
+        type: string
+        description: 旅客欲預訂的房型，例如：'豪華雙人房', '家庭套房'。
+      guest_count:
+        type: integer
+        description: 總入住人數。
+      member_id:
+        type: string
+        description: 旅客的會員編號或身份識別，用於應用會員折扣。如果未提供，則為空字串。
+    required: 
+      - check_in_date
+      - check_out_date
+      - room_type
+      - guest_count
+
+- name: retrieve_member_benefits
+  description: 查詢特定會員的等級和相應的權益，如折扣幅度、延遲退房時間等。
+  input_schema:
+    type: object
+    properties:
+      member_id:
+        type: string
+        description: 用戶的會員編號或身份識別。
+    required: 
+      - member_id
+
+- name: search_attractions_and_facilities
+  description: 查詢飯店周邊的旅遊景點、購物區或飯店內部設施 (如泳池、健身房、餐廳)。
+  input_schema:
+    type: object
+    properties:
+      query_type:
+        type: string
+        description: 查詢的類別，可為 '景點' (Attractions) 或 '設施' (Facilities)。
+      theme:
+        type: string
+        description: 景點類型或用戶偏好，例如：'親子', '歷史', '購物', '夜景' 或 'SPA', '餐廳'。
+    required: 
+      - query_type
