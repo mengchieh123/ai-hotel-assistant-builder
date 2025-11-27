@@ -1,241 +1,179 @@
-🏨 AI 飯店智能客服系統
+# 🏨 酒店 AI 客服助理
 
-一個功能完整的智能飯店客服系統，提供訂房服務、旅遊資訊查詢、會員管理和即時對話功能。
+一個基於 Node.js + Express + Gemini AI 的智能酒店客服系統，提供訂房、接送、餐廳推薦等服務。
 
-https://img.shields.io/badge/Node.js-22.11.0-green
-https://img.shields.io/badge/Express-4.18.2-blue
-https://img.shields.io/badge/Deployed_on-Railway-orange
+## ✨ 功能特色
 
-✨ 主要功能
+### 🤖 智能意圖識別
+- 自動識別用戶意圖：訂房、接送、餐廳、價格查詢等
+- 多輪對話上下文管理
+- 用戶類型識別（家庭、商務、情侶等）
 
-🏨 訂房服務
+### 🎯 規則引擎 + AI 混合系統
+- **規則引擎**：處理常見標準問題（價格、接送、設施等）
+- **Gemini AI**：處理複雜創意問題（行程規劃、宣傳語等）
+- **智能路由**：自動選擇最佳回應方式
 
-智能房型推薦 - 根據人數自動推薦合適房型
-價格計算 - 即時計算房價與優惠
-會員折扣 - 支援多層級會員優惠系統
-訂單管理 - 完整的訂房流程管理
-🗺️ 旅遊資訊
+### 🔄 智能重試機制
+- 自動重試失敗的 API 請求
+- 指數退避策略
+- 完整的錯誤處理
 
-景點推薦 - 自然、文化、親子等各類景點
-餐廳指南 - 中式、西式、日式等多元美食
-交通資訊 - 機場、車站、周邊交通指引
-購物娛樂 - 購物中心、夜市、娛樂活動推薦
-💎 會員服務
+## 🚀 快速開始
 
-三級會員制度 - Gold / Platinum / Diamond
-專屬優惠 - 房價折扣、免費早餐、延遲退房
-點數累積 - 會員點數系統
-專屬福利 - 房型升等、機場接送等
-🛠️ 系統特色
+### 環境要求
+- Node.js 18+
+- npm 或 yarn
 
-會話管理 - 多用戶會話狀態維護
-意圖識別 - 智能對話意圖分析
-n8n 整合 - 自動化工作流程整合
-RESTful API - 標準化 API 設計
-🚀 快速開始
+### 安裝步驟
 
-環境要求
-
-Node.js >= 18.0.0
-npm >= 9.0.0
-安裝步驟
-
-克隆專案
-bash
-git clone <repository-url>
-cd ai-hotel-assistant
+1. **克隆專案**
+```bash
+git clone <your-repo-url>
+cd claude-booking-assistant
 安裝依賴
 bash
 npm install
-環境設定
+環境變數設定
+建立 .env 檔案：
 bash
-cp .env.example .env
-編輯 .env 檔案：
-
-env
-PORT=8080
-N8N_WEBHOOK_URL=your_n8n_webhook_url
-N8N_API_KEY=your_n8n_api_key
-啟動服務
+GEMINI_API_KEY=你的_Gemini_API_Key
+啟動伺服器
 bash
 # 開發模式
-npm run dev
-
-# 生產模式
 npm start
+
+# 或直接運行
+node server.js
 Railway 部署
 
-連接 GitHub 倉庫
-設定環境變數
-自動部署
-📡 API 文件
+專案已配置 Railway 部署：
 
-基礎端點
+連接 GitHub 倉庫到 Railway
+設定環境變數 GEMINI_API_KEY
+自動部署觸發
+📡 API 端點
 
-方法	端點	說明
-GET	/	服務狀態檢查
-GET	/health	健康檢查
-GET	/api/health	API 健康狀態
-聊天對話 API
+健康檢查
 
+http
+GET /health
+首頁資訊
+
+http
+GET /
+聊天接口
+
+http
 POST /api/chat
+Content-Type: application/json
 
-請求範例：
-
-json
 {
-  "message": "你好，我想訂房",
-  "sessionId": "optional_session_id"
+  "message": "請給我寫一個關於金卡會員的簡短宣傳語。",
+  "sessionId": "可選的會話ID"
 }
-回應範例：
+網頁聊天界面
 
-json
-{
-  "reply": "🏨 歡迎使用訂房服務！...",
-  "sessionId": "session_123456789",
-  "nextStep": "start_booking",
-  "timestamp": "2024-01-01T00:00:00.000Z"
-}
-會話管理 API
+http
+GET /working-chat.html
+🎪 支援的意圖類型
 
-GET /api/sessions - 取得所有會話列表
+意圖	範例	處理方式
+booking	我想訂房	規則引擎
+transfer	機場接送	規則引擎
+restaurant	推薦餐廳	規則引擎
+pricing	房價多少	規則引擎
+member	金卡會員宣傳	AI 生成
+attractions	旅遊景點	AI 生成
+itinerary	行程規劃	AI 生成
+shopping	購物推薦	AI 生成
+weather	天氣查詢	規則引擎
+facilities	設施資訊	規則引擎
+emergency	緊急狀況	規則引擎
+🔧 技術架構
 
-DELETE /api/sessions/:sessionId - 刪除特定會話
+核心模組
 
-🏗️ 系統架構
+SmartIntentClassifier - 意圖分類器
+RuleEngine - 規則引擎
+SessionManager - 會話管理
+ResponseGenerator - 回應生成器
+外部服務
 
-text
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   客戶端        │    │   Express 伺服器  │    │   外部服務      │
-│                 │    │                  │    │                 │
-│ • Web App      │◄──►│ • 對話處理引擎    │◄──►│ • n8n 自動化    │
-│ • Mobile App   │    │ • 會話管理       │    │ • 資料庫        │
-│ • Chat Widget  │    │ • API 路由       │    │ • 第三方整合    │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-💬 對話流程
+Google Gemini AI - 自然語言處理
+Express.js - Web 框架
+CORS - 跨域支援
+錯誤處理
 
-訂房流程
+fetchWithRetry - 自動重試機制
+指數退避策略 (1s, 2s, 4s)
+優雅的降級處理
+📊 系統日誌
 
-text
-歡迎訊息 → 人數確認 → 房型選擇 → 天數輸入 → 價格計算 → 會員優惠 → 訂單確認
-旅遊諮詢
-
-text
-意圖識別 → 分類查詢 → 資訊推薦 → 詳細說明 → 後續引導
-🎯 功能詳情
-
-房型系統
-
-房型	價格/晚	最大人數	床型	特色
-標準雙人房	NT$2,800	2大1小	1張雙人床	基本設施齊全
-豪華雙人房	NT$3,800	2大2小	1張加大雙人床	景觀較佳，可加嬰兒床
-套房	NT$5,800	3大2小	雙人床+沙發床	獨立客廳，豪華衛浴
-家庭房	NT$4,500	2大3小	2張雙人床	專為家庭設計
-會員等級
-
-等級	折扣	主要福利
-Gold	9折	免費早餐、延遲退房至14:00
-Platinum	85折	保證房型升等、迎賓禮品
-Diamond	8折	專屬樓層、機場接送、免費晚餐
-旅遊服務分類
-
-景點推薦: 自然景觀、文化歷史、親子景點
-餐廳類型: 中式、西式、日式、素食
-購物場所: 精品百貨、平價賣場、特色夜市
-娛樂活動: 夜間娛樂、文化活動、休閒娛樂
-🔧 開發指南
-
-專案結構
+啟動後會顯示：
 
 text
-ai-hotel-assistant/
-├── server.js              # 主應用程式
-├── package.json           # 依賴管理
-├── railway.toml          # Railway 部署配置
-├── .env                  # 環境變數
-└── README.md             # 專案說明
-新增對話意圖
+🚀 伺服器啟動完成！
+🌐 端口: 8080
+🔑 Gemini API: 已配置/未配置
+🤖 規則引擎: 已啟用
+🔄 Fetch重試: 已修復
+🛠️ 開發指南
 
-在 processMessage 中添加意圖識別
+添加新的規則
+
+在 RuleEngine 類別中添加新的規則方法：
+
 javascript
-else if (!response && lowerMsg.includes('你的關鍵字')) {
-  response = handleYourIntent(cleanMessage, session);
-  detectedIntent = 'your_intent';
+static yourNewRule(intents, session, message) {
+  if (intents.includes('your_intent')) {
+    return {
+      shouldProcess: true,
+      priority: 90,
+      response: "你的回覆內容"
+    };
+  }
+  return { shouldProcess: false, priority: 0 };
 }
-實作處理函數
+添加新的意圖
+
+在 SmartIntentClassifier.classify() 中添加識別邏輯：
+
 javascript
-function handleYourIntent(message, session) {
-  // 你的處理邏輯
-  return {
-    reply: "回應訊息",
-    nextStep: "下一步驟"
-  };
-}
-環境變數說明
+if (/(你的關鍵字)/.test(lowerMessage)) intents.add('your_intent');
+🐛 故障排除
 
-變數名稱	必填	預設值	說明
-PORT	否	8080	服務端口
-N8N_WEBHOOK_URL	否	-	n8n webhook 網址
-N8N_API_KEY	否	-	n8n API 金鑰
-🚀 部署說明
+常見問題
 
-Railway 部署
+Gemini API 無法連接
 
-Fork 此專案到你的 GitHub
-在 Railway 連接 GitHub 倉庫
-設定環境變數
-自動部署完成
-本地部署
+檢查 GEMINI_API_KEY 是否正確
+確認模型名稱是否可用
+依賴安裝失敗
 
 bash
-npm start
-Docker 部署
+rm -rf node_modules package-lock.json
+npm install
+端口被佔用
 
-dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-EXPOSE 8080
-CMD ["npm", "start"]
-📊 監控與日誌
+bash
+lsof -ti:8080 | xargs kill -9
+日誌級別
 
-系統提供完整的日誌記錄：
+系統會輸出詳細的日誌資訊：
 
-✅ 請求處理日誌
-✅ 錯誤追蹤
-✅ 會話狀態監控
-✅ 效能指標
-🤝 貢獻指南
+🎯 意圖識別 - 識別到的用戶意圖
+⚠️ 偵測到複雜意圖 - 交給 AI 處理的請求
+🔧 [DEBUG] - 調試資訊（如需要）
+📄 版本資訊
 
-我們歡迎各種形式的貢獻！
+v6.0.0 - 完整修復版本
 
-Fork 專案
-建立功能分支 (git checkout -b feature/AmazingFeature)
-提交更改 (git commit -m 'Add some AmazingFeature')
-推送到分支 (git push origin feature/AmazingFeature)
-開啟 Pull Request
-📝 更新日誌
+✅ 修復 fetchWithRetry 重試邏輯
+✅ 改進錯誤處理機制
+✅ 優化規則引擎優先級
+✅ 支援 Railway 部署
+📞 支援
 
-v1.0.0 (2025-10-17)
+如有問題請提交 Issue 或聯繫開發團隊。
 
-✅ 基礎訂房系統
-✅ 旅遊資訊查詢
-✅ 會員管理功能
-✅ n8n 整合
-✅ Railway 部署支援
-🐛 問題回報
-
-如果您發現任何問題，請透過 GitHub Issues 回報。
-
-📄 授權
-
-此專案採用 MIT 授權 - 詳見 LICENSE 檔案。
-
-👥 開發團隊
-
-專案維護者 - [mengchieh123]
-🌟 致謝
-
-感謝所有為此專案貢獻的開發者！
