@@ -14,7 +14,8 @@ const app = express();
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
 const MODEL_NAME = "gemini-1.5-flash"; 
-const apiUrl = `${API_BASE}/v1/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+/ 🚨 修正後的 URL：將 /v1/ 改為 /v1beta/
+const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
 // --- 指數退避重試配置 ---
 const MAX_RETRIES = 2;
