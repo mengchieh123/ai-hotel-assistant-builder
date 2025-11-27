@@ -1,8 +1,9 @@
-// server.js (完整修正版 - 2025/11/27)
+// server.js (最終修正版 - 2025/11/27)
 
 // ---------------------------------------------
 // 1. 模組導入與基本設定
 // ---------------------------------------------
+require('dotenv').config(); // 確保dotenv在頂部被調用
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
@@ -34,7 +35,7 @@ class SmartIntentClassifier {
         if (/(接送|機場|接機|送機|交通|距離|多遠|車程)/.test(lowerMessage)) intents.add('transfer');
         if (/(餐廳|推薦|美食|吃|海鮮|晚餐|早餐|午餐|訂位)/.test(lowerMessage)) intents.add('restaurant');
         if (/(價格|價錢|多少錢|房價|費用|收費)/.test(lowerMessage)) intents.add('pricing');
-        if (/(會員|積分|優惠|折扣|促銷)/.test(lowerMessage)) intents.add('member');
+        if (/(會員|積分|優惠|折扣|促銷|金卡|宣傳語)/.test(lowerMessage)) intents.add('member'); // 增強會員關鍵詞
         if (/(景點|觀光|好玩|旅遊|推薦.*地方|去哪玩)/.test(lowerMessage)) intents.add('attractions');
         if (/(購物|夜市|商店|超市|便利商店|買東西)/.test(lowerMessage)) intents.add('shopping');
         if (/(醫院|醫療|診所|醫生|藥局|不舒服)/.test(lowerMessage)) intents.add('medical');
@@ -77,7 +78,7 @@ class RuleEngine {
             this.emergencyRule,
             this.bookingFlowRule,
             this.transferRule,
-            this.pricingRule,
+            this.pricingRule, // <-- pricingRule 現在只檢查 pricing
             this.weatherRule,
             this.restaurantRule,
             this.facilityRule,
@@ -87,7 +88,7 @@ class RuleEngine {
         for (const rule of rules) {
             const result = rule(intents, session, message);
             if (result.shouldProcess) {
-                console.log(`🎯 規則觸發: ${rule.name}, 優先級: ${result.priority}`);
+                // console.log(`🎯 規則觸發: ${rule.name}, 優先級: ${result.priority}`); // 避免過多日誌
                 return result;
             }
         }
@@ -157,9 +158,9 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 💰 價格查詢規則
+    // 💰 價格查詢規則 (已修正：移除 member 意圖)
     static pricingRule(intents, session, message) {
-        if (intents.includes('pricing') || intents.includes('member')) {
+        if (intents.includes('pricing')) { // <-- 只檢查 pricing
             return {
                 shouldProcess: true,
                 priority: 80,
@@ -374,32 +375,34 @@ class ResponseGenerator {
             return this.handleBookingDate(message, session);
         }
 
-        // 🤖 複雜問題使用 AI
-        const complexIntents = ['attractions', 'itinerary', 'shopping', 'general_inquiry'];
+        // 🤖 複雜問題使用 AI (修正：將 member 納入複雜意圖)
+        const complexIntents = ['attractions', 'itinerary', 'shopping', 'general_inquiry', 'member'];
         const shouldUseAI = intents.some(intent => complexIntents.includes(intent)) || 
-                           intents.length > 1;
+                            intents.length > 1;
 
         if (shouldUseAI) {
             try {
                 return await this.getGeminiResponse(session);
             } catch (error) {
                 console.error("AI 服務失敗，使用規則回覆:", error);
-                return this.generateRuleBasedResponse(session);
+                // 使用 general rule as fallback
+                return RuleEngine.generalRule(intents, session, message).response; 
             }
         }
 
-        // 使用規則引擎結果
+        // 最終使用規則引擎結果 (通常為 general rule)
         if (ruleResult.shouldProcess) {
             return ruleResult.response;
         }
 
-        return this.generateRuleBasedResponse(session);
+        // 預設回覆，通常由 general rule 處理
+        return RuleEngine.generalRule(intents, session, message).response;
     }
 
     static async getGeminiResponse(session) {
         if (!apiKey) {
             console.warn("[Gemini API] API Key is empty. Using rule-based response.");
-            return this.generateRuleBasedResponse(session);
+            return RuleEngine.generalRule([], session, "").response; // Fallback
         }
 
         try {
@@ -408,7 +411,8 @@ class ResponseGenerator {
                 parts: [{ text: item.message }]
             }));
 
-            // 🚨 修正：正確的 systemInstruction 格式
+            // 🚨 修正：確保使用 fetchWithRetry
+            
             const systemInstruction = {
                 parts: [{
                     text: `你是一家五星級「海灣麗景酒店」的智能客服助理「小智」。
@@ -425,8 +429,8 @@ class ResponseGenerator {
             
             const payload = {
                 contents: contents,
-                systemInstruction: systemInstruction,
-                generationConfig: {
+                config: { // 修正為 config 屬性，而不是 systemInstruction
+                    systemInstruction: systemInstruction.parts[0].text,
                     maxOutputTokens: 500,
                     temperature: 0.7,
                 }
@@ -434,17 +438,11 @@ class ResponseGenerator {
 
             console.log("[Gemini API] Sending request...");
 
-            const response = await fetch(apiUrl, {
+            const response = await fetchWithRetry(apiUrl, { // 使用 fetchWithRetry
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error("[Gemini API] Response error:", response.status, errorText);
-                throw new Error(`API response error: ${response.status}`);
-            }
 
             const result = await response.json();
             const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -452,15 +450,18 @@ class ResponseGenerator {
             if (text) {
                 return text;
             } else {
+                // 如果 API 返回空結果，可能是 safety filter 或其他錯誤
+                console.error("[Gemini API] Received empty text from API:", JSON.stringify(result, null, 2));
                 throw new Error("No valid text in response");
             }
         } catch (error) {
             console.error("Error communicating with Gemini API:", error.message);
-            return this.generateRuleBasedResponse(session);
+            throw error; // 重新拋出錯誤，讓上層的 try-catch 處理 fallback
         }
     }
 
     static generateRuleBasedResponse(session) {
+        // 此函數現在主要作為 AI 失敗時的備用機制
         const lastUserMessage = session.conversationHistory
             .filter(msg => msg.role === 'user')
             .pop()?.message || "";
@@ -472,45 +473,8 @@ class ResponseGenerator {
             return ruleResult.response;
         }
 
-        // 根據意圖提供智慧回覆
-        if (intents.includes('attractions') || intents.includes('itinerary')) {
-            return "🎯 **景點推薦**\n\n為您推薦幾個熱門行程：\n\n" +
-                   "🏞️ **自然風光行程**\n• 墾丁國家公園 + 白沙灣海灘\n\n" +
-                   "🏛️ **文化古蹟行程**\n• 赤崁樓 + 安平古堡\n\n" +
-                   "🎢 **親子娛樂行程**\n• 義大世界全天遊\n\n" +
-                   "需要為您詳細介紹哪個行程？";
-        }
-
-        if (intents.includes('shopping')) {
-            return "🛍️ **購物指南**\n\n附近購物推薦：\n\n" +
-                   "• **大型商場**：步行8分鐘\n• **夜市**：車程15分鐘\n" +
-                   "• **便利商店**：酒店內24小時\n• **特色商店**：周邊多間\n\n" +
-                   "需要具體的購物建議嗎？";
-        }
-
-        // 預設回覆
-        return "👋 您好！我是海灣麗景酒店AI助理小智\n\n" +
-               "我可以為您提供：\n\n" +
-               "🏨 訂房服務 • 🚗 接送服務 • 🍽️ 餐廳推薦\n" +
-               "💰 價格查詢 • 🎯 行程規劃 • 🌤️ 天氣資訊\n\n" +
-               "請問需要什麼協助呢？";
-    }
-
-    // 靜態回覆方法
-    static generateMultiIntentResponse(intents, session, message) {
-        let response = "感謝您的查詢！我來為您詳細介紹：\n\n";
-        intents.forEach(intent => {
-            switch (intent) {
-                case 'booking': response += "🏨 **訂房服務**\n請提供入住日期、房型與人數\n\n"; break;
-                case 'transfer': response += "🚗 **接送服務**\n24小時機場接送，600 TWD/單程\n\n"; break;
-                case 'restaurant': response += "🍽️ **餐廳推薦**\n龍鳳廳、星空牛排館、櫻花日本料理\n\n"; break;
-                case 'pricing': response += "💰 **價格資訊**\n標準房2,200 TWD起，詳情請詢問\n\n"; break;
-                case 'attractions': response += "🎯 **景點導覽**\n為您推薦周邊熱門景點\n\n"; break;
-                case 'date_input': response += "📅 日期資訊已記錄\n\n"; break;
-            }
-        });
-        response += "請問您想優先處理哪一項服務？";
-        return response;
+        // 如果連規則都沒匹配到，就用最通用的回覆
+        return RuleEngine.generalRule([], session, lastUserMessage).response;
     }
 }
 
@@ -538,7 +502,7 @@ app.get('/', (req, res) => {
     res.json({
         service: '🏨 海灣麗景酒店 AI 助理',
         status: '運行中',
-        version: '5.7.0',
+        version: '5.7.1', // 版本號更新
         endpoints: {
             health: '/health',
             chat: '/chat',
