@@ -191,28 +191,23 @@ class SmartIntentClassifier {
             data.childCount = parseInt(childMatch[1] || childMatch[2], 10);
         }
 
-        // 聯絡方式 - 🚨 修正 NAME 提取邏輯 (已優化)
-        // 1. 優先匹配 "名字是" 或 "稱呼是" 後面的 2-4 個中文字
-        const nameMatchWithPrefix = message.match(/(?:名字是|稱呼是|本人是)\s*([\u4e00-\u9fa5]{2,4})/);
-        
-        if (nameMatchWithPrefix && nameMatchWithPrefix[1]) {
-            data.name = nameMatchWithPrefix[1].trim();
-        } else {
-            // 2. 備用方案：尋找單獨出現的 2-4 個中文字 (但需排除關鍵詞干擾)
-            const simpleNameMatch = message.match(/([\u4e00-\u9fa5]{2,4})/g);
-            
-            if (simpleNameMatch) {
-                // 從所有匹配到的中文字串中，排除長度過長或包含特定關鍵詞的，取第一個
-                for (const nameCandidate of simpleNameMatch) {
-                    if (nameCandidate.length >= 2 && !nameCandidate.includes('Email') && !nameCandidate.includes('名字') && !nameCandidate.includes('本人')) {
-                         data.name = nameCandidate.trim();
-                         break; // 找到第一個合理的就使用
-                    }
+        // 聯絡方式 - 🚨 最終 NAME 提取邏輯
+        // 匹配所有可能的引導詞後面的 2-4 個中文字
+        const nameMatch = message.match(/(?:名字是|稱呼是|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
+
+        if (nameMatch) {
+            // 優先使用引導詞後面的名字 (nameMatch[1])
+            let extractedName = nameMatch[1] || nameMatch[2]; 
+            if (extractedName && extractedName.length >= 2) {
+                data.name = extractedName.trim();
+                // 額外檢查：如果名字太像關鍵詞，則跳過
+                if (data.name.includes('我的') || data.name.includes('名字') || data.name.includes('訂房') || data.name.includes('本人')) {
+                    data.name = undefined;
                 }
             }
         }
         
-        // 聯絡方式 - EMAIL 提取
+        // 聯絡方式 - EMAIL 提取 (保持不變)
         const emailMatch = message.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
         if (emailMatch) {
             data.email = emailMatch[0];
