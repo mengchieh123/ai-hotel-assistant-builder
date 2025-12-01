@@ -182,6 +182,7 @@
         // 頁面載入時發送歡迎訊息
         window.onload = () => {
              // 首次載入時，發送一個空訊息或歡迎指令來觸發初始回覆
+             // ⚠️ 此處為修正後確認無誤的寫法
             sendMessage('', false); 
         };
 
@@ -279,6 +280,7 @@
             userInput.disabled = true;
 
             try {
+                // ⚠️ 使用相對路徑 /chat 連線到部署在同一服務的後端
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: {
