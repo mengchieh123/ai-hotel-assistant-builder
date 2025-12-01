@@ -1,4 +1,4 @@
-// server.js (Dialogue Flow 完整整合版 - 支援靜態網頁服務, 強化意圖切換與錯誤處理)
+// server.js (Dialogue Flow 完整整合版 - 支援靜態網頁服務, 強化意圖切換與錯誤隔離)
 // 海灣麗景酒店 AI 智能助理
 
 // ---------------------------------------------
@@ -130,7 +130,7 @@ class SmartIntentClassifier {
         if (/(是|對|好|確認|願意|繼續|訂)/.test(lowerMessage)) intents.add('affirm');
         if (/(否|不|取消|不要|不願意|算了)/.test(lowerMessage)) intents.add('deny');
         
-        // 處理 Rich Card 按鈕值 (已修正)
+        // 處理 Rich Card 按鈕值
         if (lowerMessage === '是會員且要早餐') intents.add('member_yes_meal_yes');
         if (lowerMessage === '是會員但不加購早餐') intents.add('member_yes_meal_no');
         if (lowerMessage === '不是會員但要早餐') intents.add('member_no_meal_yes');
@@ -244,7 +244,7 @@ class BookingFlowController {
 }
 
 
-// 規則引擎類別 (包含修復後的 bookingFlowRule)
+// 規則引擎類別
 class RuleEngine {
     static process(intents, session, message) {
         const rules = [
@@ -289,7 +289,7 @@ class RuleEngine {
         // 2. 🚨 核心切換邏輯：如果在訂房流程中，但用戶切換到其他主題
         if (session.bookingState && session.bookingState !== 'init' && isSwitchingTopic) {
              console.log(`⚠️ 用戶在流程中 (State: ${session.bookingState}) 詢問了不相關的主題 (${intents.filter(i => nonBookingIntents.includes(i)).join(', ')}). 跳過 bookingFlowRule。`);
-             // 保持狀態不變，但返回 shouldProcess: false，將控制權讓給 LLM (如果 LLM 運行正常) 或 General Rule
+             // 讓控制權轉交給 LLM 或 General Rule
              return { shouldProcess: false, priority: 0 }; 
         }
 
@@ -302,7 +302,7 @@ class RuleEngine {
             let currentState = BookingFlowController.getCurrentState(session);
             let nextStateKey = session.bookingState;
             
-            // 4. 提取實體並更新 session (這一步必須在判斷 fallback 前執行)
+            // 4. 提取實體並更新 session
             const extractedEntities = SmartIntentClassifier.extractEntities(message);
             Object.assign(session.collectedData, extractedEntities);
 
@@ -398,14 +398,12 @@ class RuleEngine {
 
     // 📞 一般規則 (優先級 10)
     static generalRule(intents, session, message) {
-        if (intents.includes('general_inquiry') || intents.length === 0) {
-            return {
-                shouldProcess: true,
-                priority: 10,
-                response: "👋 您好！我是海灣麗景酒店AI助理小智\n\n我可以協助您：訂房、接送、餐廳推薦、價格查詢、景點導覽、天氣資訊等服務。\n\n請問今天需要什麼協助呢？"
-            };
-        }
-        return { shouldProcess: false, priority: 0 };
+        // 這個規則只作為 LLM 失敗時的最終回退
+        return {
+            shouldProcess: true,
+            priority: 10,
+            response: "👋 您好！我是海灣麗景酒店AI助理小智\n\n我可以協助您：訂房、接送、餐廳推薦、價格查詢、景點導覽、天氣資訊等服務。\n\n請問今天需要什麼協助呢？"
+        };
     }
 }
 
@@ -493,7 +491,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
 }
 
 // ---------------------------------------------
-// 5. 回應生成與 LLM 邏輯
+// 5. 回應生成與 LLM 邏輯 (包含錯誤隔離修正)
 // ---------------------------------------------
 class ResponseGenerator {
     static async handleSpecialCommands(message, session) {
@@ -523,27 +521,29 @@ class ResponseGenerator {
 
         console.log(`🎯 意圖識別: ${intents.join(', ')}, 用戶類型: ${session.userType}`);
         
-        // 1. 使用規則引擎處理所有意圖 (包括高優先級的訂房流程)
+        // 1. 使用規則引擎處理所有意圖 (高優先級)
         const ruleResult = RuleEngine.process(intents, session, message);
         
-        if (ruleResult.shouldProcess && ruleResult.response) {
-            // 如果規則引擎產生了回應 (優先級 >= 10)，則使用它
+        if (ruleResult.shouldProcess && ruleResult.response && ruleResult.priority >= 50) {
+            // 如果是緊急狀況 (100) 或訂房流程 (95)，直接使用規則回覆
+            console.log("🟢 使用高優先級規則引擎回覆。");
             return { 
                 reply: ruleResult.response, 
                 richCard: ruleResult.richCard || null
             };
         }
 
-        // 2. 複雜/一般問題使用 AI (只有在規則引擎沒有產生最終回覆時才執行)
+        // 2. 複雜/一般問題使用 AI 
         try {
             console.log("🤖 嘗試使用 Gemini AI 處理複雜問題 (LLM 優先級 ~50)");
             const geminiReply = await this.getGeminiResponse(session, false);
             return { reply: geminiReply, richCard: null };
         } catch (error) {
-            console.error("AI 服務失敗，回退到通用規則:", error.message);
-            // 優雅回退：如果 AI 服務失敗，強制使用通用規則
+            // 🚨 這是關鍵錯誤隔離點：LLM 失敗時，安全回退到最簡單的問候語。
+            console.error("🚫 LLM 服務失敗，強制回退到最安全的通用問候。", error.message);
+            
             return {
-                reply: RuleEngine.generalRule(intents, session, message).response,
+                reply: "👋 您好！目前 AI 服務暫時無法處理複雜查詢，但我可以隨時為您啟動訂房流程（說『我要訂房』），或處理緊急事項（說『緊急求助』）。",
                 richCard: null
             };
         }
@@ -561,6 +561,7 @@ class ResponseGenerator {
 
             const systemInstruction = `你是一個專業、親切的[海灣麗景酒店]AI助理。你的任務是解答用戶關於酒店、旅遊、生活等任何問題。如果用戶的請求未被高優先級規則（例如訂房、緊急）處理，請使用你的專業知識回答。請使用繁體中文回應。`;
 
+            // 確保 contents 的結構正確，並將 systemInstruction 放在開頭
             const contents = [
                 { role: 'user', parts: [{ text: systemInstruction }] },
                 ...history
