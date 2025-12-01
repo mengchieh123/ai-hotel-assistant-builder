@@ -274,132 +274,54 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-   // 🏨 訂房流程規則 (使用 JSON 狀態機重構 - **已修正 init 狀態強制回覆問題**)
-static bookingFlowRule(intents, session, message) {
-    const hasBookingIntent = intents.includes('book_room') || intents.includes('ask_promotion');
-    
-    // 處理流程結束和重置
-    if (session.bookingState === 'booking_complete' || session.bookingState === 'end_conversation') {
-         if (hasBookingIntent) {
-             session.bookingState = 'init'; // 如果結束後用戶又發起訂房，則重新開始
-         } else {
-             return { shouldProcess: false, priority: 0 }; // 結束後沒有新意圖，讓 AI 處理
-         }
-    }
-
-    // 如果訊息包含 booking 意圖，或者 session 已經在流程中
-    if (hasBookingIntent || session.bookingState) {
+    // 🏨 訂房流程規則 (已修正 init 狀態強制回覆問題)
+    static bookingFlowRule(intents, session, message) {
+        const hasBookingIntent = intents.includes('book_room') || intents.includes('ask_promotion');
         
-        // 確定當前狀態
-        if (!session.bookingState) session.bookingState = 'init';
-        
-        let nextStateKey = session.bookingState;
-        let currentState = BookingFlowController.getCurrentState(session);
-
-        // 1. 提取實體並更新 session (這必須是流程開始的第一件事)
-        const extractedEntities = SmartIntentClassifier.extractEntities(message);
-        Object.assign(session.collectedData, extractedEntities);
-
-        // 🚨 優化後的 INIT 狀態處理邏輯
-        if (session.bookingState === 'init') {
-            // 如果用戶在 init 狀態下明確選擇了 'book_room' 意圖 (即對我們第一次的提示做出回應)
-            if (intents.includes('book_room')) {
-                // 允許狀態轉移到第一個實體收集狀態，讓後續邏輯去處理剛提取到的所有實體
-                session.bookingState = DIALOGUE_FLOW.states['init'].intents['book_room']; // collect_room_and_dates
-                nextStateKey = session.bookingState;
-                currentState = BookingFlowController.getCurrentState(session); // 更新 currentState
-            } else {
-                // 否則，停留在 init 狀態，回覆提示 (用於處理第一次進入 init 的情況)
-                return {
-                     shouldProcess: true,
-                     priority: 95, 
-                     response: currentState.prompt, 
-                     nextStep: 'init',
-                     updateSession: true
-                };
-            }
-        }
-        // ----------------------------------------------------
-        
-        // 2. 嘗試根據意圖轉移 (處理 'check_availability_and_price' 狀態的是/否等意圖)
-        for (const intent of intents) {
-            if (currentState.intents && currentState.intents[intent]) {
-                nextStateKey = currentState.intents[intent];
-                break;
-            }
+        // 處理流程結束和重置
+        if (session.bookingState === 'booking_complete' || session.bookingState === 'end_conversation') {
+             if (hasBookingIntent) {
+                 session.bookingState = 'init'; // 如果結束後用戶又發起訂房，則重新開始
+             } else {
+                 return { shouldProcess: false, priority: 0 }; // 結束後沒有新意圖，讓 AI 處理
+             }
         }
 
-        // 3. 檢查實體是否收集完畢以轉移到下一個狀態 (只有實體收集狀態才會執行)
-        if (nextStateKey === session.bookingState && currentState.entities && currentState.next_state) {
-            const allEntitiesCollected = currentState.entities.every(
-                entity => session.collectedData[entity] !== undefined && session.collectedData[entity] !== null
-            );
-            if (allEntitiesCollected) {
-                nextStateKey = currentState.next_state;
-            } else {
-                // 如果實體不完整，停留在當前狀態，回覆 fallback
-                return {
-                    shouldProcess: true,
-                    priority: 95, 
-                    response: currentState.fallback, 
-                    nextStep: session.bookingState,
-                    updateSession: true
-                };
-            }
-        }
-
-        // 4. 處理特殊狀態的後端動作 (價格計算和折扣)
-        if (nextStateKey === 'check_availability_and_price') {
-            const data = session.collectedData;
-            // 由於前一個狀態收集了所有需要的實體，我們在這裡計算價格
-            data.totalPrice = BookingFlowController.calculatePrice(data, false);
-            data.finalPrice = data.totalPrice; 
-        } else if (nextStateKey === 'apply_member_discount') {
-            const data = session.collectedData;
-            data.newTotalPrice = BookingFlowController.calculatePrice(data, true);
-            data.finalPrice = data.newTotalPrice; 
-        }
-
-        // 5. 確保狀態轉移
-        session.bookingState = nextStateKey;
-        let nextState = BookingFlowController.getCurrentState(session);
-
-        // 6. 格式化回覆 (變數替換)
-        let response = nextState.prompt;
-        for (const key in session.collectedData) {
-            const value = session.collectedData[key] || ''; 
-            response = response.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
-            response = response.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
-        }
-        
-        // 最終檢查 response 
-        if (!response || response.trim() === '') {
-             response = nextState.fallback || "抱歉，狀態轉移出錯，請重新開始。";
-        }
-        
-        // 流程結束後重置狀態
-        if (nextState.end) {
-            session.bookingState = 'end_conversation'; 
-            session.collectedData = {};
-        }
-
-        return {
-            shouldProcess: true,
-            priority: 95, 
-            response: response,
-            nextStep: session.bookingState,
-            updateSession: true
-        };
-    }
-    return { shouldProcess: false, priority: 0 };
-}
-            // ----------------------------------------------------
+        // 如果訊息包含 booking 意圖，或者 session 已經在流程中
+        if (hasBookingIntent || session.bookingState) {
             
-            // 1. 提取實體並更新 session (只在 init 之後執行)
+            // 確定當前狀態
+            if (!session.bookingState) session.bookingState = 'init';
+            
+            let nextStateKey = session.bookingState;
+            let currentState = BookingFlowController.getCurrentState(session);
+
+            // 1. 提取實體並更新 session (這必須是流程開始的第一件事)
             const extractedEntities = SmartIntentClassifier.extractEntities(message);
             Object.assign(session.collectedData, extractedEntities);
 
-            // 2. 嘗試根據意圖轉移
+            // 🚨 優化後的 INIT 狀態處理邏輯
+            if (session.bookingState === 'init') {
+                // 如果用戶在 init 狀態下明確選擇了 'book_room' 意圖 (即對我們第一次的提示做出回應)
+                if (intents.includes('book_room')) {
+                    // 允許狀態轉移到第一個實體收集狀態，讓後續邏輯去處理剛提取到的所有實體
+                    session.bookingState = DIALOGUE_FLOW.states['init'].intents['book_room']; // collect_room_and_dates
+                    nextStateKey = session.bookingState;
+                    currentState = BookingFlowController.getCurrentState(session); // 更新 currentState
+                } else {
+                    // 否則，停留在 init 狀態，回覆提示 (用於處理第一次進入 init 的情況)
+                    return {
+                         shouldProcess: true,
+                         priority: 95, 
+                         response: currentState.prompt, 
+                         nextStep: 'init',
+                         updateSession: true
+                    };
+                }
+            }
+            // ----------------------------------------------------
+            
+            // 2. 嘗試根據意圖轉移 (處理 'check_availability_and_price' 狀態的是/否等意圖)
             for (const intent of intents) {
                 if (currentState.intents && currentState.intents[intent]) {
                     nextStateKey = currentState.intents[intent];
@@ -407,10 +329,10 @@ static bookingFlowRule(intents, session, message) {
                 }
             }
 
-            // 3. 檢查實體是否收集完畢以轉移到下一個狀態
+            // 3. 檢查實體是否收集完畢以轉移到下一個狀態 (只有實體收集狀態才會執行)
             if (nextStateKey === session.bookingState && currentState.entities && currentState.next_state) {
                 const allEntitiesCollected = currentState.entities.every(
-                    entity => session.collectedData[entity]
+                    entity => session.collectedData[entity] !== undefined && session.collectedData[entity] !== null
                 );
                 if (allEntitiesCollected) {
                     nextStateKey = currentState.next_state;
@@ -429,6 +351,7 @@ static bookingFlowRule(intents, session, message) {
             // 4. 處理特殊狀態的後端動作 (價格計算和折扣)
             if (nextStateKey === 'check_availability_and_price') {
                 const data = session.collectedData;
+                // 由於前一個狀態收集了所有需要的實體，我們在這裡計算價格
                 data.totalPrice = BookingFlowController.calculatePrice(data, false);
                 data.finalPrice = data.totalPrice; 
             } else if (nextStateKey === 'apply_member_discount') {
@@ -454,7 +377,7 @@ static bookingFlowRule(intents, session, message) {
                  response = nextState.fallback || "抱歉，狀態轉移出錯，請重新開始。";
             }
             
-            // 流程結束後重置狀態 (延遲重置，確保下一次新的開始)
+            // 流程結束後重置狀態
             if (nextState.end) {
                 session.bookingState = 'end_conversation'; 
                 session.collectedData = {};
