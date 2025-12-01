@@ -1,902 +1,685 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>五星級飯店 AI 訂房助理</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
-        }
-
-        body {
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-            color: #4a5568;
-        }
-
-        .hotel-chat-container {
-            width: 100%;
-            max-width: 900px;
-            height: 90vh;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.08);
-            display: flex;
-            overflow: hidden;
-            position: relative;
-        }
-
-        /* 左側 - 飯店資訊面板 */
-        .hotel-sidebar {
-            width: 280px;
-            background: linear-gradient(165deg, #2c5aa0 0%, #1e3a8a 100%);
-            color: white;
-            padding: 30px 20px;
-            display: flex;
-            flex-direction: column;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .hotel-sidebar::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" opacity="0.05"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="50" cy="50" r="1" fill="white"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
-        }
-
-        .hotel-logo {
-            text-align: center;
-            margin-bottom: 30px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .hotel-logo h1 {
-            font-size: 22px;
-            font-weight: 600;
-            letter-spacing: 1px;
-            margin-bottom: 5px;
-        }
-
-        .hotel-logo p {
-            font-size: 13px;
-            opacity: 0.8;
-            font-weight: 300;
-        }
-
-        .concierge-avatar {
-            width: 120px;
-            height: 120px;
-            margin: 0 auto 25px;
-            background: linear-gradient(135deg, #4f7cc2 0%, #3a5f9a 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-            border: 4px solid rgba(255, 255, 255, 0.2);
-            z-index: 1;
-        }
-
-        .concierge-avatar i {
-            font-size: 50px;
-            color: white;
-        }
-
-        .concierge-info {
-            text-align: center;
-            margin-bottom: 30px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .concierge-info h2 {
-            font-size: 18px;
-            font-weight: 500;
-            margin-bottom: 5px;
-        }
-
-        .concierge-info p {
-            font-size: 14px;
-            opacity: 0.8;
-            font-weight: 300;
-        }
-
-        .hotel-features {
-            flex-grow: 1;
-            position: relative;
-            z-index: 1;
-        }
-
-        .feature-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-            padding: 10px 15px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            transition: all 0.3s ease;
-        }
-
-        .feature-item:hover {
-            background: rgba(255, 255, 255, 0.15);
-            transform: translateX(5px);
-        }
-
-        .feature-item i {
-            font-size: 16px;
-            margin-right: 12px;
-            width: 20px;
-            text-align: center;
-        }
-
-        .feature-item span {
-            font-size: 14px;
-            font-weight: 300;
-        }
-
-        .hotel-rating {
-            text-align: center;
-            margin-top: 20px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .stars {
-            color: #FFD700;
-            font-size: 16px;
-            margin-bottom: 8px;
-        }
-
-        .hotel-rating p {
-            font-size: 12px;
-            opacity: 0.7;
-        }
-
-        /* 右側 - 聊天區域 */
-        .chat-main {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: #ffffff;
-        }
-
-        .chat-header {
-            padding: 20px 25px;
-            border-bottom: 1px solid #f0f4f8;
-            background: white;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .chat-title h2 {
-            font-size: 20px;
-            font-weight: 600;
-            color: #2d3748;
-        }
-
-        .chat-title p {
-            font-size: 14px;
-            color: #718096;
-            margin-top: 3px;
-        }
-
-        .chat-controls {
-            display: flex;
-            gap: 10px;
-        }
-
-        .control-btn {
-            background: #f7fafc;
-            border: 1px solid #e2e8f0;
-            color: #4a5568;
-            padding: 8px 15px;
-            border-radius: 10px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .control-btn:hover {
-            background: #edf2f7;
-            transform: translateY(-1px);
-        }
-
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 25px;
-            background: #fafcff;
-        }
-
-        .message {
-            margin-bottom: 20px;
-            display: flex;
-            align-items: flex-start;
-            animation: fadeInUp 0.4s ease;
-        }
-
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .user-message {
-            justify-content: flex-end;
-        }
-
-        .bot-message {
-            justify-content: flex-start;
-        }
-
-        .message-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 12px;
-            flex-shrink: 0;
-        }
-
-        .user-message .message-avatar {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            order: 2;
-        }
-
-        .bot-message .message-avatar {
-            background: linear-gradient(135deg, #4f7cc2 0%, #3a5f9a 100%);
-        }
-
-        .message-avatar i {
-            color: white;
-            font-size: 18px;
-        }
-
-        .message-bubble {
-            max-width: 70%;
-            padding: 15px 20px;
-            border-radius: 18px;
-            line-height: 1.5;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            position: relative;
-        }
-
-        .user-message .message-bubble {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-bottom-right-radius: 5px;
-        }
-
-        .bot-message .message-bubble {
-            background: white;
-            color: #4a5568;
-            border: 1px solid #e2e8f0;
-            border-bottom-left-radius: 5px;
-        }
-
-        .message-time {
-            font-size: 11px;
-            opacity: 0.7;
-            margin-top: 8px;
-            text-align: right;
-        }
-
-        .quick-replies {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            padding: 20px 25px;
-            background: white;
-            border-top: 1px solid #f0f4f8;
-        }
-
-        .quick-reply-btn {
-            padding: 10px 18px;
-            background: #f7fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s ease;
-            color: #4a5568;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .quick-reply-btn:hover {
-            background: #edf2f7;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
-        }
-
-        .input-area {
-            padding: 20px 25px;
-            background: white;
-            border-top: 1px solid #f0f4f8;
-            display: flex;
-            gap: 12px;
-        }
-
-        .message-input {
-            flex: 1;
-            padding: 14px 20px;
-            border: 1px solid #e2e8f0;
-            border-radius: 25px;
-            font-size: 15px;
-            outline: none;
-            transition: all 0.3s ease;
-            background: #fafcff;
-            color: #4a5568;
-        }
-
-        .message-input:focus {
-            border-color: #4f7cc2;
-            box-shadow: 0 0 0 3px rgba(79, 124, 194, 0.1);
-        }
-
-        .send-button {
-            padding: 14px 25px;
-            background: linear-gradient(135deg, #4f7cc2 0%, #3a5f9a 100%);
-            color: white;
-            border: none;
-            border-radius: 25px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .send-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(79, 124, 194, 0.3);
-        }
-
-        .send-button:disabled {
-            background: #a0aec0;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .typing-indicator {
-            display: flex;
-            align-items: center;
-            padding: 15px 20px;
-            color: #718096;
-            font-style: italic;
-        }
-
-        .typing-dots {
-            display: inline-flex;
-            margin-left: 5px;
-        }
-
-        .typing-dots span {
-            height: 8px;
-            width: 8px;
-            background: #a0aec0;
-            border-radius: 50%;
-            display: inline-block;
-            margin: 0 2px;
-            animation: typing 1.4s infinite ease-in-out;
-        }
-
-        .typing-dots span:nth-child(1) {
-            animation-delay: -0.32s;
-        }
-
-        .typing-dots span:nth-child(2) {
-            animation-delay: -0.16s;
-        }
-
-        @keyframes typing {
-            0%, 80%, 100% {
-                transform: scale(0.8);
-                opacity: 0.5;
-            }
-            40% {
-                transform: scale(1);
-                opacity: 1;
-            }
-        }
-
-        .welcome-message {
-            text-align: center;
-            padding: 30px;
-            background: linear-gradient(135deg, #f0f7ff 0%, #e6f0ff 100%);
-            border-radius: 15px;
-            margin: 10px 0;
-            border: 1px solid #e2e8f0;
-        }
-
-        .welcome-message h3 {
-            font-size: 22px;
-            color: #2d3748;
-            margin-bottom: 10px;
-            font-weight: 600;
-        }
-
-        .welcome-message p {
-            font-size: 15px;
-            color: #718096;
-            line-height: 1.6;
-        }
-
-        .service-highlight {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin-top: 20px;
-        }
-
-        .service-badge {
-            background: white;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 13px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .system-message {
-            text-align: center;
-            padding: 10px;
-            margin: 10px 0;
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 10px;
-            color: #856404;
-            font-size: 14px;
-        }
-
-        .error-message {
-            text-align: center;
-            padding: 10px;
-            margin: 10px 0;
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
-            border-radius: 10px;
-            color: #721c24;
-            font-size: 14px;
-        }
-
-        /* 響應式設計 */
-        @media (max-width: 768px) {
-            .hotel-chat-container {
-                flex-direction: column;
-                height: 95vh;
-            }
-
-            .hotel-sidebar {
-                width: 100%;
-                padding: 20px;
-            }
-
-            .concierge-avatar {
-                width: 80px;
-                height: 80px;
-            }
-
-            .concierge-avatar i {
-                font-size: 35px;
-            }
-
-            .hotel-features {
-                display: none;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="hotel-chat-container">
-        <!-- 左側 - 飯店資訊面板 -->
-        <div class="hotel-sidebar">
-            <div class="hotel-logo">
-                <h1>海灣麗景酒店</h1>
-                <p>BAYVIEW GRAND HOTEL</p>
-            </div>
-            
-            <div class="concierge-avatar">
-                <i class="fas fa-concierge-bell"></i>
-            </div>
-            
-            <div class="concierge-info">
-                <h2>AI 訂房管家</h2>
-                <p>您的專屬服務助理</p>
-            </div>
-            
-            <div class="hotel-features">
-                <div class="feature-item">
-                    <i class="fas fa-wifi"></i>
-                    <span>免費高速Wi-Fi</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-swimming-pool"></i>
-                    <span>無邊際泳池</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-spa"></i>
-                    <span>五星級水療中心</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-utensils"></i>
-                    <span>米其林餐廳</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-shuttle-van"></i>
-                    <span>機場接送服務</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-dumbbell"></i>
-                    <span>24小時健身房</span>
-                </div>
-            </div>
-            
-            <div class="hotel-rating">
-                <div class="stars">
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                </div>
-                <p>國際五星級認證</p>
-            </div>
-        </div>
+// server.js (Dialogue Flow 完整整合版 - 支援靜態網頁服務)
+// 海灣麗景酒店 AI 智能助理
+
+// ---------------------------------------------
+// 1. 模組導入與基本設定
+// ---------------------------------------------
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const fetch = require('node-fetch');
+const path = require('path');
+const app = express();
+
+const PORT = process.env.PORT || 10000;
+const HOST = process.env.HOST || '0.0.0.0';
+
+const apiKey = process.env.GEMINI_API_KEY;
+const API_BASE = "https://generativelanguage.googleapis.com";
+const MODEL_NAME = "gemini-1.5-flash-latest";
+const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+
+const MAX_RETRIES = 2;
+const INITIAL_BACKOFF_MS = 1000;
+const tools = []; // 徹底禁用外部工具以確保零費用
+
+// ---------------------------------------------
+// 2. Dialogue Flow 配置 (您的 JSON 流程)
+// ---------------------------------------------
+const DIALOGUE_FLOW = {
+    "states": {
+        "init": {
+            "prompt": "您好，歡迎使用 AI 訂房助理！請問您是想【預訂房間】還是【查詢資訊】呢？",
+            "intents": {
+                "book_room": "collect_room_and_dates",
+                "ask_promotion": "handle_promotion_query",
+                "general_inquiry": "handle_general_inquiry"
+            },
+            "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
+        },
+        "collect_room_and_dates": {
+            "prompt": "好的，我們將開始預訂。請問您想預訂的【房型】、預計【入住日期】和【住宿晚數】？ (例如：豪華客房，6月1日入住，共2晚)",
+            "entities": ["roomType", "checkInDate", "nights"],
+            "next_state": "ask_guest_count",
+            "fallback": "請提供房型、入住日期及住宿晚數，我會為您查詢空房與價格。"
+        },
+        "ask_guest_count": {
+            "prompt": "感謝您！請問總共【幾位大人】和【幾位兒童】入住呢？",
+            "entities": ["adultCount", "childCount"],
+            "next_state": "check_availability_and_price",
+            "fallback": "請提供大人及兒童的人數。"
+        },
+        "check_availability_and_price": {
+            "prompt": "根據您的需求，我們已確認 {roomType} 房有空位，總價為 ${totalPrice}。**請注意：**2歲以上兒童需加收費用。請問您是否確認【以總價 ${totalPrice} 繼續預訂】？",
+            "intents": {
+                "affirm": "ask_contact_info",
+                "deny": "end_conversation"
+            },
+            "fallback": "請回答『確認』或『取消』。"
+        },
+        "ask_contact_info": {
+            "prompt": "請提供您的【訂房姓名】和【聯絡Email】，以便我們為您完成預訂。",
+            "entities": ["name", "email"],
+            "next_state": "confirm_member_and_meal",
+            "fallback": "請提供您的姓名和 Email。"
+        },
+        "confirm_member_and_meal": {
+            "prompt": "請問您是會員嗎？(會員可享Gold等級8折優惠)。另外，請問是否需要【加購早餐】？",
+            "intents": {
+                "member_yes_meal_yes": "apply_member_discount",
+                "member_yes_meal_no": "apply_member_discount",
+                "member_no_meal_yes": "confirm_booking",
+                "member_no_meal_no": "confirm_booking"
+            },
+            "fallback": "請告知是否為會員，以及是否加購早餐。"
+        },
+        "apply_member_discount": {
+            "prompt": "已為您套用會員優惠，新的總價為 ${newTotalPrice}。即將進入最終確認。",
+            "next_state": "confirm_booking"
+        },
+        "confirm_booking": {
+            "prompt": "【最終確認】您訂購 {roomType} 房，入住 {checkInDate} ，共 {nights} 晚，訂房人 {name}，最終總價 ${finalPrice}。您是否確認訂房？",
+            "intents": {
+                "affirm": "booking_complete",
+                "deny": "end_conversation"
+            },
+            "fallback": "請確認訂房資訊，並回答『確認』或『取消』。"
+        },
+        "booking_complete": {
+            "prompt": "感謝您，訂房完成！訂單編號 [ORD-xxxxxx] 已發送至 {email}。如有需要，可隨時查詢或取消訂單。",
+            "end": true
+        },
+        "handle_promotion_query": {
+            "prompt": "目前促銷資訊有 Gold 會員享8折優惠，還有免費早餐活動。請問您是否要開始【訂房流程】？",
+            "next_state": "init"
+        },
+        "handle_general_inquiry": {
+            "prompt": "請問您有什麼其他問題？",
+            "next_state": "init"
+        },
+        "end_conversation": {
+            "prompt": "感謝您的使用，祝您有美好的一天！",
+            "end": true
+        }
+    }
+};
+
+// ---------------------------------------------
+// 3. 核心工具類 (NLU, 狀態機, 規則引擎)
+// ---------------------------------------------
+
+// 智能意圖分類器 (包含實體提取輔助功能)
+class SmartIntentClassifier {
+    static classify(message) {
+        const lowerMessage = message.toLowerCase();
+        const intents = new Set();
         
-        <!-- 右側 - 聊天區域 -->
-        <div class="chat-main">
-            <div class="chat-header">
-                <div class="chat-title">
-                    <h2>AI 訂房助理</h2>
-                    <p>隨時為您提供專業服務</p>
-                </div>
-                <div class="chat-controls">
-                    <button class="control-btn" onclick="showResetConfirm()">
-                        <i class="fas fa-sync-alt"></i> 新對話
-                    </button>
-                    <button class="control-btn" onclick="exportChat()">
-                        <i class="fas fa-download"></i> 匯出
-                    </button>
-                </div>
-            </div>
-            
-            <div class="chat-messages" id="chatMessages">
-                <div class="welcome-message">
-                    <h3>歡迎光臨海灣麗景酒店</h3>
-                    <p>我是您的AI訂房管家，可以協助您預訂房間、安排接送、推薦餐廳及景點，讓您享受完美的住宿體驗。</p>
-                    <div class="service-highlight">
-                        <div class="service-badge"><i class="fas fa-bed"></i> 訂房服務</div>
-                        <div class="service-badge"><i class="fas fa-car"></i> 接送服務</div>
-                        <div class="service-badge"><i class="fas fa-utensils"></i> 餐廳推薦</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="quick-replies" id="quickReplies">
-                <button class="quick-reply-btn" onclick="sendQuickReply('我想預訂房間')">
-                    <i class="fas fa-bed"></i> 訂房服務
-                </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('有機場接送嗎？')">
-                    <i class="fas fa-car"></i> 接送服務
-                </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('房價多少錢？')">
-                    <i class="fas fa-tag"></i> 價格查詢
-                </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('有什麼餐廳推薦？')">
-                    <i class="fas fa-utensils"></i> 餐廳推薦
-                </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('台北有什麼好玩的地方？')">
-                    <i class="fas fa-map-marked-alt"></i> 景點推薦
-                </button>
-            </div>
-            
-            <div class="input-area">
-                <input type="text" class="message-input" id="messageInput" placeholder="輸入您的需求..." autocomplete="off">
-                <button class="send-button" id="sendButton" onclick="sendMessage()">
-                    <i class="fas fa-paper-plane"></i> 傳送
-                </button>
-            </div>
-        </div>
-    </div>
+        if (/(訂房|預訂|入住|房間|住.*晚|房型|幫我訂|想要訂|預約房間)/.test(lowerMessage)) intents.add('booking');
+        if (/(接送|機場|接機|送機|交通|距離|多遠|車程)/.test(lowerMessage)) intents.add('transfer');
+        if (/(餐廳|推薦|美食|吃|海鮮|晚餐|早餐|午餐|訂位)/.test(lowerMessage)) intents.add('restaurant');
+        if (/(價格|價錢|多少錢|房價|費用|收費)/.test(lowerMessage)) intents.add('pricing');
+        if (/(會員|積分|優惠|折扣|促銷|金卡|宣傳語)/.test(lowerMessage)) intents.add('member');
+        if (/(景點|觀光|好玩|旅遊|推薦.*地方|去哪玩)/.test(lowerMessage)) intents.add('attractions');
+        if (/(購物|夜市|商店|超市|便利商店|買東西)/.test(lowerMessage)) intents.add('shopping');
+        if (/(設施|泳池|健身房|spa|按摩|三溫暖)/.test(lowerMessage)) intents.add('facilities');
+        if (/(天氣|氣象|溫度|下雨|颱風|氣溫)/.test(lowerMessage)) intents.add('weather');
+        if (/(行程|規劃|安排|旅遊計畫|一日遊)/.test(lowerMessage)) intents.add('itinerary');
+        if (this.containsDatePatterns(message)) intents.add('date_input');
+        if (/(取消|退訂|改期|變更|修改)/.test(lowerMessage)) intents.add('modification');
+        if (/(緊急|救命|幫忙|協助|問題|麻煩)/.test(lowerMessage)) intents.add('emergency');
+        
+        // 🚨 處理肯定/否定 (專用於 Dialogue Flow 內部的 Intention)
+        if (/(是|對|好|確認|願意|繼續|訂)/.test(lowerMessage)) intents.add('affirm');
+        if (/(否|不|取消|不要|不願意|算了)/.test(lowerMessage)) intents.add('deny');
+        
+        // 🚨 處理會員與早餐複合意圖 (簡化邏輯)
+        if (/(會員|member)/.test(lowerMessage) && /(早餐|meal)/.test(lowerMessage)) {
+             intents.add('member_yes_meal_yes');
+        } else if (/(會員|member)/.test(lowerMessage) && !/(早餐|meal)/.test(lowerMessage)) {
+             intents.add('member_yes_meal_no');
+        } else if (!/(會員|member)/.test(lowerMessage) && /(早餐|meal)/.test(lowerMessage)) {
+             intents.add('member_no_meal_yes');
+        } else if (!/(會員|member)/.test(lowerMessage) && !/(早餐|meal)/.test(lowerMessage)) {
+             intents.add('member_no_meal_no');
+        }
 
-    <script>
-        // API 設定 - 修正版本
-        const API_BASE_URL = 'https://ai-hotel-assistant-builder.onrender.com';
-        const API_CHAT_ENDPOINT = `${API_BASE_URL}/chat`;
-        
-        // DOM 元素
-        const chatMessages = document.getElementById('chatMessages');
-        const messageInput = document.getElementById('messageInput');
-        const sendButton = document.getElementById('sendButton');
-        let sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        
-        // 初始化
-        function initializeChat() {
-            setupEventListeners();
-            checkConnection();
+        return intents.size > 0 ? Array.from(intents) : ['general_inquiry'];
+    }
+
+    static containsDatePatterns(message) {
+        const datePatterns = [
+            /\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/,
+            /\d{1,2}\/\d{1,2}/,
+            /\d{1,2}月\d{1,2}日/,
+            /\d{1,2}月\d{1,2}號/,
+            /明天|後天|週末|下週|月底|今天|今晚/
+        ];
+        return datePatterns.some(pattern => pattern.test(message));
+    }
+
+    static detectUserType(message) {
+        const lowerMessage = message.toLowerCase();
+        if (/(家庭|小孩|兒童|親子|寶寶)/.test(lowerMessage)) return 'family';
+        if (/(情侶|夫妻|蜜月|浪漫)/.test(lowerMessage)) return 'couple';
+        if (/(商務|會議|出差|辦公)/.test(lowerMessage)) return 'business';
+        return 'individual';
+    }
+
+    // 🚨 輔助函式：用於臨時提取實體
+    static extractEntities(message) {
+        const data = {};
+        const lowerMessage = message.toLowerCase();
+
+        // 房型
+        if (/(豪華客房|海景房|標準雙人房|行政套房)/.test(lowerMessage)) {
+            data.roomType = lowerMessage.match(/(豪華客房|海景房|標準雙人房|行政套房)/)[0];
         }
         
-        // 設定事件監聽
-        function setupEventListeners() {
-            sendButton.addEventListener('click', sendMessage);
-            messageInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') sendMessage();
-            });
-            messageInput.focus();
+        // 日期
+        const dateMatch = lowerMessage.match(/(\d{1,2}[\/\-]\d{1,2})|(\d{1,2}月\d{1,2}日)|(明天|後天)/);
+        if (dateMatch) {
+            data.checkInDate = dateMatch[0]; // 簡單提取
         }
         
-        // 檢查連線狀態
-        async function checkConnection() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/health`);
-                if (response.ok) {
-                    console.log("✅ 後端服務連線正常");
-                    addSystemMessage("系統連線正常，隨時為您服務！");
+        // 晚數
+        const nightsMatch = lowerMessage.match(/(\d+)晚/);
+        if (nightsMatch) {
+            data.nights = parseInt(nightsMatch[1], 10);
+        }
+
+        // 人數
+        const adultMatch = lowerMessage.match(/(\d+)位大人|(\d+)大/);
+        if (adultMatch) {
+            data.adultCount = parseInt(adultMatch[1] || adultMatch[2], 10);
+        }
+        const childMatch = lowerMessage.match(/(\d+)位兒童|(\d+)小/);
+        if (childMatch) {
+            data.childCount = parseInt(childMatch[1] || childMatch[2], 10);
+        }
+
+        // 聯絡方式
+        const nameMatch = lowerMessage.match(/訂房人(是|為)?\s*(\S+)\s*(先生|小姐)?/);
+        if (nameMatch && nameMatch[2].length > 1 && nameMatch[2] !== '我') {
+            data.name = nameMatch[2];
+        }
+        const emailMatch = lowerMessage.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+        if (emailMatch) {
+            data.email = emailMatch[0];
+        }
+        
+        return data;
+    }
+}
+
+// 狀態機控制器
+class BookingFlowController {
+    static getFlow() {
+        return DIALOGUE_FLOW;
+    }
+
+    static getCurrentState(session) {
+        const stateKey = session.bookingState || 'init';
+        return DIALOGUE_FLOW.states[stateKey];
+    }
+    
+    // 執行價格計算 (模擬)
+    static calculatePrice(data, isMemberDiscount = false) {
+        const { roomType = '豪華客房', nights = 1, childCount = 0 } = data;
+        let basePrice = 3200; // 豪華客房基礎價
+        if (roomType.includes('標準')) basePrice = 2200;
+        else if (roomType.includes('行政')) basePrice = 4800;
+
+        let total = basePrice * nights;
+        
+        // 兒童加價 (簡化：假設每個兒童加 300)
+        total += (childCount || 0) * 300; 
+
+        // 會員折扣
+        if (isMemberDiscount) {
+            total *= 0.8; 
+        }
+        
+        return Math.round(total);
+    }
+}
+
+
+// 規則引擎類別
+class RuleEngine {
+    static process(intents, session, message) {
+        const rules = [
+            this.emergencyRule,
+            this.bookingFlowRule, // 🚨 訂房流程優先
+            this.transferRule,
+            this.pricingRule,
+            this.memberRule,
+            this.attractionsRule,
+            this.shoppingRule,
+            this.itineraryRule,
+            this.medicalRule,
+            this.modificationRule,
+            this.weatherRule,
+            this.restaurantRule,
+            this.facilityRule,
+            this.generalRule
+        ];
+
+        for (const rule of rules) {
+            const result = rule(intents, session, message);
+            if (result.shouldProcess) {
+                console.log(`🎯 規則觸發: ${rule.name}, 優先級: ${result.priority}`);
+                return result;
+            }
+        }
+
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    // 🏨 訂房流程規則 (使用 JSON 狀態機重構)
+    static bookingFlowRule(intents, session, message) {
+        const hasBookingIntent = intents.includes('booking');
+        
+        // 如果訊息包含 booking 意圖，或者 session 已經在流程中
+        if (hasBookingIntent || session.bookingState) {
+            
+            // 處理流程結束和重置
+            if (session.bookingState === 'booking_complete' || session.bookingState === 'end_conversation') {
+                session.bookingState = null;
+                session.collectedData = {};
+                return { shouldProcess: false, priority: 0 }; // 讓流程重新回到 init
+            }
+
+            // 確定當前狀態
+            if (!session.bookingState) session.bookingState = 'init';
+            
+            let currentState = BookingFlowController.getCurrentState(session);
+            let nextStateKey = session.bookingState;
+            
+            // 1. 提取實體並更新 session
+            const extractedEntities = SmartIntentClassifier.extractEntities(message);
+            Object.assign(session.collectedData, extractedEntities);
+
+            // 2. 嘗試根據意圖轉移
+            for (const intent of intents) {
+                if (currentState.intents && currentState.intents[intent]) {
+                    nextStateKey = currentState.intents[intent];
+                    break;
                 }
-            } catch (error) {
-                console.error("❌ 後端服務連線失敗:", error);
-                addSystemMessage("⚠️ 系統連線異常，部分功能可能受影響");
             }
-        }
-        
-        // 發送訊息
-        async function sendMessage() {
-            const message = messageInput.value.trim();
-            if (!message) return;
-            
-            // 添加使用者訊息到聊天室
-            addMessage(message, 'user');
-            messageInput.value = '';
-            sendButton.disabled = true;
-            
-            // 顯示輸入指示
-            showTypingIndicator();
-            
-            try {
-                console.log('發送請求到:', API_CHAT_ENDPOINT);
-                
-                const response = await fetch(API_CHAT_ENDPOINT, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        message: message,
-                        sessionId: sessionId
-                    })
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                hideTypingIndicator();
-                
-                if (data.success && data.reply) {
-                    // 處理換行符號和格式化
-                    const formattedReply = formatMessage(data.reply);
-                    addMessage(formattedReply, 'bot');
+
+            // 3. 檢查實體是否收集完畢以轉移到下一個狀態
+            if (nextStateKey === session.bookingState && currentState.entities && currentState.next_state) {
+                const allEntitiesCollected = currentState.entities.every(
+                    entity => session.collectedData[entity]
+                );
+                if (allEntitiesCollected) {
+                    nextStateKey = currentState.next_state;
                 } else {
-                    throw new Error(data.reply || '無效的回應');
+                    // 如果實體不完整，停留在當前狀態，回覆 fallback
+                    return {
+                        shouldProcess: true,
+                        priority: 95, // 確保高優先級
+                        response: currentState.fallback, 
+                        nextStep: session.bookingState,
+                        updateSession: true
+                    };
                 }
-                
-            } catch (error) {
-                hideTypingIndicator();
-                console.error('發送訊息錯誤:', error);
-                
-                // 更友好的錯誤訊息
-                let errorMessage = '抱歉，服務暫時不可用。請稍後再試。';
-                if (error.message.includes('Failed to fetch')) {
-                    errorMessage = '網路連線失敗，請檢查您的網路連線。';
-                } else if (error.message.includes('404')) {
-                    errorMessage = '服務暫時無法訪問，請稍後再試。';
-                }
-                
-                addErrorMessage(errorMessage);
-            } finally {
-                sendButton.disabled = false;
-                messageInput.focus();
+            }
+
+            // 4. 處理特殊狀態的後端動作 (價格計算和折扣)
+            if (nextStateKey === 'check_availability_and_price') {
+                const data = session.collectedData;
+                data.totalPrice = BookingFlowController.calculatePrice(data, false);
+                data.finalPrice = data.totalPrice; // 初始最終價
+            } else if (nextStateKey === 'apply_member_discount') {
+                const data = session.collectedData;
+                data.newTotalPrice = BookingFlowController.calculatePrice(data, true);
+                data.finalPrice = data.newTotalPrice; // 更新最終價
+            }
+
+            // 5. 確保狀態轉移
+            session.bookingState = nextStateKey;
+            let nextState = BookingFlowController.getCurrentState(session);
+
+            // 6. 格式化回覆 (變數替換)
+            let response = nextState.prompt;
+            for (const key in session.collectedData) {
+                // 替換所有 {key} 和 ${key}
+                response = response.replace(new RegExp(`\\{${key}\\}`, 'g'), session.collectedData[key]);
+                response = response.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), session.collectedData[key]);
+            }
+            
+            // 流程結束後重置狀態
+            if (nextState.end) {
+                setTimeout(() => {
+                    session.bookingState = null;
+                    session.collectedData = {};
+                }, 500); // 延遲重置，確保最後一個回應能儲存
+            }
+
+            return {
+                shouldProcess: true,
+                priority: 95, // 最高優先級
+                response: response,
+                nextStep: session.bookingState,
+                updateSession: true
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    // 🚨 緊急規則 (保持不變)
+    static emergencyRule(intents, session, message) {
+        if (intents.includes('emergency') || /(救命|火災|小偷|警察|救護車)/.test(message.toLowerCase())) {
+            return {
+                shouldProcess: true,
+                priority: 100,
+                response: "🚨 **緊急狀況處理**\n\n我們已收到您的緊急求助！請立即：\n\n• 撥打緊急專線：02-1199-1199\n• 聯絡前台：分機 0\n• 或直接前往一樓服務台\n\n我們的工作人員會立即為您提供協助！",
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    // [簡化：移除所有未使用的規則實現，只保留 bookingFlowRule 和 emergencyRule 減少程式碼複雜度]
+    static transferRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static pricingRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static memberRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static attractionsRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static shoppingRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static itineraryRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static medicalRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static modificationRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static weatherRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static restaurantRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static facilityRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+
+    // 📞 一般規則 (作為最終回退)
+    static generalRule(intents, session, message) {
+        if (intents.includes('general_inquiry') || intents.length === 0) {
+            return {
+                shouldProcess: true,
+                priority: 10,
+                response: "👋 您好！我是海灣麗景酒店AI助理小智\n\n我可以協助您：訂房、接送、餐廳推薦、價格查詢、景點導覽、天氣資訊等服務。\n\n請問今天需要什麼協助呢？"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+}
+
+
+// 會話狀態管理器
+class SessionManager {
+    constructor() {
+        this.sessions = new Map();
+    }
+    
+    getSession(sessionId) {
+        if (!this.sessions.has(sessionId)) {
+            this.sessions.set(sessionId, {
+                currentStep: 'welcome',
+                bookingState: null,       // 🚨 狀態機新增屬性
+                collectedData: {},        // 🚨 狀態機新增屬性
+                userType: 'unknown',
+                askedTopics: [],
+                conversationHistory: [],
+                lastActive: new Date().toISOString()
+            });
+        }
+        return this.sessions.get(sessionId);
+    }
+    
+    updateSession(sessionId, message, intents) {
+        const session = this.getSession(sessionId);
+        session.lastActive = new Date().toISOString();
+        session.conversationHistory.push({
+            role: 'user',
+            message,
+            intents,
+            timestamp: new Date().toISOString()
+        });
+        session.userType = SmartIntentClassifier.detectUserType(message);
+        intents.forEach(intent => {
+            if (!session.askedTopics.includes(intent)) session.askedTopics.push(intent);
+        });
+        return session;
+    }
+
+    addAssistantResponse(sessionId, reply) {
+        const session = this.getSession(sessionId);
+        session.conversationHistory.push({
+            role: 'model',
+            message: reply,
+            timestamp: new Date().toISOString()
+        });
+    }
+}
+
+const sessionManager = new SessionManager();
+
+// ---------------------------------------------
+// 4. API 通訊工具 (保持不變)
+// ---------------------------------------------
+async function fetchWithRetry(url, options, attempt = 1) {
+    try {
+        const response = await fetch(url, options);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            
+            if (response.status === 400 || response.status === 404) {
+                throw new Error(`API response error: ${response.status} ${response.statusText}`);
+            }
+            
+            if (response.status === 429 && attempt < MAX_RETRIES) {
+                const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1);
+                console.warn(`[Gemini API] Rate limit hit. Retrying in ${Math.round(delay / 1000)}s... (Attempt ${attempt})`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return fetchWithRetry(url, options, attempt + 1);
+            }
+            
+            throw new Error(`API response error: ${response.status} ${response.statusText}`);
+        }
+        return response;
+    } catch (error) {
+        if (attempt < MAX_RETRIES && !error.message.includes('400') && !error.message.includes('404')) {
+            console.error(`[Gemini API] Request failed: ${error.message}. Retrying...`);
+            const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return fetchWithRetry(url, options, attempt + 1);
+        }
+        throw error;
+    }
+}
+
+// ---------------------------------------------
+// 5. 回應生成與 LLM 邏輯 (保持不變)
+// ---------------------------------------------
+class ResponseGenerator {
+    static async handleSpecialCommands(message, session) {
+        const translateMatch = message.match(/^\[translate:(.*?)\]$/i);
+        if (translateMatch) {
+            const textToTranslate = translateMatch[1].trim();
+            console.log(`🟢 執行特殊指令：翻譯 "${textToTranslate}"`);
+            try {
+                const prompt = `請將以下中文文本翻譯成流利的英文，只輸出翻譯結果，不要包含任何額外解釋或註釋："${textToTranslate}"`;
+                session.conversationHistory.push({ role: 'user', message: prompt });
+                const reply = await this.getGeminiResponse(session);
+                session.conversationHistory.pop();
+                return `🌐 **翻譯結果：**\n\n${reply}`;
+            } catch (e) {
+                console.error("翻譯服務失敗:", e.message);
+                return `🌐 翻譯服務暫時不可用，但您想翻譯的文本是：「${textToTranslate}」。`;
             }
         }
-        
-        // 格式化訊息內容
-        function formatMessage(content) {
-            return content
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\n/g, '<br>')
-                .replace(/•/g, '•')
-                .replace(/✅/g, '✅')
-                .replace(/🚗/g, '🚗')
-                .replace(/🍽️/g, '🍽️')
-                .replace(/🗺️/g, '🗺️')
-                .replace(/🌤️/g, '🌤️')
-                .replace(/💰/g, '💰')
-                .replace(/🎯/g, '🎯')
-                .replace(/🌟/g, '🌟');
+        return null;
+    }
+    
+    static async generateResponse(intents, session, message) {
+        const specialReply = await this.handleSpecialCommands(message, session);
+        if (specialReply) {
+            return specialReply;
         }
+
+        console.log(`🎯 意圖識別: ${intents.join(', ')}, 用戶類型: ${session.userType}`);
         
-        // 添加訊息到聊天室
-        function addMessage(content, sender) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}-message`;
+        // 🚨 第一步：使用規則引擎處理所有意圖 (包括高優先級的訂房流程)
+        const ruleResult = RuleEngine.process(intents, session, message);
+        
+        // 如果規則引擎產生了回應，並且優先級足夠高，則使用它
+        if (ruleResult.shouldProcess && ruleResult.priority >= 50) {
+            if (ruleResult.updateSession && ruleResult.nextStep) {
+                // 這裡的 session.askedTopics 更新邏輯，已被 bookingFlowRule 的 session.bookingState 取代
+            }
+            return ruleResult.response;
+        }
+
+        // 🤖 第二步：複雜/一般問題使用 AI (現在只依賴 Gemini 免費額度)
+        try {
+            console.log("🤖 嘗試使用 Gemini AI 處理複雜問題 (已禁用外部工具)");
+            return await this.getGeminiResponse(session);
+        } catch (error) {
+            console.error("AI 服務失敗，使用規則回覆:", error.message);
+            // 優雅回退到規則引擎或預設回應
+            return this.getEnhancedFallbackResponse(intents, session, message, ruleResult);
+        }
+    }
+
+    static getEnhancedFallbackResponse(intents, session, message, ruleResult) {
+        if (ruleResult.shouldProcess) {
+            return ruleResult.response;
+        }
+        // 使用通用規則作為最終回退
+        return RuleEngine.generalRule(intents, session, message).response;
+    }
+
+    // 🟡 核心：與 Gemini API 通訊
+    static async getGeminiResponse(session) {
+        if (!apiKey) {
+            console.warn("[Gemini API] API Key is empty. Using rule-based response.");
+            return RuleEngine.generalRule([], session, "").response;
+        }
+
+        try {
+            const contents = session.conversationHistory.map(item => ({
+                role: item.role === 'user' ? 'user' : 'model',
+                parts: [{ text: item.message }]
+            }));
+
+            const payload = {
+                contents: contents,
+                generationConfig: {
+                    maxOutputTokens: 500,
+                    temperature: 0.7,
+                },
+                safetySettings: [
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" }
+                ],
+            };
             
-            const avatarDiv = document.createElement('div');
-            avatarDiv.className = 'message-avatar';
+            const response = await fetchWithRetry(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
             
-            const bubbleDiv = document.createElement('div');
-            bubbleDiv.className = 'message-bubble';
-            
-            if (sender === 'user') {
-                avatarDiv.innerHTML = '<i class="fas fa-user"></i>';
-                messageDiv.appendChild(bubbleDiv);
-                messageDiv.appendChild(avatarDiv);
+            if (result.error) {
+                throw new Error(`API Error: ${result.error.message}`);
+            }
+
+            const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            if (text) {
+                return text;
             } else {
-                avatarDiv.innerHTML = '<i class="fas fa-concierge-bell"></i>';
-                messageDiv.appendChild(avatarDiv);
-                messageDiv.appendChild(bubbleDiv);
+                console.error("[Gemini API] Empty response or blocked:", JSON.stringify(result, null, 2));
+                throw new Error("No valid text in response or content was blocked.");
             }
-            
-            bubbleDiv.innerHTML = content;
-            
-            // 添加時間戳
-            const timeDiv = document.createElement('div');
-            timeDiv.className = 'message-time';
-            timeDiv.textContent = new Date().toLocaleTimeString('zh-TW', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-            bubbleDiv.appendChild(timeDiv);
-            
-            chatMessages.appendChild(messageDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+        } catch (error) {
+            console.error("Error communicating with Gemini API:", error.message);
+            throw error;
         }
+    }
+}
+
+// ---------------------------------------------
+// 6. Express 路由定義
+// ---------------------------------------------
+
+// 🚨 靜態檔案服務設定 (重要：讓 Render 服務提供 HTML 檔案)
+// 假設 working-chat.html 放在專案根目錄下的 'public' 資料夾中
+const PUBLIC_DIR = path.join(__dirname, 'public');
+app.use(express.static(PUBLIC_DIR));
+
+// 處理 CORS 和 JSON/URL 編碼
+app.use(cors({
+    origin: '*', // 允許所有來源，確保前端連線
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(express.json({ limit: '10mb' }));
+
+// 🚨 根路徑導向 (讓使用者訪問主 URL 就能看到聊天介面)
+app.get('/', (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, 'working-chat.html')); 
+});
+
+
+// 🚨 健康檢查路徑 (Render 服務健康度監控使用)
+app.get('/healthz', (req, res) => {
+    res.status(200).send({ status: 'ok', api_status: apiKey ? 'ready' : 'missing_key' });
+});
+
+
+// 聊天路由 (前端連線的唯一 API)
+app.post('/chat', async (req, res) => {
+    const { sessionId, message } = req.body;
+
+    if (!sessionId || !message) {
+        return res.status(400).json({ error: '缺少 sessionId 或 message 參數' });
+    }
+    
+    // 檢查 API Key，如果沒有則直接回覆
+    if (!apiKey) {
+        return res.status(503).json({ 
+            error: "服務器錯誤：未配置 Gemini API Key。",
+            hint: RuleEngine.generalRule([], sessionManager.getSession(sessionId), "").response
+        });
+    }
+
+    try {
+        // 1. 更新會話狀態並獲取意圖
+        const session = sessionManager.updateSession(sessionId, message);
+        const intents = SmartIntentClassifier.classify(message);
+
+        // 2. 🌟 生成回應 (ResponseGenerator 將優先呼叫 RuleEngine 處理 Dialogue Flow)
+        const reply = await ResponseGenerator.generateResponse(intents, session, message);
         
-        // 添加系統訊息
-        function addSystemMessage(content) {
-            const systemDiv = document.createElement('div');
-            systemDiv.className = 'system-message';
-            systemDiv.innerHTML = `<i class="fas fa-info-circle"></i> ${content}`;
-            chatMessages.appendChild(systemDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // 添加錯誤訊息
-        function addErrorMessage(content) {
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-message';
-            errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${content}`;
-            chatMessages.appendChild(errorDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // 顯示輸入指示
-        function showTypingIndicator() {
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'message bot-message typing-indicator';
-            typingDiv.id = 'typingIndicator';
-            
-            const avatarDiv = document.createElement('div');
-            avatarDiv.className = 'message-avatar';
-            avatarDiv.innerHTML = '<i class="fas fa-concierge-bell"></i>';
-            
-            const bubbleDiv = document.createElement('div');
-            bubbleDiv.className = 'message-bubble';
-            bubbleDiv.innerHTML = 'AI管家思考中<span class="typing-dots"><span></span><span></span><span></span></span>';
-            
-            typingDiv.appendChild(avatarDiv);
-            typingDiv.appendChild(bubbleDiv);
-            
-            chatMessages.appendChild(typingDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // 隱藏輸入指示
-        function hideTypingIndicator() {
-            const typingIndicator = document.getElementById('typingIndicator');
-            if (typingIndicator) {
-                typingIndicator.remove();
-            }
-        }
-        
-        // 快速回覆
-        function sendQuickReply(message) {
-            messageInput.value = message;
-            sendMessage();
-        }
-        
-        // 新對話
-        function showResetConfirm() {
-            if (confirm('確定要開始新的對話嗎？當前對話記錄將被清除。')) {
-                chatMessages.innerHTML = '';
-                sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                
-                // 重新加入歡迎訊息
-                const welcomeMsg = document.createElement('div');
-                welcomeMsg.className = 'welcome-message';
-                welcomeMsg.innerHTML = `
-                    <h3>歡迎光臨海灣麗景酒店</h3>
-                    <p>我是您的AI訂房管家，可以協助您預訂房間、安排接送、推薦餐廳及景點，讓您享受完美的住宿體驗。</p>
-                    <div class="service-highlight">
-                        <div class="service-badge"><i class="fas fa-bed"></i> 訂房服務</div>
-                        <div class="service-badge"><i class="fas fa-car"></i> 接送服務</div>
-                        <div class="service-badge"><i class="fas fa-utensils"></i> 餐廳推薦</div>
-                    </div>
-                `;
-                chatMessages.appendChild(welcomeMsg);
-                
-                addSystemMessage("已開始新的對話");
-            }
-        }
-        
-        // 匯出對話
-        function exportChat() {
-            const messages = document.querySelectorAll('.message-bubble');
-            let chatText = "海灣麗景酒店 - 對話記錄\n\n";
-            let messageCount = 0;
-            
-            messages.forEach(bubble => {
-                const isUser = bubble.parentElement.classList.contains('user-message');
-                const content = bubble.textContent.replace(/\n/g, ' ').trim();
-                if (content && !content.includes('AI管家思考中')) {
-                    const prefix = isUser ? "客戶: " : "管家: ";
-                    chatText += prefix + content + "\n\n";
-                    messageCount++;
-                }
-            });
-            
-            if (messageCount === 0) {
-                alert('目前沒有可匯出的對話記錄');
-                return;
-            }
-            
-            const blob = new Blob([chatText], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `海灣麗景酒店對話記錄_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            addSystemMessage(`對話記錄已匯出，共 ${messageCount} 條訊息`);
-        }
-        
-        // 初始化聊天室
-        document.addEventListener('DOMContentLoaded', initializeChat);
-    </script>
-</body>
-</html>
+        // 3. 儲存 AI 回應
+        sessionManager.addAssistantResponse(sessionId, reply);
+
+        res.json({ reply, sessionId });
+
+    } catch (error) {
+        console.error("主要聊天路由發生錯誤:", error);
+        res.status(500).json({ 
+            error: "服務器處理錯誤，請稍後再試。",
+            details: error.message 
+        });
+    }
+});
+
+
+// ---------------------------------------------
+// 7. 伺服器啟動
+// ---------------------------------------------
+
+app.listen(PORT, HOST, () => {
+    console.log(`✅ Server is running on http://${HOST}:${PORT}`);
+    console.log(`🔑 Gemini API Key Status: ${apiKey ? 'Loaded' : 'MISSING!'}`);
+    console.log(`🚫 Custom Search Tool: Disabled for zero-cost operation.`);
+    console.log(`📝 Dialogue Flow Status: Fully Integrated.`);
+    console.log(`🌐 Static files served from: ${PUBLIC_DIR}`);
+});
