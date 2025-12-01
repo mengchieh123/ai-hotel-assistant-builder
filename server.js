@@ -1,4 +1,4 @@
-// server.js (Dialogue Flow 完整整合版 - 零費用/免費額度專用)
+// server.js (Dialogue Flow 完整整合版 - 支援靜態網頁服務)
 // 海灣麗景酒店 AI 智能助理
 
 // ---------------------------------------------
@@ -8,7 +8,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const path = require('path'); // 🚨 導入 path 模組來處理路徑
+const path = require('path');
 const app = express();
 
 const PORT = process.env.PORT || 10000;
@@ -284,9 +284,9 @@ class RuleEngine {
             
             // 處理流程結束和重置
             if (session.bookingState === 'booking_complete' || session.bookingState === 'end_conversation') {
-                 session.bookingState = null;
-                 session.collectedData = {};
-                 return { shouldProcess: false, priority: 0 }; // 讓流程重新回到 init
+                session.bookingState = null;
+                session.collectedData = {};
+                return { shouldProcess: false, priority: 0 }; // 讓流程重新回到 init
             }
 
             // 確定當前狀態
@@ -380,40 +380,20 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 🚗 接送服務規則 (保持不變)
-    static transferRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
+    // [簡化：移除所有未使用的規則實現，只保留 bookingFlowRule 和 emergencyRule 減少程式碼複雜度]
+    static transferRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static pricingRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static memberRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static attractionsRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static shoppingRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static itineraryRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static medicalRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static modificationRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static weatherRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static restaurantRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
+    static facilityRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
 
-    // 💰 價格查詢規則 (保持不變)
-    static pricingRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 🎯 會員規則 (保持不變)
-    static memberRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 🗺️ 景點規則 (保持不變)
-    static attractionsRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 🛍️ 購物規則 (保持不變)
-    static shoppingRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 📅 行程規則 (保持不變)
-    static itineraryRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 🏥 醫療規則 (保持不變)
-    static medicalRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 🔄 變更規則 (保持不變)
-    static modificationRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 🌤️ 天氣查詢規則 (保持不變)
-    static weatherRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 🍽️ 餐廳規則 (保持不變)
-    static restaurantRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 🏊 設施規則 (保持不變)
-    static facilityRule(intents, session, message) { /* ... */ return { shouldProcess: false, priority: 0 }; }
-
-    // 📞 一般規則 (保持不變)
+    // 📞 一般規則 (作為最終回退)
     static generalRule(intents, session, message) {
         if (intents.includes('general_inquiry') || intents.length === 0) {
             return {
@@ -437,8 +417,8 @@ class SessionManager {
         if (!this.sessions.has(sessionId)) {
             this.sessions.set(sessionId, {
                 currentStep: 'welcome',
-                bookingState: null,         // 🚨 狀態機新增屬性
-                collectedData: {},          // 🚨 狀態機新增屬性
+                bookingState: null,       // 🚨 狀態機新增屬性
+                collectedData: {},        // 🚨 狀態機新增屬性
                 userType: 'unknown',
                 askedTopics: [],
                 conversationHistory: [],
@@ -477,7 +457,7 @@ class SessionManager {
 const sessionManager = new SessionManager();
 
 // ---------------------------------------------
-// 4. API 通訊工具
+// 4. API 通訊工具 (保持不變)
 // ---------------------------------------------
 async function fetchWithRetry(url, options, attempt = 1) {
     try {
@@ -512,7 +492,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
 }
 
 // ---------------------------------------------
-// 5. 回應生成與 LLM 邏輯 (禁用工具)
+// 5. 回應生成與 LLM 邏輯 (保持不變)
 // ---------------------------------------------
 class ResponseGenerator {
     static async handleSpecialCommands(message, session) {
@@ -566,7 +546,7 @@ class ResponseGenerator {
 
     static getEnhancedFallbackResponse(intents, session, message, ruleResult) {
         if (ruleResult.shouldProcess) {
-             return ruleResult.response;
+            return ruleResult.response;
         }
         // 使用通用規則作為最終回退
         return RuleEngine.generalRule(intents, session, message).response;
@@ -628,70 +608,45 @@ class ResponseGenerator {
 // 6. Express 路由定義
 // ---------------------------------------------
 
-// 🚨 靜態檔案服務設定 (修復 Render 上看不到網頁的問題)
-// 假設您的 working-chat.html 檔案放在專案的根目錄，或者一個名為 'public' 的目錄中。
-// 如果在根目錄，使用 app.use(express.static(__dirname));
-
-// 建議將前端檔案放在一個名為 'public' 的資料夾中
-// 如果您的檔案在根目錄，請將 'public' 替換為 '.'
+// 🚨 靜態檔案服務設定 (重要：讓 Render 服務提供 HTML 檔案)
+// 假設 working-chat.html 放在專案根目錄下的 'public' 資料夾中
 const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
 
 // 處理 CORS 和 JSON/URL 編碼
 app.use(cors({
-    origin: [
-        'https://ai-hotel-assistant-builder.onrender.com',
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'http://localhost:10000',
-        'http://127.0.0.1:10000'
-    ],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-        'Content-Type', 
-        'Authorization', 
-        'X-Requested-With', 
-        'Accept',
-        'Origin',
-        'X-Request-Id'
-    ],
-    exposedHeaders: [
-        'Content-Length', 
-        'X-Request-Id',
-        'Access-Control-Allow-Origin'
-    ],
-    maxAge: 86400, // 24小時
-    preflightContinue: false,
-    optionsSuccessStatus: 204
+    origin: '*', // 允許所有來源，確保前端連線
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
 
-
-// 🚨 根路徑導向 (可選，讓使用者直接訪問主 URL 就能看到聊天介面)
+// 🚨 根路徑導向 (讓使用者訪問主 URL 就能看到聊天介面)
 app.get('/', (req, res) => {
-    // 假設 working-chat.html 在 public 目錄下
     res.sendFile(path.join(PUBLIC_DIR, 'working-chat.html')); 
-    
-    // 如果 working-chat.html 在根目錄：
-    // res.sendFile(path.join(__dirname, 'working-chat.html'));
 });
 
 
 // 🚨 健康檢查路徑 (Render 服務健康度監控使用)
 app.get('/healthz', (req, res) => {
-    res.status(200).send('ok');
+    res.status(200).send({ status: 'ok', api_status: apiKey ? 'ready' : 'missing_key' });
 });
 
 
-// 聊天路由
+// 聊天路由 (前端連線的唯一 API)
 app.post('/chat', async (req, res) => {
     const { sessionId, message } = req.body;
 
     if (!sessionId || !message) {
         return res.status(400).json({ error: '缺少 sessionId 或 message 參數' });
+    }
+    
+    // 檢查 API Key，如果沒有則直接回覆
+    if (!apiKey) {
+        return res.status(503).json({ 
+            error: "服務器錯誤：未配置 Gemini API Key。",
+            hint: RuleEngine.generalRule([], sessionManager.getSession(sessionId), "").response
+        });
     }
 
     try {
@@ -726,5 +681,5 @@ app.listen(PORT, HOST, () => {
     console.log(`🔑 Gemini API Key Status: ${apiKey ? 'Loaded' : 'MISSING!'}`);
     console.log(`🚫 Custom Search Tool: Disabled for zero-cost operation.`);
     console.log(`📝 Dialogue Flow Status: Fully Integrated.`);
-    console.log(`🌐 Static files served from: ${PUBLIC_DIR}`); // 🚨 新增日誌
+    console.log(`🌐 Static files served from: ${PUBLIC_DIR}`);
 });
