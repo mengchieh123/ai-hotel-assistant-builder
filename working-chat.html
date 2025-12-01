@@ -469,6 +469,28 @@
             gap: 5px;
         }
 
+        .system-message {
+            text-align: center;
+            padding: 10px;
+            margin: 10px 0;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 10px;
+            color: #856404;
+            font-size: 14px;
+        }
+
+        .error-message {
+            text-align: center;
+            padding: 10px;
+            margin: 10px 0;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 10px;
+            color: #721c24;
+            font-size: 14px;
+        }
+
         /* 響應式設計 */
         @media (max-width: 768px) {
             .hotel-chat-container {
@@ -583,19 +605,19 @@
             </div>
             
             <div class="quick-replies" id="quickReplies">
-                <button class="quick-reply-btn" onclick="sendQuickReply('訂房服務')">
+                <button class="quick-reply-btn" onclick="sendQuickReply('我想預訂房間')">
                     <i class="fas fa-bed"></i> 訂房服務
                 </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('接送服務')">
+                <button class="quick-reply-btn" onclick="sendQuickReply('有機場接送嗎？')">
                     <i class="fas fa-car"></i> 接送服務
                 </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('價格查詢')">
+                <button class="quick-reply-btn" onclick="sendQuickReply('房價多少錢？')">
                     <i class="fas fa-tag"></i> 價格查詢
                 </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('餐廳推薦')">
+                <button class="quick-reply-btn" onclick="sendQuickReply('有什麼餐廳推薦？')">
                     <i class="fas fa-utensils"></i> 餐廳推薦
                 </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('景點推薦')">
+                <button class="quick-reply-btn" onclick="sendQuickReply('台北有什麼好玩的地方？')">
                     <i class="fas fa-map-marked-alt"></i> 景點推薦
                 </button>
             </div>
@@ -610,9 +632,9 @@
     </div>
 
     <script>
-        // API 設定
-        const API_BASE_URL = 'https://ai-hotel-assistant-builder-production.up.railway.app';
-        const API_CHAT_ENDPOINT = `${API_BASE_URL}/api/chat`;
+        // API 設定 - 修正版本
+        const API_BASE_URL = 'https://ai-hotel-assistant-builder.onrender.com';
+        const API_CHAT_ENDPOINT = `${API_BASE_URL}/chat`;
         
         // DOM 元素
         const chatMessages = document.getElementById('chatMessages');
@@ -641,9 +663,11 @@
                 const response = await fetch(`${API_BASE_URL}/health`);
                 if (response.ok) {
                     console.log("✅ 後端服務連線正常");
+                    addSystemMessage("系統連線正常，隨時為您服務！");
                 }
             } catch (error) {
                 console.error("❌ 後端服務連線失敗:", error);
+                addSystemMessage("⚠️ 系統連線異常，部分功能可能受影響");
             }
         }
         
@@ -661,6 +685,8 @@
             showTypingIndicator();
             
             try {
+                console.log('發送請求到:', API_CHAT_ENDPOINT);
+                
                 const response = await fetch(API_CHAT_ENDPOINT, {
                     method: 'POST',
                     headers: {
@@ -680,10 +706,8 @@
                 hideTypingIndicator();
                 
                 if (data.success && data.reply) {
-                    // 處理換行符號
-                    const formattedReply = data.reply
-                        .replace(/↵/g, '<br>')
-                        .replace(/\n/g, '<br>');
+                    // 處理換行符號和格式化
+                    const formattedReply = formatMessage(data.reply);
                     addMessage(formattedReply, 'bot');
                 } else {
                     throw new Error(data.reply || '無效的回應');
@@ -691,12 +715,37 @@
                 
             } catch (error) {
                 hideTypingIndicator();
-                addMessage(`抱歉，服務暫時不可用。請稍後再試。<br><small>錯誤: ${error.message}</small>`, 'bot');
                 console.error('發送訊息錯誤:', error);
+                
+                // 更友好的錯誤訊息
+                let errorMessage = '抱歉，服務暫時不可用。請稍後再試。';
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = '網路連線失敗，請檢查您的網路連線。';
+                } else if (error.message.includes('404')) {
+                    errorMessage = '服務暫時無法訪問，請稍後再試。';
+                }
+                
+                addErrorMessage(errorMessage);
             } finally {
                 sendButton.disabled = false;
                 messageInput.focus();
             }
+        }
+        
+        // 格式化訊息內容
+        function formatMessage(content) {
+            return content
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>')
+                .replace(/•/g, '•')
+                .replace(/✅/g, '✅')
+                .replace(/🚗/g, '🚗')
+                .replace(/🍽️/g, '🍽️')
+                .replace(/🗺️/g, '🗺️')
+                .replace(/🌤️/g, '🌤️')
+                .replace(/💰/g, '💰')
+                .replace(/🎯/g, '🎯')
+                .replace(/🌟/g, '🌟');
         }
         
         // 添加訊息到聊天室
@@ -735,6 +784,24 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         
+        // 添加系統訊息
+        function addSystemMessage(content) {
+            const systemDiv = document.createElement('div');
+            systemDiv.className = 'system-message';
+            systemDiv.innerHTML = `<i class="fas fa-info-circle"></i> ${content}`;
+            chatMessages.appendChild(systemDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // 添加錯誤訊息
+        function addErrorMessage(content) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${content}`;
+            chatMessages.appendChild(errorDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
         // 顯示輸入指示
         function showTypingIndicator() {
             const typingDiv = document.createElement('div');
@@ -765,8 +832,8 @@
         }
         
         // 快速回覆
-        function sendQuickReply(service) {
-            messageInput.value = `我需要${service}`;
+        function sendQuickReply(message) {
+            messageInput.value = message;
             sendMessage();
         }
         
@@ -780,7 +847,7 @@
                 const welcomeMsg = document.createElement('div');
                 welcomeMsg.className = 'welcome-message';
                 welcomeMsg.innerHTML = `
-                    <h3>歡迎光臨旅盟酒店</h3>
+                    <h3>歡迎光臨海灣麗景酒店</h3>
                     <p>我是您的AI訂房管家，可以協助您預訂房間、安排接送、推薦餐廳及景點，讓您享受完美的住宿體驗。</p>
                     <div class="service-highlight">
                         <div class="service-badge"><i class="fas fa-bed"></i> 訂房服務</div>
@@ -789,32 +856,47 @@
                     </div>
                 `;
                 chatMessages.appendChild(welcomeMsg);
+                
+                addSystemMessage("已開始新的對話");
             }
         }
         
         // 匯出對話
         function exportChat() {
             const messages = document.querySelectorAll('.message-bubble');
-            let chatText = "旅盟酒店 - 對話記錄\n\n";
+            let chatText = "海灣麗景酒店 - 對話記錄\n\n";
+            let messageCount = 0;
             
             messages.forEach(bubble => {
                 const isUser = bubble.parentElement.classList.contains('user-message');
                 const content = bubble.textContent.replace(/\n/g, ' ').trim();
-                const prefix = isUser ? "客戶: " : "管家: ";
-                chatText += prefix + content + "\n\n";
+                if (content && !content.includes('AI管家思考中')) {
+                    const prefix = isUser ? "客戶: " : "管家: ";
+                    chatText += prefix + content + "\n\n";
+                    messageCount++;
+                }
             });
             
-            const blob = new Blob([chatText], { type: 'text/plain' });
+            if (messageCount === 0) {
+                alert('目前沒有可匯出的對話記錄');
+                return;
+            }
+            
+            const blob = new Blob([chatText], { type: 'text/plain;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `飯店對話記錄_${new Date().toLocaleDateString('zh-TW')}.txt`;
+            a.download = `海灣麗景酒店對話記錄_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.txt`;
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
             URL.revokeObjectURL(url);
+            
+            addSystemMessage(`對話記錄已匯出，共 ${messageCount} 條訊息`);
         }
         
         // 初始化聊天室
-        initializeChat();
+        document.addEventListener('DOMContentLoaded', initializeChat);
     </script>
 </body>
 </html>
