@@ -18,7 +18,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
 
-// 🚨 修正一：更新模型名稱為目前支援的最新且穩定的版本
+// 模型名稱
 const MODEL_NAME = "gemini-2.5-flash"; 
 
 const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
@@ -191,12 +191,24 @@ class SmartIntentClassifier {
             data.childCount = parseInt(childMatch[1] || childMatch[2], 10);
         }
 
-        // 聯絡方式
-        const nameMatch = lowerMessage.match(/訂房人(是|為)?\s*(\S+)\s*(先生|小姐)?/);
-        if (nameMatch && nameMatch[2] && nameMatch[2].length > 1 && nameMatch[2] !== '我') {
-            data.name = nameMatch[2];
+        // 聯絡方式 - 🌟 修正 NAME 提取邏輯
+        // 匹配 "名字是王小明" 或 "稱呼是王小明"，或單獨出現的 2-4 個中文字
+        const nameMatch = message.match(/(?:名字是|稱呼是|本人是|是)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
+        
+        if (nameMatch) {
+            // nameMatch[1] 是前面有引導詞的，nameMatch[2] 是單獨的中文名
+            let extractedName = nameMatch[1] || nameMatch[2];
+            if (extractedName && extractedName.length >= 2) {
+                data.name = extractedName.trim();
+                // 額外檢查：避免提取到 "我的名字" 這樣的詞
+                if (data.name.includes('我的') || data.name.includes('名字')) {
+                    data.name = undefined;
+                }
+            }
         }
-        const emailMatch = lowerMessage.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+        
+        // 聯絡方式 - EMAIL 提取 (保持不變)
+        const emailMatch = message.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
         if (emailMatch) {
             data.email = emailMatch[0];
         }
@@ -274,7 +286,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 🏨 訂房流程規則 (已修正 init 狀態強制回覆問題)
+    // 🏨 訂房流程規則 
     static bookingFlowRule(intents, session, message) {
         const hasBookingIntent = intents.includes('book_room') || intents.includes('ask_promotion');
         
@@ -302,9 +314,9 @@ class RuleEngine {
 
             // 🚨 優化後的 INIT 狀態處理邏輯
             if (session.bookingState === 'init') {
-                // 如果用戶在 init 狀態下明確選擇了 'book_room' 意圖 (即對我們第一次的提示做出回應)
+                // 如果用戶在 init 狀態下明確選擇了 'book_room' 意圖 
                 if (intents.includes('book_room')) {
-                    // 允許狀態轉移到第一個實體收集狀態，讓後續邏輯去處理剛提取到的所有實體
+                    // 允許狀態轉移到第一個實體收集狀態
                     session.bookingState = DIALOGUE_FLOW.states['init'].intents['book_room']; // collect_room_and_dates
                     nextStateKey = session.bookingState;
                     currentState = BookingFlowController.getCurrentState(session); // 更新 currentState
@@ -319,7 +331,6 @@ class RuleEngine {
                     };
                 }
             }
-            // ----------------------------------------------------
             
             // 2. 嘗試根據意圖轉移 (處理 'check_availability_and_price' 狀態的是/否等意圖)
             for (const intent of intents) {
@@ -368,6 +379,7 @@ class RuleEngine {
             let response = nextState.prompt;
             for (const key in session.collectedData) {
                 const value = session.collectedData[key] || ''; 
+                // 替換 {key} 和 ${key} 格式的變數
                 response = response.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
                 response = response.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
             }
@@ -406,7 +418,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // [簡化：移除所有未使用的規則實現，只保留 bookingFlowRule 和 emergencyRule 減少程式碼複雜度]
+    // [簡化：移除所有未使用的規則實現]
     static transferRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
     static pricingRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
     static memberRule(intents, session, message) { return { shouldProcess: false, priority: 0 }; }
