@@ -1,4 +1,4 @@
-// server.js (完整修正版 - 修復語法錯誤)
+// server.js (完整修正版 - 增強 AI 回退機制)
 // 海灣麗景酒店 AI 智能助理
 
 // ---------------------------------------------
@@ -23,7 +23,7 @@ const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
 
 // ---------------------------------------------
-// 2. 核心工具類 (保持不變)
+// 2. 核心工具類
 // ---------------------------------------------
 
 // 增強版智能意圖分類器
@@ -81,7 +81,11 @@ class RuleEngine {
             this.transferRule,
             this.pricingRule,
             this.memberRule,
-            this.attractionsRule, // 🆕 新增景點規則
+            this.attractionsRule,
+            this.shoppingRule,      // 🆕 新增購物規則
+            this.itineraryRule,     // 🆕 新增行程規則
+            this.medicalRule,       // 🆕 新增醫療規則
+            this.modificationRule,  // 🆕 新增變更規則
             this.weatherRule,
             this.restaurantRule,
             this.facilityRule,
@@ -91,6 +95,7 @@ class RuleEngine {
         for (const rule of rules) {
             const result = rule(intents, session, message);
             if (result.shouldProcess) {
+                console.log(`🎯 規則觸發: ${rule.name}, 優先級: ${result.priority}`);
                 return result;
             }
         }
@@ -189,7 +194,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 🗺️ 景點規則 (新增)
+    // 🗺️ 景點規則
     static attractionsRule(intents, session, message) {
         if (intents.includes('attractions')) {
             const mentionedCity = message.includes('台北') ? '台北' : 
@@ -207,6 +212,61 @@ class RuleEngine {
                 shouldProcess: true,
                 priority: 70,
                 response: responses[mentionedCity]
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    // 🛍️ 購物規則 (新增)
+    static shoppingRule(intents, session, message) {
+        if (intents.includes('shopping')) {
+            return {
+                shouldProcess: true,
+                priority: 65,
+                response: "🛍️ **購物推薦**\n\n✨ **推薦購物地點：**\n• 海灣精品商城（步行8分鐘）- 國際品牌\n• 星光百貨（車程10分鐘）- 綜合購物\n• 傳統文化市場（車程15分鐘）- 特色紀念品\n• 免稅商店（車程20分鐘）- 化妝品、菸酒\n\n🕒 **營業時間：**\n• 百貨公司：11:00-21:30\n• 傳統市場：06:00-14:00\n• 免稅店：09:00-20:00\n\n需要安排購物接送服務嗎？"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    // 📅 行程規則 (新增)
+    static itineraryRule(intents, session, message) {
+        if (intents.includes('itinerary')) {
+            const userType = session.userType;
+            const itineraries = {
+                'family': "👨‍👩‍👧‍👦 **家庭行程推薦**\n\n📅 **三日遊建議：**\n\n**第一天：城市探索**\n• 上午：兒童博物館 + 公園野餐\n• 下午：動物園親子活動\n• 晚上：家庭餐廳晚餐\n\n**第二天：自然體驗**\n• 上午：海邊玩沙踏浪\n• 下午：生態農場體驗\n• 晚上：觀星活動\n\n**第三天：文化之旅**\n• 上午：歷史文化村參觀\n• 下午：DIY手工藝體驗\n• 晚上：特色夜市美食\n\n需要為您預訂任何活動嗎？",
+                'couple': "💑 **情侶浪漫行程**\n\n📅 **浪漫三日遊：**\n\n**第一天：浪漫啟程**\n• 上午：精品咖啡館早餐\n• 下午：藝術特區拍照打卡\n• 晚上：景觀餐廳燭光晚餐\n\n**第二天：自然約會**\n• 上午：山間步道漫步\n• 下午：溫泉SPA放鬆\n• 晚上：海邊夕陽觀賞\n\n**第三天：城市記憶**\n• 上午：特色小店探索\n• 下午：DIY情侶手作\n• 晚上：高空酒吧夜景\n\n需要安排浪漫驚喜嗎？",
+                'business': "💼 **商務行程安排**\n\n📅 **商務三日規劃：**\n\n**第一天：商務會議**\n• 上午：客戶會議安排\n• 下午：商務午餐洽談\n• 晚上：商務交流晚宴\n\n**第二天：企業參訪**\n• 上午：合作企業參觀\n• 下午：產業園區考察\n• 晚上：商務聯誼活動\n\n**第三天：城市考察**\n• 上午：市場調研分析\n• 下午：投資環境了解\n• 晚上：總結會議安排\n\n需要預訂會議室或安排交通嗎？"
+            };
+            
+            return {
+                shouldProcess: true,
+                priority: 70,
+                response: itineraries[userType] || "📅 **行程規劃服務**\n\n我們可以為您規劃個性化的旅遊行程！\n\n請告訴我：\n• 旅遊天數\n• 興趣偏好（自然、文化、美食等）\n• 預算範圍\n• 特殊需求\n\n我將為您量身定制完美行程！"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    // 🏥 醫療規則 (新增)
+    static medicalRule(intents, session, message) {
+        if (intents.includes('medical')) {
+            return {
+                shouldProcess: true,
+                priority: 95,
+                response: "🏥 **醫療協助**\n\n您的健康是我們最重視的！\n\n**緊急醫療：**\n• 緊急專線：02-1199-1199\n• 前台協助：分機 0\n\n**附近醫療資源：**\n• 海灣綜合醫院（車程10分鐘）- 24小時急診\n• 安康診所（步行5分鐘）- 一般門診\n• 仁愛藥局（步行3分鐘）- 藥品購買\n\n需要為您安排就醫協助嗎？"
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    // 🔄 變更規則 (新增)
+    static modificationRule(intents, session, message) {
+        if (intents.includes('modification')) {
+            return {
+                shouldProcess: true,
+                priority: 75,
+                response: "🔄 **服務變更**\n\n我們可以協助您處理以下變更：\n\n📞 **聯繫方式：**\n• 前台服務：分機 0\n• 訂房部門：分機 1\n• 客服專線：02-2888-8888\n\n⏰ **服務時間：**\n• 平日：09:00-18:00\n• 假日：10:00-17:00\n• 緊急狀況：24小時\n\n請提供您的訂單編號，我們將盡快為您處理！"
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -282,7 +342,7 @@ class RuleEngine {
     }
 }
 
-// 會話狀態管理器 (保持不變)
+// 會話狀態管理器
 class SessionManager {
     constructor() {
         this.sessions = new Map();
@@ -330,7 +390,7 @@ class SessionManager {
 const sessionManager = new SessionManager();
 
 // ---------------------------------------------
-// 3. API 通訊工具 (保持不變)
+// 3. API 通訊工具
 // ---------------------------------------------
 async function fetchWithRetry(url, options, attempt = 1) {
     try {
@@ -365,7 +425,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
 }
 
 // ---------------------------------------------
-// 4. 回應生成與 LLM 邏輯 (修正 API 調用)
+// 4. 回應生成與 LLM 邏輯 (增強 AI 回退機制)
 // ---------------------------------------------
 class ResponseGenerator {
     static isInBookingFlow(session) {
@@ -401,7 +461,7 @@ class ResponseGenerator {
     static async generateResponse(intents, session, message) {
         console.log(`🎯 意圖識別: ${intents.join(', ')}, 用戶類型: ${session.userType}`);
         
-        // 🚨 第一步：使用規則引擎處理
+        // 🚨 第一步：使用規則引擎處理高優先級意圖
         const ruleResult = RuleEngine.process(intents, session, message);
         if (ruleResult.shouldProcess && ruleResult.priority >= 50) {
             if (ruleResult.updateSession && ruleResult.nextStep) {
@@ -415,10 +475,12 @@ class ResponseGenerator {
             return this.handleBookingDate(message, session);
         }
 
-        // 🤖 複雜問題使用 AI
-        const complexIntents = ['attractions', 'itinerary', 'shopping', 'general_inquiry'];
+        // 🤖 複雜問題使用 AI - 擴大意圖範圍和觸發條件
+        const complexIntents = ['attractions', 'itinerary', 'shopping', 'general_inquiry', 'medical', 'modification'];
         const shouldUseAI = intents.some(intent => complexIntents.includes(intent)) || 
-                            intents.length > 1;
+                            intents.length > 1 ||
+                            !ruleResult.shouldProcess ||  // 🆕 規則引擎無法處理時
+                            intents.includes('general_inquiry'); // 🆕 一般查詢時
 
         if (shouldUseAI) {
             try {
@@ -427,19 +489,56 @@ class ResponseGenerator {
             } catch (error) {
                 console.error("AI 服務失敗，使用規則回覆:", error.message);
                 // 優雅回退到規則引擎
-                if (ruleResult.shouldProcess) {
-                    return ruleResult.response;
-                }
-                return RuleEngine.generalRule(intents, session, message).response;
+                return this.getEnhancedFallbackResponse(intents, session, message, ruleResult);
             }
         }
 
-        // 最終使用規則引擎結果
+        // 🎯 檢查是否有規則結果可以使用
         if (ruleResult.shouldProcess) {
             return ruleResult.response;
         }
 
-        return RuleEngine.generalRule(intents, session, message).response;
+        // 🔄 最終回退：使用 AI 或通用回應
+        return await this.finalFallback(session, message, intents);
+    }
+
+    // 增強的回退回應
+    static getEnhancedFallbackResponse(intents, session, message, ruleResult) {
+        // 如果有規則結果，優先使用
+        if (ruleResult.shouldProcess) {
+            return ruleResult.response;
+        }
+        
+        // 根據意圖提供特定的回退回應
+        const fallbackResponses = {
+            'attractions': "🗺️ **景點推薦**\n\n抱歉，目前景點推薦服務暫時無法提供詳細資訊。\n\n建議您：\n• 詢問飯店櫃檯獲取當地旅遊地圖\n• 下載旅遊APP查詢最新景點\n• 我們可以為您安排交通接送服務\n\n需要其他協助嗎？",
+            'itinerary': "📅 **行程規劃**\n\n行程規劃服務暫時無法使用。\n\n我們的服務人員可以：\n• 推薦適合的遊玩路線\n• 安排專業導遊服務\n• 預訂當地特色活動\n\n請聯繫櫃檯獲得個性化建議！",
+            'shopping': "🛍️ **購物推薦**\n\n購物資訊服務暫時無法提供。\n\n飯店周邊有：\n• 精品購物中心（步行10分鐘）\n• 傳統市場（車程15分鐘）\n• 免稅商店（車程20分鐘）\n\n需要安排購物接送服務嗎？",
+            'medical': "🏥 **醫療協助**\n\n醫療服務資訊暫時無法查詢。\n\n如有緊急醫療需求：\n• 請立即撥打緊急專線：02-1199-1199\n• 聯絡前台安排就醫協助\n• 飯店備有基本急救設備\n\n您的健康是我們最重視的！",
+            'modification': "🔄 **變更服務**\n\n變更服務暫時無法處理。\n\n請直接聯繫：\n• 前台服務：分機 0\n• 訂房部門：分機 1\n• 客服專線：02-2888-8888\n\n我們將盡快為您處理！",
+            'general_inquiry': "🤔 **問題處理**\n\n抱歉，我不太理解您的具體需求。\n\n我可以協助您：\n🏨 訂房服務與價格查詢\n🍽️ 餐廳推薦與訂位\n🚗 交通接送安排\n🗺️ 當地資訊諮詢\n\n請告訴我您需要哪方面的協助？"
+        };
+        
+        // 找到最相關的意圖
+        const relevantIntent = intents.find(intent => fallbackResponses[intent]) || 'general_inquiry';
+        return fallbackResponses[relevantIntent];
+    }
+
+    // 最終回退機制
+    static async finalFallback(session, message, intents) {
+        // 最後嘗試使用 AI
+        try {
+            console.log("🔄 最終回退：嘗試使用 AI");
+            return await this.getGeminiResponse(session);
+        } catch (error) {
+            console.error("最終回退也失敗:", error.message);
+            // 使用通用規則
+            const ruleResult = RuleEngine.process(intents, session, message);
+            if (ruleResult.shouldProcess) {
+                return ruleResult.response;
+            }
+            return RuleEngine.generalRule(intents, session, message).response;
+        }
     }
 
     static async getGeminiResponse(session) {
@@ -516,7 +615,7 @@ class ResponseGenerator {
 }
 
 // ---------------------------------------------
-// 5. Express 中介軟體與設定 (保持不變)
+// 5. Express 中介軟體與設定
 // ---------------------------------------------
 app.use(cors({
     origin: '*',
@@ -531,7 +630,7 @@ const PORT = process.env.PORT || 10000;
 const HOST = '0.0.0.0';
 
 // ---------------------------------------------
-// 6. 路由定義 (保持不變)
+// 6. 路由定義
 // ---------------------------------------------
 
 // 根路徑
@@ -539,7 +638,7 @@ app.get('/', (req, res) => {
     res.json({
         service: '🏨 海灣麗景酒店 AI 助理',
         status: '運行中',
-        version: '6.1.0',
+        version: '7.0.0', // 版本更新
         endpoints: {
             health: '/health',
             chat: '/chat',
@@ -652,6 +751,7 @@ const server = app.listen(PORT, HOST, () => {
     console.log(`📱 前端頁面: http://localhost:${PORT}/working-chat.html`);
     console.log(`🔑 Gemini API: ${apiKey ? '已配置' : '未配置'}`);
     console.log(`🤖 規則引擎: 已啟用`);
+    console.log(`🔄 AI 回退機制: 已啟用`);
 });
 
 // 優雅關閉處理
