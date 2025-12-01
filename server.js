@@ -191,7 +191,7 @@ class SmartIntentClassifier {
             data.childCount = parseInt(childMatch[1] || childMatch[2], 10);
         }
 
-        // 聯絡方式 - 🚨 最終 NAME 提取邏輯
+        // 聯絡方式 - NAME 提取邏輯
         // 匹配所有可能的引導詞後面的 2-4 個中文字
         const nameMatch = message.match(/(?:名字是|稱呼是|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
 
@@ -311,7 +311,7 @@ class RuleEngine {
             // 1. 提取實體並更新 session (這必須是流程開始的第一件事)
             const extractedEntities = SmartIntentClassifier.extractEntities(message);
             Object.assign(session.collectedData, extractedEntities);
-            // 🚨 輔助日誌：在關鍵步驟打印提取的實體，方便除錯
+            // 輔助日誌：在關鍵步驟打印提取的實體，方便除錯
             if (session.bookingState === 'ask_contact_info') {
                  console.log(`DEBUG: Extracted entities in ask_contact_info: ${JSON.stringify(extractedEntities)}`);
             }
@@ -350,7 +350,28 @@ class RuleEngine {
                 const allEntitiesCollected = currentState.entities.every(
                     entity => session.collectedData[entity] !== undefined && session.collectedData[entity] !== null
                 );
-                if (allEntitiesCollected) {
+                
+                // 🚨 偵錯專用邏輯：強制檢查 ask_contact_info 狀態
+                if (session.bookingState === 'ask_contact_info') {
+                    if (allEntitiesCollected) {
+                         console.log("DEBUG: 實體收集成功！強制轉移到 confirm_member_and_meal");
+                         nextStateKey = currentState.next_state;
+                    } else {
+                         console.log(`DEBUG: 實體不完整：name=${session.collectedData['name']}, email=${session.collectedData['email']}`);
+                         // 如果偵錯失敗，強制給出一個明確的偵錯回覆，防止被 LLM 劫持
+                         return {
+                             shouldProcess: true,
+                             priority: 95, 
+                             response: `偵錯回覆：姓名/Email 未齊全。請重新提供。當前狀態: ${session.bookingState}`, 
+                             nextStep: session.bookingState,
+                             updateSession: true
+                         };
+                    }
+                } 
+                // 🚨 結束偵錯邏輯 🚨
+                
+                // 原始邏輯：應用於所有其他實體收集狀態
+                else if (allEntitiesCollected) {
                     nextStateKey = currentState.next_state;
                 } else {
                     // 如果實體不完整，停留在當前狀態，回覆 fallback
