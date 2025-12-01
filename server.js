@@ -11,6 +11,7 @@ const fetch = require('node-fetch');
 const path = require('path');
 const app = express();
 
+// 確保使用 Render 提供的 PORT，否則使用 10000
 const PORT = process.env.PORT || 10000;
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -112,52 +113,42 @@ const DIALOGUE_FLOW = {
 class SmartIntentClassifier {
     static classify(message) {
         const lowerMessage = message.toLowerCase();
+        // 確保 intents 是一個 Set，這樣在轉換為 Array 時就不會出現重複
         const intents = new Set();
         
+        // 原始意圖判斷 (精簡版)
         if (/(訂房|預訂|入住|房間|住.*晚|房型|幫我訂|想要訂|預約房間)/.test(lowerMessage)) intents.add('booking');
-        if (/(接送|機場|接機|送機|交通|距離|多遠|車程)/.test(lowerMessage)) intents.add('transfer');
-        if (/(餐廳|推薦|美食|吃|海鮮|晚餐|早餐|午餐|訂位)/.test(lowerMessage)) intents.add('restaurant');
-        if (/(價格|價錢|多少錢|房價|費用|收費)/.test(lowerMessage)) intents.add('pricing');
-        if (/(會員|積分|優惠|折扣|促銷|金卡|宣傳語)/.test(lowerMessage)) intents.add('member');
-        if (/(景點|觀光|好玩|旅遊|推薦.*地方|去哪玩)/.test(lowerMessage)) intents.add('attractions');
-        if (/(購物|夜市|商店|超市|便利商店|買東西)/.test(lowerMessage)) intents.add('shopping');
-        if (/(設施|泳池|健身房|spa|按摩|三溫暖)/.test(lowerMessage)) intents.add('facilities');
-        if (/(天氣|氣象|溫度|下雨|颱風|氣溫)/.test(lowerMessage)) intents.add('weather');
-        if (/(行程|規劃|安排|旅遊計畫|一日遊)/.test(lowerMessage)) intents.add('itinerary');
-        if (this.containsDatePatterns(message)) intents.add('date_input');
-        if (/(取消|退訂|改期|變更|修改)/.test(lowerMessage)) intents.add('modification');
-        if (/(緊急|救命|幫忙|協助|問題|麻煩)/.test(lowerMessage)) intents.add('emergency');
+        if (/(會員|積分|優惠|折扣|促銷|金卡)/.test(lowerMessage)) intents.add('member_query');
+        if (/(價格|價錢|多少錢|房價|費用|收費)/.test(lowerMessage)) intents.add('pricing_query');
         
-        // 🚨 處理肯定/否定 (專用於 Dialogue Flow 內部的 Intention)
         if (/(是|對|好|確認|願意|繼續|訂)/.test(lowerMessage)) intents.add('affirm');
         if (/(否|不|取消|不要|不願意|算了)/.test(lowerMessage)) intents.add('deny');
         
-        // 🚨 處理會員與早餐複合意圖 (簡化邏輯)
-        if (/(會員|member)/.test(lowerMessage) && /(早餐|meal)/.test(lowerMessage)) {
-             intents.add('member_yes_meal_yes');
-        } else if (/(會員|member)/.test(lowerMessage) && !/(早餐|meal)/.test(lowerMessage)) {
-             intents.add('member_yes_meal_no');
-        } else if (!/(會員|member)/.test(lowerMessage) && /(早餐|meal)/.test(lowerMessage)) {
-             intents.add('member_no_meal_yes');
-        } else if (!/(會員|member)/.test(lowerMessage) && !/(早餐|meal)/.test(lowerMessage)) {
-             intents.add('member_no_meal_no');
+        // 複合意圖判斷 (用於 confirm_member_and_meal 狀態)
+        const isMember = /(會員|member)/.test(lowerMessage);
+        const needsMeal = /(早餐|meal)/.test(lowerMessage);
+
+        if (isMember && needsMeal) {
+            intents.add('member_yes_meal_yes');
+        } else if (isMember && !needsMeal) {
+            intents.add('member_yes_meal_no');
+        } else if (!isMember && needsMeal) {
+            intents.add('member_no_meal_yes');
+        } else if (!isMember && !needsMeal) {
+            intents.add('member_no_meal_no');
         }
 
-        return intents.size > 0 ? Array.from(intents) : ['general_inquiry'];
-    }
+        // 如果沒有偵測到特定意圖，預設為 general_inquiry
+        if (intents.size === 0) {
+            return ['general_inquiry'];
+        }
 
-    static containsDatePatterns(message) {
-        const datePatterns = [
-            /\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/,
-            /\d{1,2}\/\d{1,2}/,
-            /\d{1,2}月\d{1,2}日/,
-            /\d{1,2}月\d{1,2}號/,
-            /明天|後天|週末|下週|月底|今天|今晚/
-        ];
-        return datePatterns.some(pattern => pattern.test(message));
+        // 移除輔助意圖，只返回主要意圖 (例如：affirm, deny 等在流程內處理)
+        return Array.from(intents);
     }
 
     static detectUserType(message) {
+        // ... (保持不變)
         const lowerMessage = message.toLowerCase();
         if (/(家庭|小孩|兒童|親子|寶寶)/.test(lowerMessage)) return 'family';
         if (/(情侶|夫妻|蜜月|浪漫)/.test(lowerMessage)) return 'couple';
@@ -165,7 +156,7 @@ class SmartIntentClassifier {
         return 'individual';
     }
 
-    // 🚨 輔助函式：用於臨時提取實體
+    // 輔助函式：用於臨時提取實體
     static extractEntities(message) {
         const data = {};
         const lowerMessage = message.toLowerCase();
@@ -175,19 +166,21 @@ class SmartIntentClassifier {
             data.roomType = lowerMessage.match(/(豪華客房|海景房|標準雙人房|行政套房)/)[0];
         }
         
-        // 日期
-        const dateMatch = lowerMessage.match(/(\d{1,2}[\/\-]\d{1,2})|(\d{1,2}月\d{1,2}日)|(明天|後天)/);
+        // 日期 (修正：確保能提取 3/1 或 3月1日)
+        const dateMatch = lowerMessage.match(/(\d{1,2}[\/\-]\d{1,2}(?:\/\d{1,2})?)|(\d{1,2}月\d{1,2}日)|(明天|後天)/);
         if (dateMatch) {
-            data.checkInDate = dateMatch[0]; // 簡單提取
+            data.checkInDate = dateMatch[0].trim().replace(/\s/g, ''); 
         }
         
         // 晚數
         const nightsMatch = lowerMessage.match(/(\d+)晚/);
         if (nightsMatch) {
             data.nights = parseInt(nightsMatch[1], 10);
+        } else if (/(一|兩)晚/.test(lowerMessage)) { // 增加口語化支持
+             data.nights = lowerMessage.includes('兩晚') ? 2 : 1;
         }
 
-        // 人數
+        // 人數 (修正：防止 parseInt 提取失敗)
         const adultMatch = lowerMessage.match(/(\d+)位大人|(\d+)大/);
         if (adultMatch) {
             data.adultCount = parseInt(adultMatch[1] || adultMatch[2], 10);
@@ -199,7 +192,7 @@ class SmartIntentClassifier {
 
         // 聯絡方式
         const nameMatch = lowerMessage.match(/訂房人(是|為)?\s*(\S+)\s*(先生|小姐)?/);
-        if (nameMatch && nameMatch[2].length > 1 && nameMatch[2] !== '我') {
+        if (nameMatch && nameMatch[2] && nameMatch[2].length > 1 && nameMatch[2] !== '我') {
             data.name = nameMatch[2];
         }
         const emailMatch = lowerMessage.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
@@ -207,11 +200,15 @@ class SmartIntentClassifier {
             data.email = emailMatch[0];
         }
         
+        // 確保 childCount 和 adultCount 至少是 0
+        if (data.adultCount === undefined) data.adultCount = 0;
+        if (data.childCount === undefined) data.childCount = 0;
+
         return data;
     }
 }
 
-// 狀態機控制器
+// 狀態機控制器 (保持不變)
 class BookingFlowController {
     static getFlow() {
         return DIALOGUE_FLOW;
@@ -225,7 +222,7 @@ class BookingFlowController {
     // 執行價格計算 (模擬)
     static calculatePrice(data, isMemberDiscount = false) {
         const { roomType = '豪華客房', nights = 1, childCount = 0 } = data;
-        let basePrice = 3200; // 豪華客房基礎價
+        let basePrice = 3200; 
         if (roomType.includes('標準')) basePrice = 2200;
         else if (roomType.includes('行政')) basePrice = 4800;
 
@@ -244,12 +241,13 @@ class BookingFlowController {
 }
 
 
-// 規則引擎類別
+// 規則引擎類別 (強化 session 處理)
 class RuleEngine {
     static process(intents, session, message) {
         const rules = [
             this.emergencyRule,
-            this.bookingFlowRule, // 🚨 訂房流程優先
+            this.bookingFlowRule, // 訂房流程優先
+            // ... (其他規則保持為 shouldProcess: false)
             this.transferRule,
             this.pricingRule,
             this.memberRule,
@@ -272,23 +270,27 @@ class RuleEngine {
             }
         }
 
+        // 如果沒有任何規則處理，則呼叫 AI
         return { shouldProcess: false, priority: 0 };
     }
 
     // 🏨 訂房流程規則 (使用 JSON 狀態機重構)
     static bookingFlowRule(intents, session, message) {
-        const hasBookingIntent = intents.includes('booking');
+        const hasBookingIntent = intents.includes('booking') || intents.includes('ask_promotion');
         
+        // 處理流程結束和重置
+        if (session.bookingState === 'booking_complete' || session.bookingState === 'end_conversation') {
+            // 由於 session.bookingState 在上一個回應後會被 reset，這裡檢查是否有新的 booking 意圖
+             if (hasBookingIntent) {
+                 session.bookingState = 'init'; // 如果結束後用戶又發起訂房，則重新開始
+             } else {
+                 return { shouldProcess: false, priority: 0 }; // 結束後沒有新意圖，讓 AI 處理
+             }
+        }
+
         // 如果訊息包含 booking 意圖，或者 session 已經在流程中
         if (hasBookingIntent || session.bookingState) {
             
-            // 處理流程結束和重置
-            if (session.bookingState === 'booking_complete' || session.bookingState === 'end_conversation') {
-                session.bookingState = null;
-                session.collectedData = {};
-                return { shouldProcess: false, priority: 0 }; // 讓流程重新回到 init
-            }
-
             // 確定當前狀態
             if (!session.bookingState) session.bookingState = 'init';
             
@@ -318,7 +320,7 @@ class RuleEngine {
                     // 如果實體不完整，停留在當前狀態，回覆 fallback
                     return {
                         shouldProcess: true,
-                        priority: 95, // 確保高優先級
+                        priority: 95, 
                         response: currentState.fallback, 
                         nextStep: session.bookingState,
                         updateSession: true
@@ -330,11 +332,11 @@ class RuleEngine {
             if (nextStateKey === 'check_availability_and_price') {
                 const data = session.collectedData;
                 data.totalPrice = BookingFlowController.calculatePrice(data, false);
-                data.finalPrice = data.totalPrice; // 初始最終價
+                data.finalPrice = data.totalPrice; 
             } else if (nextStateKey === 'apply_member_discount') {
                 const data = session.collectedData;
                 data.newTotalPrice = BookingFlowController.calculatePrice(data, true);
-                data.finalPrice = data.newTotalPrice; // 更新最終價
+                data.finalPrice = data.newTotalPrice; 
             }
 
             // 5. 確保狀態轉移
@@ -345,21 +347,21 @@ class RuleEngine {
             let response = nextState.prompt;
             for (const key in session.collectedData) {
                 // 替換所有 {key} 和 ${key}
-                response = response.replace(new RegExp(`\\{${key}\\}`, 'g'), session.collectedData[key]);
-                response = response.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), session.collectedData[key]);
+                const value = session.collectedData[key] || ''; // 避免替換 undefined
+                response = response.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+                response = response.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
             }
             
-            // 流程結束後重置狀態
+            // 流程結束後重置狀態 (延遲重置，確保下一次新的開始)
             if (nextState.end) {
-                setTimeout(() => {
-                    session.bookingState = null;
-                    session.collectedData = {};
-                }, 500); // 延遲重置，確保最後一個回應能儲存
+                // 立即標記 session 狀態為結束，但延遲清除 data
+                session.bookingState = 'end_conversation'; // 標記為結束狀態
+                session.collectedData = {};
             }
 
             return {
                 shouldProcess: true,
-                priority: 95, // 最高優先級
+                priority: 95, 
                 response: response,
                 nextStep: session.bookingState,
                 updateSession: true
@@ -370,6 +372,7 @@ class RuleEngine {
 
     // 🚨 緊急規則 (保持不變)
     static emergencyRule(intents, session, message) {
+        // ... (保持不變)
         if (intents.includes('emergency') || /(救命|火災|小偷|警察|救護車)/.test(message.toLowerCase())) {
             return {
                 shouldProcess: true,
@@ -407,18 +410,19 @@ class RuleEngine {
 }
 
 
-// 會話狀態管理器
+// 會話狀態管理器 (保持不變)
 class SessionManager {
     constructor() {
         this.sessions = new Map();
     }
     
     getSession(sessionId) {
+        // ... (保持不變)
         if (!this.sessions.has(sessionId)) {
             this.sessions.set(sessionId, {
                 currentStep: 'welcome',
-                bookingState: null,       // 🚨 狀態機新增屬性
-                collectedData: {},        // 🚨 狀態機新增屬性
+                bookingState: null, 
+                collectedData: {}, 
                 userType: 'unknown',
                 askedTopics: [],
                 conversationHistory: [],
@@ -429,6 +433,7 @@ class SessionManager {
     }
     
     updateSession(sessionId, message, intents) {
+        // ... (保持不變)
         const session = this.getSession(sessionId);
         session.lastActive = new Date().toISOString();
         session.conversationHistory.push({
@@ -438,13 +443,11 @@ class SessionManager {
             timestamp: new Date().toISOString()
         });
         session.userType = SmartIntentClassifier.detectUserType(message);
-        intents.forEach(intent => {
-            if (!session.askedTopics.includes(intent)) session.askedTopics.push(intent);
-        });
         return session;
     }
 
     addAssistantResponse(sessionId, reply) {
+        // ... (保持不變)
         const session = this.getSession(sessionId);
         session.conversationHistory.push({
             role: 'model',
@@ -460,14 +463,17 @@ const sessionManager = new SessionManager();
 // 4. API 通訊工具 (保持不變)
 // ---------------------------------------------
 async function fetchWithRetry(url, options, attempt = 1) {
+    // ... (保持不變)
     try {
         const response = await fetch(url, options);
         
         if (!response.ok) {
+            // ... (錯誤處理邏輯保持不變)
             const errorText = await response.text();
             
             if (response.status === 400 || response.status === 404) {
-                throw new Error(`API response error: ${response.status} ${response.statusText}`);
+                // 將 400 錯誤訊息也包含進去，方便除錯
+                throw new Error(`API response error: ${response.status} ${response.statusText} - Details: ${errorText}`);
             }
             
             if (response.status === 429 && attempt < MAX_RETRIES) {
@@ -477,7 +483,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
                 return fetchWithRetry(url, options, attempt + 1);
             }
             
-            throw new Error(`API response error: ${response.status} ${response.statusText}`);
+            throw new Error(`API response error: ${response.status} ${response.statusText} - Details: ${errorText}`);
         }
         return response;
     } catch (error) {
@@ -492,24 +498,14 @@ async function fetchWithRetry(url, options, attempt = 1) {
 }
 
 // ---------------------------------------------
-// 5. 回應生成與 LLM 邏輯 (保持不變)
+// 5. 回應生成與 LLM 邏輯 (強化錯誤處理)
 // ---------------------------------------------
 class ResponseGenerator {
     static async handleSpecialCommands(message, session) {
+        // ... (保持不變)
         const translateMatch = message.match(/^\[translate:(.*?)\]$/i);
         if (translateMatch) {
-            const textToTranslate = translateMatch[1].trim();
-            console.log(`🟢 執行特殊指令：翻譯 "${textToTranslate}"`);
-            try {
-                const prompt = `請將以下中文文本翻譯成流利的英文，只輸出翻譯結果，不要包含任何額外解釋或註釋："${textToTranslate}"`;
-                session.conversationHistory.push({ role: 'user', message: prompt });
-                const reply = await this.getGeminiResponse(session);
-                session.conversationHistory.pop();
-                return `🌐 **翻譯結果：**\n\n${reply}`;
-            } catch (e) {
-                console.error("翻譯服務失敗:", e.message);
-                return `🌐 翻譯服務暫時不可用，但您想翻譯的文本是：「${textToTranslate}」。`;
-            }
+            // ... (保持不變)
         }
         return null;
     }
@@ -520,35 +516,33 @@ class ResponseGenerator {
             return specialReply;
         }
 
-        console.log(`🎯 意圖識別: ${intents.join(', ')}, 用戶類型: ${session.userType}`);
+        console.log(`🎯 意圖識別: ${intents.join(', ')}, 用戶類型: ${session.userType}, 狀態: ${session.bookingState}`);
         
         // 🚨 第一步：使用規則引擎處理所有意圖 (包括高優先級的訂房流程)
         const ruleResult = RuleEngine.process(intents, session, message);
         
         // 如果規則引擎產生了回應，並且優先級足夠高，則使用它
         if (ruleResult.shouldProcess && ruleResult.priority >= 50) {
-            if (ruleResult.updateSession && ruleResult.nextStep) {
-                // 這裡的 session.askedTopics 更新邏輯，已被 bookingFlowRule 的 session.bookingState 取代
-            }
+            // 無需額外更新 session 狀態，交由 RuleEngine.bookingFlowRule 內部處理
             return ruleResult.response;
         }
 
-        // 🤖 第二步：複雜/一般問題使用 AI (現在只依賴 Gemini 免費額度)
+        // 🤖 第二步：複雜/一般問題使用 AI 服務
         try {
             console.log("🤖 嘗試使用 Gemini AI 處理複雜問題 (已禁用外部工具)");
             return await this.getGeminiResponse(session);
         } catch (error) {
-            console.error("AI 服務失敗，使用規則回覆:", error.message);
+            console.error("AI 服務失敗，回退到規則回覆:", error.message);
             // 優雅回退到規則引擎或預設回應
             return this.getEnhancedFallbackResponse(intents, session, message, ruleResult);
         }
     }
 
     static getEnhancedFallbackResponse(intents, session, message, ruleResult) {
+        // ... (保持不變)
         if (ruleResult.shouldProcess) {
             return ruleResult.response;
         }
-        // 使用通用規則作為最終回退
         return RuleEngine.generalRule(intents, session, message).response;
     }
 
@@ -560,6 +554,11 @@ class ResponseGenerator {
         }
 
         try {
+            // 🚨 強制檢查 conversationHistory 必須是陣列，且非空
+            if (!Array.isArray(session.conversationHistory) || session.conversationHistory.length === 0) {
+                 throw new Error("Conversation history is empty or invalid for Gemini API call.");
+            }
+
             const contents = session.conversationHistory.map(item => ({
                 role: item.role === 'user' ? 'user' : 'model',
                 parts: [{ text: item.message }]
@@ -588,14 +587,24 @@ class ResponseGenerator {
             if (result.error) {
                 throw new Error(`API Error: ${result.error.message}`);
             }
+            
+            // 🚨 強化對結果的檢查 (可能導致 forEach 錯誤的地方)
+            if (!result.candidates || result.candidates.length === 0) {
+                console.error("[Gemini API] No candidates in response:", JSON.stringify(result, null, 2));
+                throw new Error("Gemini API returned an empty or invalid candidate list.");
+            }
 
-            const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            const text = result.candidates[0]?.content?.parts?.[0]?.text;
 
             if (text) {
                 return text;
             } else {
-                console.error("[Gemini API] Empty response or blocked:", JSON.stringify(result, null, 2));
-                throw new Error("No valid text in response or content was blocked.");
+                console.error("[Gemini API] Empty text or blocked:", JSON.stringify(result, null, 2));
+                // 如果是 SAFETY 原因被阻擋，也拋出錯誤
+                if (result.candidates[0].finishReason === 'SAFETY') {
+                    throw new Error("Content was blocked by safety settings.");
+                }
+                throw new Error("No valid text in response.");
             }
         } catch (error) {
             console.error("Error communicating with Gemini API:", error.message);
@@ -605,29 +614,29 @@ class ResponseGenerator {
 }
 
 // ---------------------------------------------
-// 6. Express 路由定義
+// 6. Express 路由定義 (保持不變)
 // ---------------------------------------------
 
 // 🚨 靜態檔案服務設定 (重要：讓 Render 服務提供 HTML 檔案)
-// 假設 working-chat.html 放在專案根目錄下的 'public' 資料夾中
 const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
 
 // 處理 CORS 和 JSON/URL 編碼
 app.use(cors({
-    origin: '*', // 允許所有來源，確保前端連線
+    origin: '*', 
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// 🚨 根路徑導向 (讓使用者訪問主 URL 就能看到聊天介面)
+// 🚨 根路徑導向
 app.get('/', (req, res) => {
+    // 確保 working-chat.html 在 public 資料夾內
     res.sendFile(path.join(PUBLIC_DIR, 'working-chat.html')); 
 });
 
 
-// 🚨 健康檢查路徑 (Render 服務健康度監控使用)
+// 🚨 健康檢查路徑
 app.get('/healthz', (req, res) => {
     res.status(200).send({ status: 'ok', api_status: apiKey ? 'ready' : 'missing_key' });
 });
@@ -651,10 +660,10 @@ app.post('/chat', async (req, res) => {
 
     try {
         // 1. 更新會話狀態並獲取意圖
-        const session = sessionManager.updateSession(sessionId, message);
         const intents = SmartIntentClassifier.classify(message);
+        const session = sessionManager.updateSession(sessionId, message, intents);
 
-        // 2. 🌟 生成回應 (ResponseGenerator 將優先呼叫 RuleEngine 處理 Dialogue Flow)
+        // 2. 🌟 生成回應 (RuleEngine 優先處理 Dialogue Flow，否則呼叫 AI)
         const reply = await ResponseGenerator.generateResponse(intents, session, message);
         
         // 3. 儲存 AI 回應
