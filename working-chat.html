@@ -3,818 +3,313 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>五星級飯店 AI 訂房助理</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>海灣麗景酒店 AI 助理</title>
     <style>
-        * {
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
-        }
-
-        body {
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4edf5 100%);
-            min-height: 100vh;
+            background-color: #f4f7f6;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px;
-            color: #4a5568;
+            height: 100vh;
         }
 
-        .hotel-chat-container {
+        #chat-container {
             width: 100%;
-            max-width: 900px;
+            max-width: 450px;
             height: 90vh;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.08);
-            display: flex;
-            overflow: hidden;
-            position: relative;
-        }
-
-        /* 左側 - 飯店資訊面板 */
-        .hotel-sidebar {
-            width: 280px;
-            background: linear-gradient(165deg, #2c5aa0 0%, #1e3a8a 100%);
-            color: white;
-            padding: 30px 20px;
+            background-color: #fff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
             display: flex;
             flex-direction: column;
-            position: relative;
             overflow: hidden;
         }
 
-        .hotel-sidebar::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" opacity="0.05"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="50" cy="50" r="1" fill="white"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
-        }
-
-        .hotel-logo {
-            text-align: center;
-            margin-bottom: 30px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .hotel-logo h1 {
-            font-size: 22px;
-            font-weight: 600;
-            letter-spacing: 1px;
-            margin-bottom: 5px;
-        }
-
-        .hotel-logo p {
-            font-size: 13px;
-            opacity: 0.8;
-            font-weight: 300;
-        }
-
-        .concierge-avatar {
-            width: 120px;
-            height: 120px;
-            margin: 0 auto 25px;
-            background: linear-gradient(135deg, #4f7cc2 0%, #3a5f9a 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-            border: 4px solid rgba(255, 255, 255, 0.2);
-            z-index: 1;
-        }
-
-        .concierge-avatar i {
-            font-size: 50px;
+        #chat-header {
+            background-color: #007bff;
             color: white;
-        }
-
-        .concierge-info {
+            padding: 15px;
             text-align: center;
-            margin-bottom: 30px;
-            position: relative;
-            z-index: 1;
+            font-size: 1.1em;
+            font-weight: 600;
         }
 
-        .concierge-info h2 {
-            font-size: 18px;
-            font-weight: 500;
-            margin-bottom: 5px;
-        }
-
-        .concierge-info p {
-            font-size: 14px;
-            opacity: 0.8;
-            font-weight: 300;
-        }
-
-        .hotel-features {
+        #chat-window {
             flex-grow: 1;
-            position: relative;
-            z-index: 1;
-        }
-
-        .feature-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-            padding: 10px 15px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            transition: all 0.3s ease;
-        }
-
-        .feature-item:hover {
-            background: rgba(255, 255, 255, 0.15);
-            transform: translateX(5px);
-        }
-
-        .feature-item i {
-            font-size: 16px;
-            margin-right: 12px;
-            width: 20px;
-            text-align: center;
-        }
-
-        .feature-item span {
-            font-size: 14px;
-            font-weight: 300;
-        }
-
-        .hotel-rating {
-            text-align: center;
-            margin-top: 20px;
-            position: relative;
-            z-index: 1;
-        }
-
-        .stars {
-            color: #FFD700;
-            font-size: 16px;
-            margin-bottom: 8px;
-        }
-
-        .hotel-rating p {
-            font-size: 12px;
-            opacity: 0.7;
-        }
-
-        /* 右側 - 聊天區域 */
-        .chat-main {
-            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
             display: flex;
             flex-direction: column;
-            background: #ffffff;
-        }
-
-        .chat-header {
-            padding: 20px 25px;
-            border-bottom: 1px solid #f0f4f8;
-            background: white;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .chat-title h2 {
-            font-size: 20px;
-            font-weight: 600;
-            color: #2d3748;
-        }
-
-        .chat-title p {
-            font-size: 14px;
-            color: #718096;
-            margin-top: 3px;
-        }
-
-        .chat-controls {
-            display: flex;
-            gap: 10px;
-        }
-
-        .control-btn {
-            background: #f7fafc;
-            border: 1px solid #e2e8f0;
-            color: #4a5568;
-            padding: 8px 15px;
-            border-radius: 10px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .control-btn:hover {
-            background: #edf2f7;
-            transform: translateY(-1px);
-        }
-
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 25px;
-            background: #fafcff;
         }
 
         .message {
-            margin-bottom: 20px;
             display: flex;
-            align-items: flex-start;
-            animation: fadeInUp 0.4s ease;
+            margin-bottom: 15px;
+            max-width: 85%;
         }
 
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .user-message {
+        .message.user {
             justify-content: flex-end;
+            align-self: flex-end;
         }
 
-        .bot-message {
+        .message.bot {
             justify-content: flex-start;
+            align-self: flex-start;
         }
 
-        .message-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 12px;
-            flex-shrink: 0;
-        }
-
-        .user-message .message-avatar {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            order: 2;
-        }
-
-        .bot-message .message-avatar {
-            background: linear-gradient(135deg, #4f7cc2 0%, #3a5f9a 100%);
-        }
-
-        .message-avatar i {
-            color: white;
-            font-size: 18px;
-        }
-
-        .message-bubble {
-            max-width: 70%;
-            padding: 15px 20px;
-            border-radius: 18px;
+        .bubble {
+            padding: 12px 16px;
+            border-radius: 20px;
             line-height: 1.5;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            position: relative;
+            word-wrap: break-word;
         }
 
-        .user-message .message-bubble {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        .user .bubble {
+            background-color: #007bff;
             color: white;
             border-bottom-right-radius: 5px;
         }
 
-        .bot-message .message-bubble {
-            background: white;
-            color: #4a5568;
-            border: 1px solid #e2e8f0;
+        .bot .bubble {
+            background-color: #e5e5ea;
+            color: #333;
             border-bottom-left-radius: 5px;
+            text-align: left;
         }
 
-        .message-time {
-            font-size: 11px;
-            opacity: 0.7;
-            margin-top: 8px;
-            text-align: right;
-        }
-
-        .quick-replies {
+        #input-container {
             display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            padding: 20px 25px;
-            background: white;
-            border-top: 1px solid #f0f4f8;
+            padding: 10px;
+            border-top: 1px solid #ddd;
         }
 
-        .quick-reply-btn {
-            padding: 10px 18px;
-            background: #f7fafc;
-            border: 1px solid #e2e8f0;
+        #user-input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
             border-radius: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s ease;
-            color: #4a5568;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            margin-right: 10px;
+            font-size: 1em;
         }
 
-        .quick-reply-btn:hover {
-            background: #edf2f7;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
-        }
-
-        .input-area {
-            padding: 20px 25px;
-            background: white;
-            border-top: 1px solid #f0f4f8;
-            display: flex;
-            gap: 12px;
-        }
-
-        .message-input {
-            flex: 1;
-            padding: 14px 20px;
-            border: 1px solid #e2e8f0;
-            border-radius: 25px;
-            font-size: 15px;
-            outline: none;
-            transition: all 0.3s ease;
-            background: #fafcff;
-            color: #4a5568;
-        }
-
-        .message-input:focus {
-            border-color: #4f7cc2;
-            box-shadow: 0 0 0 3px rgba(79, 124, 194, 0.1);
-        }
-
-        .send-button {
-            padding: 14px 25px;
-            background: linear-gradient(135deg, #4f7cc2 0%, #3a5f9a 100%);
+        #input-container button {
+            padding: 10px 15px;
+            background-color: #28a745;
             color: white;
             border: none;
-            border-radius: 25px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .send-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(79, 124, 194, 0.3);
-        }
-
-        .send-button:disabled {
-            background: #a0aec0;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        .typing-indicator {
-            display: flex;
-            align-items: center;
-            padding: 15px 20px;
-            color: #718096;
-            font-style: italic;
-        }
-
-        .typing-dots {
-            display: inline-flex;
-            margin-left: 5px;
-        }
-
-        .typing-dots span {
-            height: 8px;
-            width: 8px;
-            background: #a0aec0;
-            border-radius: 50%;
-            display: inline-block;
-            margin: 0 2px;
-            animation: typing 1.4s infinite ease-in-out;
-        }
-
-        .typing-dots span:nth-child(1) {
-            animation-delay: -0.32s;
-        }
-
-        .typing-dots span:nth-child(2) {
-            animation-delay: -0.16s;
-        }
-
-        @keyframes typing {
-            0%, 80%, 100% {
-                transform: scale(0.8);
-                opacity: 0.5;
-            }
-            40% {
-                transform: scale(1);
-                opacity: 1;
-            }
-        }
-
-        .welcome-message {
-            text-align: center;
-            padding: 30px;
-            background: linear-gradient(135deg, #f0f7ff 0%, #e6f0ff 100%);
-            border-radius: 15px;
-            margin: 10px 0;
-            border: 1px solid #e2e8f0;
-        }
-
-        .welcome-message h3 {
-            font-size: 22px;
-            color: #2d3748;
-            margin-bottom: 10px;
-            font-weight: 600;
-        }
-
-        .welcome-message p {
-            font-size: 15px;
-            color: #718096;
-            line-height: 1.6;
-        }
-
-        .service-highlight {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin-top: 20px;
-        }
-
-        .service-badge {
-            background: white;
-            padding: 8px 15px;
             border-radius: 20px;
-            font-size: 13px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #input-container button:hover {
+            background-color: #218838;
+        }
+        
+        /* 🚨 新增 Rich Card 樣式 */
+        .rich-card {
+            margin-top: 10px;
+            padding: 12px;
+            background-color: #f0f0f0; 
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            max-width: 100%; /* 確保在 bot message 內佔滿空間 */
+            align-self: flex-start;
+            text-align: left;
+        }
+
+        .rich-card .card-title {
+            font-weight: bold;
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 0.95em;
+        }
+
+        .button-group {
             display: flex;
-            align-items: center;
-            gap: 5px;
+            flex-direction: column; 
+            gap: 8px; /* 按鈕間距 */
         }
 
-        /* 響應式設計 */
-        @media (max-width: 768px) {
-            .hotel-chat-container {
-                flex-direction: column;
-                height: 95vh;
-            }
-
-            .hotel-sidebar {
-                width: 100%;
-                padding: 20px;
-            }
-
-            .concierge-avatar {
-                width: 80px;
-                height: 80px;
-            }
-
-            .concierge-avatar i {
-                font-size: 35px;
-            }
-
-            .hotel-features {
-                display: none;
-            }
+        .button-group button {
+            padding: 10px 12px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff; /* 藍色主色調 */
+            color: white;
+            cursor: pointer;
+            text-align: center;
+            font-size: 0.9em;
+            transition: background-color 0.2s;
         }
+
+        .button-group button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        .button-group button:disabled {
+            background-color: #cccccc;
+            color: #666;
+            cursor: not-allowed;
+            opacity: 0.8;
+        }
+
     </style>
 </head>
 <body>
-    <div class="hotel-chat-container">
-        <!-- 左側 - 飯店資訊面板 -->
-        <div class="hotel-sidebar">
-            <div class="hotel-logo">
-                <h1>海灣麗景酒店</h1>
-                <p>BAYVIEW GRAND HOTEL</p>
+    <div id="chat-container">
+        <div id="chat-header">海灣麗景酒店 AI 助理</div>
+        <div id="chat-window">
             </div>
-            
-            <div class="concierge-avatar">
-                <i class="fas fa-concierge-bell"></i>
-            </div>
-            
-            <div class="concierge-info">
-                <h2>AI 訂房管家</h2>
-                <p>您的專屬服務助理</p>
-            </div>
-            
-            <div class="hotel-features">
-                <div class="feature-item">
-                    <i class="fas fa-wifi"></i>
-                    <span>免費高速Wi-Fi</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-swimming-pool"></i>
-                    <span>無邊際泳池</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-spa"></i>
-                    <span>五星級水療中心</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-utensils"></i>
-                    <span>米其林餐廳</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-shuttle-van"></i>
-                    <span>機場接送服務</span>
-                </div>
-                <div class="feature-item">
-                    <i class="fas fa-dumbbell"></i>
-                    <span>24小時健身房</span>
-                </div>
-            </div>
-            
-            <div class="hotel-rating">
-                <div class="stars">
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                    <i class="fas fa-star"></i>
-                </div>
-                <p>國際五星級認證</p>
-            </div>
-        </div>
-        
-        <!-- 右側 - 聊天區域 -->
-        <div class="chat-main">
-            <div class="chat-header">
-                <div class="chat-title">
-                    <h2>AI 訂房助理</h2>
-                    <p>隨時為您提供專業服務</p>
-                </div>
-                <div class="chat-controls">
-                    <button class="control-btn" onclick="showResetConfirm()">
-                        <i class="fas fa-sync-alt"></i> 新對話
-                    </button>
-                    <button class="control-btn" onclick="exportChat()">
-                        <i class="fas fa-download"></i> 匯出
-                    </button>
-                </div>
-            </div>
-            
-            <div class="chat-messages" id="chatMessages">
-                <div class="welcome-message">
-                    <h3>歡迎光臨海灣麗景酒店</h3>
-                    <p>我是您的AI訂房管家，可以協助您預訂房間、安排接送、推薦餐廳及景點，讓您享受完美的住宿體驗。</p>
-                    <div class="service-highlight">
-                        <div class="service-badge"><i class="fas fa-bed"></i> 訂房服務</div>
-                        <div class="service-badge"><i class="fas fa-car"></i> 接送服務</div>
-                        <div class="service-badge"><i class="fas fa-utensils"></i> 餐廳推薦</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="quick-replies" id="quickReplies">
-                <button class="quick-reply-btn" onclick="sendQuickReply('訂房服務')">
-                    <i class="fas fa-bed"></i> 訂房服務
-                </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('接送服務')">
-                    <i class="fas fa-car"></i> 接送服務
-                </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('價格查詢')">
-                    <i class="fas fa-tag"></i> 價格查詢
-                </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('餐廳推薦')">
-                    <i class="fas fa-utensils"></i> 餐廳推薦
-                </button>
-                <button class="quick-reply-btn" onclick="sendQuickReply('景點推薦')">
-                    <i class="fas fa-map-marked-alt"></i> 景點推薦
-                </button>
-            </div>
-            
-            <div class="input-area">
-                <input type="text" class="message-input" id="messageInput" placeholder="輸入您的需求..." autocomplete="off">
-                <button class="send-button" id="sendButton" onclick="sendMessage()">
-                    <i class="fas fa-paper-plane"></i> 傳送
-                </button>
-            </div>
+        <div id="input-container">
+            <input type="text" id="user-input" placeholder="輸入訊息..." onkeydown="handleKey(event)" />
+            <button onclick="sendMessage()">發送</button>
         </div>
     </div>
 
     <script>
-        // API 設定
-        const API_BASE_URL = 'https://ai-hotel-assistant-builder-production.up.railway.app';
-        const API_CHAT_ENDPOINT = `${API_BASE_URL}/api/chat`;
-        
-        // DOM 元素
-        const chatMessages = document.getElementById('chatMessages');
-        const messageInput = document.getElementById('messageInput');
-        const sendButton = document.getElementById('sendButton');
-        let sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        
-        // 初始化
-        function initializeChat() {
-            setupEventListeners();
-            checkConnection();
-        }
-        
-        // 設定事件監聽
-        function setupEventListeners() {
-            sendButton.addEventListener('click', sendMessage);
-            messageInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') sendMessage();
-            });
-            messageInput.focus();
-        }
-        
-        // 檢查連線狀態
-        async function checkConnection() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/health`);
-                if (response.ok) {
-                    console.log("✅ 後端服務連線正常");
-                }
-            } catch (error) {
-                console.error("❌ 後端服務連線失敗:", error);
+        // 使用 localStorage 儲存 sessionId，確保聊天連續性
+        let sessionId = localStorage.getItem('sessionId') || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        localStorage.setItem('sessionId', sessionId);
+
+        const chatWindow = document.getElementById('chat-window');
+        const userInput = document.getElementById('user-input');
+
+        // 頁面載入時發送歡迎訊息
+        window.onload = () => {
+             // 首次載入時，發送一個空訊息或歡迎指令來觸發初始回覆
+             // ⚠️ 此處為修正後確認無誤的寫法
+            sendMessage('', false); 
+        };
+
+        // 處理 Enter 鍵
+        function handleKey(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
             }
         }
         
-        // 發送訊息
-        async function sendMessage() {
-            const message = messageInput.value.trim();
-            if (!message) return;
+        /**
+         * 渲染訊息到聊天視窗
+         * @param {string} sender - 'user' 或 'bot'
+         * @param {string} text - 訊息文本
+         * @param {Object} richCardData - 來自後端的結構化按鈕數據
+         */
+        function appendMessage(sender, text, richCardData) {
+            const messageContainer = document.createElement('div');
+            messageContainer.classList.add('message', sender);
+
+            // 1. 渲染文字內容
+            const textBubble = document.createElement('div');
+            textBubble.classList.add('bubble');
+            textBubble.innerHTML = text.replace(/\n/g, '<br>'); // 將換行符替換為 <br>
             
-            // 添加使用者訊息到聊天室
-            addMessage(message, 'user');
-            messageInput.value = '';
-            sendButton.disabled = true;
-            
-            // 顯示輸入指示
-            showTypingIndicator();
-            
-            try {
-                const response = await fetch(API_CHAT_ENDPOINT, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        message: message,
-                        sessionId: sessionId
-                    })
+            // 將文字泡泡加入容器
+            messageContainer.appendChild(textBubble);
+
+            // 2. 🚨 渲染 Rich Card / 按鈕 🚨
+            if (sender === 'bot' && richCardData && richCardData.type === 'button_list') {
+                const cardDiv = document.createElement('div');
+                cardDiv.classList.add('rich-card');
+                
+                // 渲染標題
+                if (richCardData.title) {
+                    const title = document.createElement('p');
+                    title.classList.add('card-title');
+                    title.textContent = richCardData.title;
+                    cardDiv.appendChild(title);
+                }
+
+                // 渲染按鈕列表
+                const buttonGroup = document.createElement('div');
+                buttonGroup.classList.add('button-group');
+                
+                richCardData.buttons.forEach(button => {
+                    const btn = document.createElement('button');
+                    btn.textContent = button.text;
+                    
+                    // 點擊按鈕時，將按鈕的 'value' 發送到後端
+                    btn.onclick = () => {
+                        // 禁用所有按鈕防止重複點擊
+                        buttonGroup.querySelectorAll('button').forEach(b => b.disabled = true);
+                        // 將按鈕的值視為用戶輸入發送
+                        sendMessage(button.value, true); 
+                    };
+                    buttonGroup.appendChild(btn);
                 });
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                cardDiv.appendChild(buttonGroup);
                 
+                // 將 Rich Card 加入訊息容器中 (與文字泡泡分開)
+                messageContainer.appendChild(cardDiv);
+            }
+            
+            chatWindow.appendChild(messageContainer);
+            // 滾動到最新訊息
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        /**
+         * 處理用戶輸入和 API 請求
+         * @param {string} customMessage - 可選，用於按鈕點擊時傳入的值
+         * @param {boolean} isUserAction - 是否是明確的用戶行為 (用於區分頁面載入時的空指令)
+         */
+        async function sendMessage(customMessage = null, isUserAction = true) {
+            const message = customMessage || userInput.value.trim();
+            
+            if (!message && isUserAction) {
+                // 如果是按鈕點擊，允許空訊息 (例如用於初次載入)
+                return;
+            }
+
+            // 如果是透過輸入框發送，先清空輸入框
+            if (!customMessage) {
+                userInput.value = '';
+            }
+
+            // 顯示用戶訊息（按鈕觸發的訊息也視為用戶發送）
+            if (message && isUserAction) {
+                appendMessage('user', message);
+            }
+
+            // 禁用輸入，等待回應
+            userInput.disabled = true;
+
+            try {
+                // ⚠️ 使用相對路徑 /chat 連線到部署在同一服務的後端
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ sessionId, message })
+                });
+
                 const data = await response.json();
-                hideTypingIndicator();
-                
-                if (data.success && data.reply) {
-                    // 處理換行符號
-                    const formattedReply = data.reply
-                        .replace(/↵/g, '<br>')
-                        .replace(/\n/g, '<br>');
-                    addMessage(formattedReply, 'bot');
+
+                if (response.ok) {
+                    // 🚨 將 reply 和 richCardData 一起傳入 appendMessage
+                    appendMessage('bot', data.reply, data.richCard); 
+                    // 更新 sessionId 以防後端有重置
+                    sessionId = data.sessionId; 
                 } else {
-                    throw new Error(data.reply || '無效的回應');
+                    // 處理錯誤回應
+                    appendMessage('bot', `發生錯誤: ${data.error || data.details || '未知錯誤'}。請稍後再試。`);
                 }
-                
+
             } catch (error) {
-                hideTypingIndicator();
-                addMessage(`抱歉，服務暫時不可用。請稍後再試。<br><small>錯誤: ${error.message}</small>`, 'bot');
-                console.error('發送訊息錯誤:', error);
+                console.error('API Request Failed:', error);
+                appendMessage('bot', '抱歉，伺服器連接失敗，請檢查網路或聯繫管理員。');
             } finally {
-                sendButton.disabled = false;
-                messageInput.focus();
+                // 重新啟用輸入
+                userInput.disabled = false;
+                userInput.focus();
             }
         }
-        
-        // 添加訊息到聊天室
-        function addMessage(content, sender) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}-message`;
-            
-            const avatarDiv = document.createElement('div');
-            avatarDiv.className = 'message-avatar';
-            
-            const bubbleDiv = document.createElement('div');
-            bubbleDiv.className = 'message-bubble';
-            
-            if (sender === 'user') {
-                avatarDiv.innerHTML = '<i class="fas fa-user"></i>';
-                messageDiv.appendChild(bubbleDiv);
-                messageDiv.appendChild(avatarDiv);
-            } else {
-                avatarDiv.innerHTML = '<i class="fas fa-concierge-bell"></i>';
-                messageDiv.appendChild(avatarDiv);
-                messageDiv.appendChild(bubbleDiv);
-            }
-            
-            bubbleDiv.innerHTML = content;
-            
-            // 添加時間戳
-            const timeDiv = document.createElement('div');
-            timeDiv.className = 'message-time';
-            timeDiv.textContent = new Date().toLocaleTimeString('zh-TW', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-            bubbleDiv.appendChild(timeDiv);
-            
-            chatMessages.appendChild(messageDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // 顯示輸入指示
-        function showTypingIndicator() {
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'message bot-message typing-indicator';
-            typingDiv.id = 'typingIndicator';
-            
-            const avatarDiv = document.createElement('div');
-            avatarDiv.className = 'message-avatar';
-            avatarDiv.innerHTML = '<i class="fas fa-concierge-bell"></i>';
-            
-            const bubbleDiv = document.createElement('div');
-            bubbleDiv.className = 'message-bubble';
-            bubbleDiv.innerHTML = 'AI管家思考中<span class="typing-dots"><span></span><span></span><span></span></span>';
-            
-            typingDiv.appendChild(avatarDiv);
-            typingDiv.appendChild(bubbleDiv);
-            
-            chatMessages.appendChild(typingDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // 隱藏輸入指示
-        function hideTypingIndicator() {
-            const typingIndicator = document.getElementById('typingIndicator');
-            if (typingIndicator) {
-                typingIndicator.remove();
-            }
-        }
-        
-        // 快速回覆
-        function sendQuickReply(service) {
-            messageInput.value = `我需要${service}`;
-            sendMessage();
-        }
-        
-        // 新對話
-        function showResetConfirm() {
-            if (confirm('確定要開始新的對話嗎？當前對話記錄將被清除。')) {
-                chatMessages.innerHTML = '';
-                sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                
-                // 重新加入歡迎訊息
-                const welcomeMsg = document.createElement('div');
-                welcomeMsg.className = 'welcome-message';
-                welcomeMsg.innerHTML = `
-                    <h3>歡迎光臨旅盟酒店</h3>
-                    <p>我是您的AI訂房管家，可以協助您預訂房間、安排接送、推薦餐廳及景點，讓您享受完美的住宿體驗。</p>
-                    <div class="service-highlight">
-                        <div class="service-badge"><i class="fas fa-bed"></i> 訂房服務</div>
-                        <div class="service-badge"><i class="fas fa-car"></i> 接送服務</div>
-                        <div class="service-badge"><i class="fas fa-utensils"></i> 餐廳推薦</div>
-                    </div>
-                `;
-                chatMessages.appendChild(welcomeMsg);
-            }
-        }
-        
-        // 匯出對話
-        function exportChat() {
-            const messages = document.querySelectorAll('.message-bubble');
-            let chatText = "旅盟酒店 - 對話記錄\n\n";
-            
-            messages.forEach(bubble => {
-                const isUser = bubble.parentElement.classList.contains('user-message');
-                const content = bubble.textContent.replace(/\n/g, ' ').trim();
-                const prefix = isUser ? "客戶: " : "管家: ";
-                chatText += prefix + content + "\n\n";
-            });
-            
-            const blob = new Blob([chatText], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `飯店對話記錄_${new Date().toLocaleDateString('zh-TW')}.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
-        }
-        
-        // 初始化聊天室
-        initializeChat();
     </script>
 </body>
 </html>

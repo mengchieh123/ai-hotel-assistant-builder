@@ -1,180 +1,87 @@
-# 🏨 酒店 AI 客服助理
+# 🏨 AI 飯店助理服務 (AI Hotel Assistant Builder)
 
+這是一個基於 Node.js / Express 框架，並整合 Google Gemini API 和自定義規則引擎 (Rule Engine) 的智能飯店聊天助理服務。本服務旨在提供即時的客戶服務，包括訂房流程引導、飯店設施查詢、周邊景點推薦等功能。
 
-一個基於 Node.js + Express + Gemini AI 的智能酒店客服系統，提供訂房、接送、餐廳推薦等服務。
+---
 
-## ✨ 功能特色
+## ✨ 服務狀態與亮點
 
-### 🤖 智能意圖識別
-- 自動識別用戶意圖：訂房、接送、餐廳、價格查詢等
-- 多輪對話上下文管理
-- 用戶類型識別（家庭、商務、情侶等）
+| 項目 | 狀態 | 備註 |
+| :--- | :--- | :--- |
+| **部署狀態** | 🟢 **已上線 (Live)** | 服務已成功部署至 Render 平台。 |
+| **外部 URL** | `https://ai-hotel-assistant-builder.onrender.com` | 服務的主要訪問地址。 |
+| **核心 AI** | 🔑 **Gemini API** | 已配置並成功連線，用於處理複雜和創意性的請求。 |
+| **業務邏輯** | 🤖 **規則引擎** | 已啟用，用於處理高優先級的流程性對話（如訂房）。 |
 
-### 🎯 規則引擎 + AI 混合系統
-- **規則引擎**：處理常見標準問題（價格、接送、設施等）
-- **Gemini AI**：處理複雜創意問題（行程規劃、宣傳語等）
-- **智能路由**：自動選擇最佳回應方式
+### 🚀 核心功能
 
-### 🔄 智能重試機制
-- 自動重試失敗的 API 請求
-- 指數退避策略
-- 完整的錯誤處理
+* **智能訂房引導 (Rule Engine)**：引導用戶完成入住日期、退房日期等關鍵訂房資訊的收集。
+* **設施資訊查詢 (Rule Engine)**：快速提供飯店設施（如泳池、健身房）的清單和營業時間。
+* **周邊景點與餐廳推薦 (Gemini)**：利用 AI 生成創意和在地化的景點或餐廳推薦。
+* **會員問題處理 (Gemini)**：處理關於金卡、VIP 服務等複雜的會員權益問題。
 
-## 🚀 快速開始
+---
+
+## 🛠️ 技術棧與要求
+
+* **後端框架**：Node.js / Express
+* **AI 服務**：Google Gemini API
+* **數據格式**：JSON
+* **部署平台**：Render
 
 ### 環境要求
-- Node.js 18+
-- npm 或 yarn
 
-### 安裝步驟
+您必須在您的環境中設置以下**環境變數 (Environment Variables)** 才能運行服務：
 
-1. **克隆專案**
+| 變數名稱 | 說明 |
+| :--- | :--- |
+| `PORT` | 服務監聽的端口 (例如：`10000`) |
+| `GEMINI_API_KEY` | 您的 Google Gemini API 金鑰 |
+
+---
+
+## 💻 本地運行指南
+
+### 1. 安裝依賴
+
+進入專案根目錄，安裝所有必要的 Node.js 依賴：
+
 ```bash
-git clone <your-repo-url>
-cd claude-booking-assistant
-安裝依賴
-bash
 npm install
-環境變數設定
-建立 .env 檔案：
-bash
-GEMINI_API_KEY=你的_Gemini_API_Key
-啟動伺服器
-bash
-# 開發模式
-npm start
+2. 配置環境變數
 
-# 或直接運行
+創建一個 .env 文件（或直接在終端機中設置），並填入您的金鑰：
+
+Bash
+# .env 檔案範例
+PORT=10000
+GEMINI_API_KEY="AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+3. 啟動服務
+
+運行服務器：
+
+Bash
 node server.js
-Railway 部署
+成功啟動後，您將看到以下輸出：
 
-專案已配置 Railway 部署：
+🚀 伺服器成功啟動！
+🌐 監聽端口: 10000
+❤️  健康檢查: http://localhost:10000/health
+💬 聊天端點: http://localhost:10000/chat
+4. 測試 API 端點
 
-連接 GitHub 倉庫到 Railway
-設定環境變數 GEMINI_API_KEY
-自動部署觸發
-📡 API 端點
+您可以使用 curl 命令來測試 /api/chat 端點（以本地端口 10000 為例）：
 
-健康檢查
+Bash
+curl -X POST 'http://localhost:10000/api/chat' \
+-H 'Content-Type: application/json' \
+-d '{
+    "message": "我想訂房",
+    "sessionId": "test-local-001"
+}'
+⚠️ 已知問題與待辦事項
+在最近的測試中，發現以下問題需要修復：
 
-http
-GET /health
-首頁資訊
+意圖混淆問題 (待修復)：當用戶詢問「景點推薦」時，系統有時會同時識別出 attractions 和 restaurant 意圖，並錯誤地返回餐廳資訊。
 
-http
-GET /
-聊天接口
-
-http
-POST /api/chat
-Content-Type: application/json
-
-{
-  "message": "請給我寫一個關於金卡會員的簡短宣傳語。",
-  "sessionId": "可選的會話ID"
-}
-網頁聊天界面
-
-http
-GET /working-chat.html
-🎪 支援的意圖類型
-
-意圖	範例	處理方式
-booking	我想訂房	規則引擎
-transfer	機場接送	規則引擎
-restaurant	推薦餐廳	規則引擎
-pricing	房價多少	規則引擎
-member	金卡會員宣傳	AI 生成
-attractions	旅遊景點	AI 生成
-itinerary	行程規劃	AI 生成
-shopping	購物推薦	AI 生成
-weather	天氣查詢	規則引擎
-facilities	設施資訊	規則引擎
-emergency	緊急狀況	規則引擎
-🔧 技術架構
-
-核心模組
-
-SmartIntentClassifier - 意圖分類器
-RuleEngine - 規則引擎
-SessionManager - 會話管理
-ResponseGenerator - 回應生成器
-外部服務
-
-Google Gemini AI - 自然語言處理
-Express.js - Web 框架
-CORS - 跨域支援
-錯誤處理
-
-fetchWithRetry - 自動重試機制
-指數退避策略 (1s, 2s, 4s)
-優雅的降級處理
-📊 系統日誌
-
-啟動後會顯示：
-
-text
-🚀 伺服器啟動完成！
-🌐 端口: 8080
-🔑 Gemini API: 已配置/未配置
-🤖 規則引擎: 已啟用
-🔄 Fetch重試: 已修復
-🛠️ 開發指南
-
-添加新的規則
-
-在 RuleEngine 類別中添加新的規則方法：
-
-javascript
-static yourNewRule(intents, session, message) {
-  if (intents.includes('your_intent')) {
-    return {
-      shouldProcess: true,
-      priority: 90,
-      response: "你的回覆內容"
-    };
-  }
-  return { shouldProcess: false, priority: 0 };
-}
-添加新的意圖
-
-在 SmartIntentClassifier.classify() 中添加識別邏輯：
-
-javascript
-if (/(你的關鍵字)/.test(lowerMessage)) intents.add('your_intent');
-🐛 故障排除
-
-常見問題
-
-Gemini API 無法連接
-
-檢查 GEMINI_API_KEY 是否正確
-確認模型名稱是否可用
-依賴安裝失敗
-
-bash
-rm -rf node_modules package-lock.json
-npm install
-端口被佔用
-
-bash
-lsof -ti:8080 | xargs kill -9
-日誌級別
-
-系統會輸出詳細的日誌資訊：
-
-🎯 意圖識別 - 識別到的用戶意圖
-⚠️ 偵測到複雜意圖 - 交給 AI 處理的請求
-🔧 [DEBUG] - 調試資訊（如需要）
-📄 版本資訊
-
-v6.0.0 - 完整修復版本
-
-✅ 修復 fetchWithRetry 重試邏輯
-✅ 改進錯誤處理機制
-✅ 優化規則引擎優先級
-✅ 支援 Railway 部署
-📞 支援
-
-如有問題請提交 Issue 或聯繫開發團隊。
-
+解決方向：需優化 RuleEngine.js 或 ResponseGenerator.js 中的多意圖處理邏輯，確保選取最相關的回應。
