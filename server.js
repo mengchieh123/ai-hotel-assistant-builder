@@ -116,8 +116,8 @@ class SmartIntentClassifier {
         // 確保 intents 是一個 Set，這樣在轉換為 Array 時就不會出現重複
         const intents = new Set();
         
-        // 原始意圖判斷 (精簡版)
-        if (/(訂房|預訂|入住|房間|住.*晚|房型|幫我訂|想要訂|預約房間)/.test(lowerMessage)) intents.add('booking');
+        // 修正：將所有訂房相關意圖直接命名為 'book_room'
+        if (/(訂房|預訂|入住|房間|住.*晚|房型|幫我訂|想要訂|預約房間)/.test(lowerMessage)) intents.add('book_room'); // <-- 將 'booking' 改為 'book_room'
         if (/(會員|積分|優惠|折扣|促銷|金卡)/.test(lowerMessage)) intents.add('member_query');
         if (/(價格|價錢|多少錢|房價|費用|收費)/.test(lowerMessage)) intents.add('pricing_query');
         
