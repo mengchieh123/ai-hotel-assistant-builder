@@ -1,4 +1,4 @@
-// server.js (完整修正版 - 增強 AI 回退機制)
+// server.js (最終修正增強版 - 具備 AI Tool Calling 和指令處理)
 // 海灣麗景酒店 AI 智能助理
 
 // ---------------------------------------------
@@ -10,11 +10,16 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 const app = express();
 
+// 🚨 修正部署錯誤：定義 PORT 和 HOST
+// Render 環境會提供 process.env.PORT
+const PORT = process.env.PORT || 10000; 
+const HOST = process.env.HOST || '0.0.0.0'; 
+
 // --- API Key 和配置 ---
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
 
-// 🚨 修正 API 端點：使用 v1beta 和最新模型
+// 🚨 模型選擇：使用 v1beta 和最新模型
 const MODEL_NAME = "gemini-1.5-flash-latest";
 const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
@@ -26,9 +31,32 @@ const INITIAL_BACKOFF_MS = 1000;
 // 2. 核心工具類
 // ---------------------------------------------
 
-// 增強版智能意圖分類器
+// 🟡 Google Search 工具定義 (Function Calling Schema)
+const tools = [
+    {
+        functionDeclarations: [
+            {
+                name: "google_search",
+                description: "用於查詢外部、即時、時事或不在酒店靜態知識庫中的資訊，例如即時新聞、今天的時間、其他城市的天氣、外部景點開放時間、外部餐廳評價等。",
+                parameters: {
+                    type: "OBJECT",
+                    properties: {
+                        query: {
+                            type: "STRING",
+                            description: "簡潔明瞭的搜尋關鍵字，用於獲取即時資訊。",
+                        },
+                    },
+                    required: ["query"],
+                },
+            },
+        ],
+    },
+];
+
+// 智能意圖分類器
 class SmartIntentClassifier {
     static classify(message) {
+        // ... (保持您的 SmartIntentClassifier 邏輯不變) ...
         const lowerMessage = message.toLowerCase();
         const intents = new Set();
         
@@ -74,6 +102,7 @@ class SmartIntentClassifier {
 
 // 規則引擎類別
 class RuleEngine {
+    // ... (保持您的 RuleEngine 邏輯不變，略過以節省篇幅) ...
     static process(intents, session, message) {
         const rules = [
             this.emergencyRule,
@@ -82,10 +111,10 @@ class RuleEngine {
             this.pricingRule,
             this.memberRule,
             this.attractionsRule,
-            this.shoppingRule,      // 🆕 新增購物規則
-            this.itineraryRule,     // 🆕 新增行程規則
-            this.medicalRule,       // 🆕 新增醫療規則
-            this.modificationRule,  // 🆕 新增變更規則
+            this.shoppingRule,
+            this.itineraryRule,
+            this.medicalRule,
+            this.modificationRule,
             this.weatherRule,
             this.restaurantRule,
             this.facilityRule,
@@ -182,7 +211,7 @@ class RuleEngine {
             const responses = [
                 "🌟 **金卡會員尊榮禮遇** 🌟\n\n• 住宿享95折優惠\n• 免費房型升等機會\n• 專屬會員積分兌換\n• 提早入住/延遲退房\n• 生日當天神秘禮物\n\n立即加入，尊享特权！",
                 "💎 **金卡會員專屬優惠** 💎\n\n尊貴的金卡會員您好！感謝您的長期支持！\n\n✨ 專屬福利：\n• 房費95折優惠\n• 雙倍積分累計\n• 優先預訂權益\n• 會員專線服務\n\n讓您的每次住宿都成為難忘體驗！",
-                "🎯 **會員宣傳語** 🎯\n\n「海灣麗景金卡會員 - 不只是住宿，更是尊榮體驗！」\n\n加入金卡會員，享受：\n✓ 專屬折扣優惠\n✓ 積分兌換好禮  \n✓ 優先服務權益\n✓ 會員獨家活動\n\n開啟您的奢華旅程！"
+                "🎯 **會員宣傳語** 🎯\n\n「海灣麗景金卡會員 - 不只是住宿，更是尊榮體驗！」\n\n加入金卡會員，享受：\n✓ 專屬折扣優惠\n✓ 積分兌換好禮 \n✓ 優先服務權益\n✓ 會員獨家活動\n\n開啟您的奢華旅程！"
             ];
             
             return {
@@ -342,12 +371,14 @@ class RuleEngine {
     }
 }
 
+
 // 會話狀態管理器
 class SessionManager {
     constructor() {
         this.sessions = new Map();
     }
     
+    // ... (保持您的 SessionManager 邏輯不變) ...
     getSession(sessionId) {
         if (!this.sessions.has(sessionId)) {
             this.sessions.set(sessionId, {
@@ -385,6 +416,21 @@ class SessionManager {
             timestamp: new Date().toISOString()
         });
     }
+
+    // 🆕 新增：在工具呼叫後，添加工具回應到歷史紀錄
+    addToolResponse(sessionId, toolName, content) {
+        const session = this.getSession(sessionId);
+        session.conversationHistory.push({
+            role: 'function',
+            parts: [{
+                functionResponse: {
+                    name: toolName,
+                    response: { content }
+                }
+            }],
+            timestamp: new Date().toISOString()
+        });
+    }
 }
 
 const sessionManager = new SessionManager();
@@ -392,7 +438,44 @@ const sessionManager = new SessionManager();
 // ---------------------------------------------
 // 3. API 通訊工具
 // ---------------------------------------------
+
+// 🟡 執行 Google Search API
+async function google_search(query) {
+    console.log(`[Google Search Tool] 執行查詢: ${query}`);
+    try {
+        const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_SEARCH_API_KEY}&cx=${process.env.GOOGLE_SEARCH_CX}&q=${encodeURIComponent(query)}`;
+        
+        // 🚨 注意：您需要設定 GOOGLE_SEARCH_API_KEY 和 GOOGLE_SEARCH_CX 環境變數
+        if (!process.env.GOOGLE_SEARCH_API_KEY || !process.env.GOOGLE_SEARCH_CX) {
+            console.error("[Google Search Tool] 缺少 GOOGLE_SEARCH_API_KEY 或 GOOGLE_SEARCH_CX");
+            return { error: "Google Search API 未配置或密鑰缺失" };
+        }
+        
+        const response = await fetch(searchUrl);
+        const data = await response.json();
+
+        if (data.error) {
+            console.error("[Google Search Tool] API 錯誤:", data.error.message);
+            return { error: data.error.message };
+        }
+
+        // 簡化結果輸出
+        const snippets = data.items.slice(0, 3).map(item => ({
+            title: item.title,
+            snippet: item.snippet,
+            source: item.source_name || new URL(item.link).hostname
+        }));
+        
+        return { search_results: snippets };
+    } catch (error) {
+        console.error("[Google Search Tool] 執行時發生錯誤:", error.message);
+        return { error: `執行 Google Search 失敗: ${error.message}` };
+    }
+}
+
+// 通用 Fetch 函式 (保留重試邏輯)
 async function fetchWithRetry(url, options, attempt = 1) {
+    // ... (保持 fetchWithRetry 邏輯不變) ...
     try {
         const response = await fetch(url, options);
         
@@ -425,10 +508,11 @@ async function fetchWithRetry(url, options, attempt = 1) {
 }
 
 // ---------------------------------------------
-// 4. 回應生成與 LLM 邏輯 (增強 AI 回退機制)
+// 4. 回應生成與 LLM 邏輯 (增強 AI 回退機制與工具調用)
 // ---------------------------------------------
 class ResponseGenerator {
     static isInBookingFlow(session) {
+        // ... (保持您的 isInBookingFlow 邏輯不變) ...
         const lastMessages = session.conversationHistory.slice(-3);
         return lastMessages.some(msg =>
             msg.intents?.includes('booking') ||
@@ -439,6 +523,7 @@ class ResponseGenerator {
     }
 
     static handleBookingDate(dateMessage, session) {
+        // ... (保持您的 handleBookingDate 邏輯不變) ...
         let response = "📅 ";
         const rangeMatch = dateMessage.match(/(\d{1,2})\/(\d{1,2})-(\d{1,2})\/(\d{1,2})/);
         if (rangeMatch) {
@@ -458,10 +543,55 @@ class ResponseGenerator {
         return response;
     }
 
+    // 🟢 處理特殊指令，如 [translate:...]
+    static async handleSpecialCommands(message, session) {
+        const translateMatch = message.match(/^\[translate:(.*?)\]$/i);
+        if (translateMatch) {
+            const textToTranslate = translateMatch[1].trim();
+            console.log(`🟢 執行特殊指令：翻譯 "${textToTranslate}"`);
+            try {
+                // 指示 AI 進行翻譯
+                const prompt = `請將以下中文文本翻譯成流利的英文，只輸出翻譯結果，不要包含任何額外解釋或註釋："${textToTranslate}"`;
+                session.conversationHistory.push({ role: 'user', message: prompt });
+                const reply = await this.getGeminiResponse(session, false); // 關閉工具，純文本生成
+                session.conversationHistory.pop(); // 移除臨時 prompt
+                return `🌐 **翻譯結果：**\n\n${reply}`;
+            } catch (e) {
+                console.error("翻譯服務失敗:", e.message);
+                return `🌐 翻譯服務暫時不可用，但您想翻譯的文本是：「${textToTranslate}」。`;
+            }
+        }
+        return null;
+    }
+    
+    // 🟡 執行工具呼叫並將結果傳回給 AI
+    static async executeToolCall(toolCall, session) {
+        const toolName = toolCall.functionCall.name;
+        const args = toolCall.functionCall.args;
+        
+        if (toolName === 'google_search') {
+            const searchResult = await google_search(args.query);
+            
+            // 存入會話歷史，準備第二次呼叫
+            sessionManager.addToolResponse(session.sessionId, toolName, JSON.stringify(searchResult));
+            
+            // 第二次呼叫 Gemini，讓它根據工具結果生成回覆
+            return await this.getGeminiResponse(session, true);
+        }
+        
+        return "無法識別或執行該工具。";
+    }
+
     static async generateResponse(intents, session, message) {
+        // 🟢 優先處理特殊指令
+        const specialReply = await this.handleSpecialCommands(message, session);
+        if (specialReply) {
+            return specialReply;
+        }
+
         console.log(`🎯 意圖識別: ${intents.join(', ')}, 用戶類型: ${session.userType}`);
         
-        // 🚨 第一步：使用規則引擎處理高優先級意圖
+        // 🚨 第一步：使用規則引擎處理高優先級意圖 (靜態知識)
         const ruleResult = RuleEngine.process(intents, session, message);
         if (ruleResult.shouldProcess && ruleResult.priority >= 50) {
             if (ruleResult.updateSession && ruleResult.nextStep) {
@@ -475,20 +605,20 @@ class ResponseGenerator {
             return this.handleBookingDate(message, session);
         }
 
-        // 🤖 複雜問題使用 AI - 擴大意圖範圍和觸發條件
+        // 🤖 第二步：複雜/一般問題使用 AI (包括 Google Search Tool)
         const complexIntents = ['attractions', 'itinerary', 'shopping', 'general_inquiry', 'medical', 'modification'];
         const shouldUseAI = intents.some(intent => complexIntents.includes(intent)) || 
-                            intents.length > 1 ||
-                            !ruleResult.shouldProcess ||  // 🆕 規則引擎無法處理時
-                            intents.includes('general_inquiry'); // 🆕 一般查詢時
+                             intents.length > 1 ||
+                             !ruleResult.shouldProcess || 
+                             intents.includes('general_inquiry'); 
 
         if (shouldUseAI) {
             try {
-                console.log("🤖 使用 Gemini AI 處理複雜問題");
-                return await this.getGeminiResponse(session);
+                console.log("🤖 嘗試使用 Gemini AI 處理複雜問題 (啟用工具)");
+                return await this.getGeminiResponse(session, true); // 啟用工具
             } catch (error) {
                 console.error("AI 服務失敗，使用規則回覆:", error.message);
-                // 優雅回退到規則引擎
+                // 優雅回退到規則引擎或預設回應
                 return this.getEnhancedFallbackResponse(intents, session, message, ruleResult);
             }
         }
@@ -504,12 +634,12 @@ class ResponseGenerator {
 
     // 增強的回退回應
     static getEnhancedFallbackResponse(intents, session, message, ruleResult) {
+        // ... (保持您的 getEnhancedFallbackResponse 邏輯不變) ...
         // 如果有規則結果，優先使用
         if (ruleResult.shouldProcess) {
             return ruleResult.response;
         }
         
-        // 根據意圖提供特定的回退回應
         const fallbackResponses = {
             'attractions': "🗺️ **景點推薦**\n\n抱歉，目前景點推薦服務暫時無法提供詳細資訊。\n\n建議您：\n• 詢問飯店櫃檯獲取當地旅遊地圖\n• 下載旅遊APP查詢最新景點\n• 我們可以為您安排交通接送服務\n\n需要其他協助嗎？",
             'itinerary': "📅 **行程規劃**\n\n行程規劃服務暫時無法使用。\n\n我們的服務人員可以：\n• 推薦適合的遊玩路線\n• 安排專業導遊服務\n• 預訂當地特色活動\n\n請聯繫櫃檯獲得個性化建議！",
@@ -519,7 +649,6 @@ class ResponseGenerator {
             'general_inquiry': "🤔 **問題處理**\n\n抱歉，我不太理解您的具體需求。\n\n我可以協助您：\n🏨 訂房服務與價格查詢\n🍽️ 餐廳推薦與訂位\n🚗 交通接送安排\n🗺️ 當地資訊諮詢\n\n請告訴我您需要哪方面的協助？"
         };
         
-        // 找到最相關的意圖
         const relevantIntent = intents.find(intent => fallbackResponses[intent]) || 'general_inquiry';
         return fallbackResponses[relevantIntent];
     }
@@ -529,7 +658,7 @@ class ResponseGenerator {
         // 最後嘗試使用 AI
         try {
             console.log("🔄 最終回退：嘗試使用 AI");
-            return await this.getGeminiResponse(session);
+            return await this.getGeminiResponse(session, true);
         } catch (error) {
             console.error("最終回退也失敗:", error.message);
             // 使用通用規則
@@ -541,20 +670,21 @@ class ResponseGenerator {
         }
     }
 
-    static async getGeminiResponse(session) {
+    // 🟡 核心：與 Gemini API 通訊，處理工具呼叫
+    static async getGeminiResponse(session, enableTools) {
         if (!apiKey) {
             console.warn("[Gemini API] API Key is empty. Using rule-based response.");
             return RuleEngine.generalRule([], session, "").response;
         }
 
         try {
+            // 轉換會話歷史為 Gemini 格式
             const contents = session.conversationHistory.map(item => ({
-                role: item.role === 'user' ? 'user' : 'model',
-                parts: [{ text: item.message }]
+                role: item.role === 'user' || item.role === 'function' ? item.role : 'model',
+                parts: item.parts || [{ text: item.message }]
             }));
 
-            console.log("[Gemini API] Sending request to:", apiUrl);
-
+            // 僅在啟用工具時加入 tool 聲明
             const payload = {
                 contents: contents,
                 generationConfig: {
@@ -562,16 +692,15 @@ class ResponseGenerator {
                     temperature: 0.7,
                 },
                 safetySettings: [
-                    {
-                        category: "HARM_CATEGORY_HARASSMENT",
-                        threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_HATE_SPEECH", 
-                        threshold: "BLOCK_MEDIUM_AND_ABOVE"
-                    }
-                ]
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" }
+                ],
             };
+            
+            if (enableTools) {
+                payload.tools = tools;
+                console.log("[Gemini API] 啟用工具調用 (google_search)");
+            }
 
             const response = await fetchWithRetry(apiUrl, {
                 method: 'POST',
@@ -579,33 +708,35 @@ class ResponseGenerator {
                 body: JSON.stringify(payload)
             });
 
-            // 詳細錯誤處理
             if (!response.ok) {
                 const errorBody = await response.text();
                 console.error(`[Gemini API] HTTP ${response.status}:`, errorBody);
-                
-                if (response.status === 404) {
-                    throw new Error(`API endpoint not found. Please check model name and API version.`);
-                } else if (response.status === 403) {
-                    throw new Error(`API key invalid or insufficient permissions.`);
-                }
                 throw new Error(`HTTP ${response.status}: ${errorBody}`);
             }
 
             const result = await response.json();
             
             if (result.error) {
-                console.error("[Gemini API] Error:", result.error);
                 throw new Error(`API Error: ${result.error.message}`);
             }
+
+            const candidate = result.candidates?.[0];
             
-            const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            // 🟡 檢查是否需要執行工具
+            if (candidate?.functionCalls) {
+                const toolCall = candidate.functionCalls[0];
+                console.log(`🟡 收到工具呼叫請求: ${toolCall.functionCall.name}(${JSON.stringify(toolCall.functionCall.args)})`);
+                return await this.executeToolCall(candidate, session); // 執行並返回第二次 AI 呼叫的結果
+            }
+
+            // 取得最終文本回覆
+            const text = candidate?.content?.parts?.[0]?.text;
 
             if (text) {
                 return text;
             } else {
-                console.error("[Gemini API] Empty response:", JSON.stringify(result, null, 2));
-                throw new Error("No valid text in response");
+                console.error("[Gemini API] Empty response or blocked:", JSON.stringify(result, null, 2));
+                throw new Error("No valid text in response or content was blocked.");
             }
         } catch (error) {
             console.error("Error communicating with Gemini API:", error.message);
@@ -615,7 +746,7 @@ class ResponseGenerator {
 }
 
 // ---------------------------------------------
-// 5. Express 中介軟體與設定 - 修正 CORS
+// 5. Express 中介軟體與設定
 // ---------------------------------------------
 
 // 完整的 CORS 配置
@@ -665,12 +796,13 @@ app.use(express.static('.', {
 // 6. 路由定義
 // ---------------------------------------------
 
+// ... (保持您的路由定義不變) ...
 // 根路徑
 app.get('/', (req, res) => {
     res.json({
         service: '🏨 海灣麗景酒店 AI 助理',
         status: '運行中',
-        version: '7.0.0', // 版本更新
+        version: '7.1.0 (含工具調用)', // 版本更新
         endpoints: {
             health: '/health',
             chat: '/chat',
@@ -730,10 +862,17 @@ async function handleChatRequest(req, res) {
 
     try {
         console.log("💬 收到請求:", { sessionId, message });
+        
+        // 🚨 意圖識別在特殊指令處理之後，這符合新的邏輯。
         const intents = SmartIntentClassifier.classify(message);
         const session = sessionManager.updateSession(sessionId, message, intents);
         const reply = await ResponseGenerator.generateResponse(intents, session, message);
-        sessionManager.addAssistantResponse(sessionId, reply);
+        
+        // 只有在得到最終文本回覆時才記錄模型回覆，工具呼叫的回覆在 executeToolCall 中記錄。
+        if (reply) {
+             sessionManager.addAssistantResponse(sessionId, reply);
+        }
+
 
         res.json({
             success: true,
@@ -778,15 +917,15 @@ app.use((req, res) => {
 const server = app.listen(PORT, HOST, () => {
     console.log(`🚀 伺服器成功啟動！`);
     console.log(`🌐 監聽端口: ${PORT}`);
-    console.log(`❤️  健康檢查: http://localhost:${PORT}/health`);
-    console.log(`💬 聊天端點: http://localhost:${PORT}/chat`);
-    console.log(`📱 前端頁面: http://localhost:${PORT}/working-chat.html`);
+    console.log(`❤️  健康檢查: http://${HOST}:${PORT}/health`);
+    console.log(`💬 聊天端點: http://${HOST}:${PORT}/chat`);
+    console.log(`📱 前端頁面: http://${HOST}:${PORT}/working-chat.html (如果檔案存在)`);
     console.log(`🔑 Gemini API: ${apiKey ? '已配置' : '未配置'}`);
-    console.log(`🤖 規則引擎: 已啟用`);
-    console.log(`🔄 AI 回退機制: 已啟用`);
+    console.log(`🔍 Google Search Tool: ${process.env.GOOGLE_SEARCH_API_KEY ? '已啟用' : '未配置 (請檢查環境變數)'}`);
 });
 
 // 優雅關閉處理
+// ... (保持您的優雅關閉邏輯不變) ...
 process.on('SIGTERM', () => {
     console.log('收到 SIGTERM 信號，開始優雅關閉...');
     server.close(() => {
