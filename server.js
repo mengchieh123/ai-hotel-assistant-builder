@@ -615,19 +615,51 @@ class ResponseGenerator {
 }
 
 // ---------------------------------------------
-// 5. Express 中介軟體與設定
+// 5. Express 中介軟體與設定 - 修正 CORS
 // ---------------------------------------------
+
+// 完整的 CORS 配置
 app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    origin: [
+        'https://ai-hotel-assistant-builder.onrender.com',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://localhost:10000',
+        'http://127.0.0.1:10000'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+        'Content-Type', 
+        'Authorization', 
+        'X-Requested-With', 
+        'Accept',
+        'Origin',
+        'X-Request-Id'
+    ],
+    exposedHeaders: [
+        'Content-Length', 
+        'X-Request-Id',
+        'Access-Control-Allow-Origin'
+    ],
+    maxAge: 86400, // 24小時
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
 
-app.use(express.json());
-app.use(express.static('.'));
+// 處理 preflight OPTIONS 請求
+app.options('*', cors());
 
-const PORT = process.env.PORT || 10000;
-const HOST = '0.0.0.0';
+// 其他中介軟體
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static('.', {
+    setHeaders: (res, path) => {
+        if (path.endsWith('.html')) {
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        }
+    }
+}));
 
 // ---------------------------------------------
 // 6. 路由定義
