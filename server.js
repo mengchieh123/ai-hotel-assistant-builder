@@ -8,6 +8,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
+const path = require('path'); // 🚨 導入 path 模組來處理路徑
 const app = express();
 
 const PORT = process.env.PORT || 10000;
@@ -110,7 +111,6 @@ const DIALOGUE_FLOW = {
 // 智能意圖分類器 (包含實體提取輔助功能)
 class SmartIntentClassifier {
     static classify(message) {
-        // ... (原先的意圖分類邏輯保持不變) ...
         const lowerMessage = message.toLowerCase();
         const intents = new Set();
         
@@ -143,12 +143,10 @@ class SmartIntentClassifier {
              intents.add('member_no_meal_no');
         }
 
-
         return intents.size > 0 ? Array.from(intents) : ['general_inquiry'];
     }
 
     static containsDatePatterns(message) {
-        // ... (保持不變) ...
         const datePatterns = [
             /\d{1,2}\/\d{1,2}-\d{1,2}\/\d{1,2}/,
             /\d{1,2}\/\d{1,2}/,
@@ -160,7 +158,6 @@ class SmartIntentClassifier {
     }
 
     static detectUserType(message) {
-        // ... (保持不變) ...
         const lowerMessage = message.toLowerCase();
         if (/(家庭|小孩|兒童|親子|寶寶)/.test(lowerMessage)) return 'family';
         if (/(情侶|夫妻|蜜月|浪漫)/.test(lowerMessage)) return 'couple';
@@ -235,14 +232,12 @@ class BookingFlowController {
         let total = basePrice * nights;
         
         // 兒童加價 (簡化：假設每個兒童加 300)
-        total += childCount * 300; 
+        total += (childCount || 0) * 300; 
 
         // 會員折扣
         if (isMemberDiscount) {
             total *= 0.8; 
         }
-        
-        // 假設早餐已在 basePrice 內，但如果後面要加購，需要另加。這裡僅模擬折扣
         
         return Math.round(total);
     }
@@ -485,7 +480,6 @@ const sessionManager = new SessionManager();
 // 4. API 通訊工具
 // ---------------------------------------------
 async function fetchWithRetry(url, options, attempt = 1) {
-    // ... (fetchWithRetry 邏輯保持不變) ...
     try {
         const response = await fetch(url, options);
         
@@ -571,7 +565,6 @@ class ResponseGenerator {
     }
 
     static getEnhancedFallbackResponse(intents, session, message, ruleResult) {
-        // ... (getEnhancedFallbackResponse 邏輯保持不變) ...
         if (ruleResult.shouldProcess) {
              return ruleResult.response;
         }
@@ -594,7 +587,6 @@ class ResponseGenerator {
 
             const payload = {
                 contents: contents,
-                // ... (generationConfig 保持不變) ...
                 generationConfig: {
                     maxOutputTokens: 500,
                     temperature: 0.7,
@@ -636,7 +628,16 @@ class ResponseGenerator {
 // 6. Express 路由定義
 // ---------------------------------------------
 
-// ... (CORS 和 Express 中介軟體保持不變) ...
+// 🚨 靜態檔案服務設定 (修復 Render 上看不到網頁的問題)
+// 假設您的 working-chat.html 檔案放在專案的根目錄，或者一個名為 'public' 的目錄中。
+// 如果在根目錄，使用 app.use(express.static(__dirname));
+
+// 建議將前端檔案放在一個名為 'public' 的資料夾中
+// 如果您的檔案在根目錄，請將 'public' 替換為 '.'
+const PUBLIC_DIR = path.join(__dirname, 'public');
+app.use(express.static(PUBLIC_DIR));
+
+// 處理 CORS 和 JSON/URL 編碼
 app.use(cors({
     origin: [
         'https://ai-hotel-assistant-builder.onrender.com',
@@ -669,7 +670,21 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 
-// ... (根路徑、健康檢查路徑保持不變) ...
+// 🚨 根路徑導向 (可選，讓使用者直接訪問主 URL 就能看到聊天介面)
+app.get('/', (req, res) => {
+    // 假設 working-chat.html 在 public 目錄下
+    res.sendFile(path.join(PUBLIC_DIR, 'working-chat.html')); 
+    
+    // 如果 working-chat.html 在根目錄：
+    // res.sendFile(path.join(__dirname, 'working-chat.html'));
+});
+
+
+// 🚨 健康檢查路徑 (Render 服務健康度監控使用)
+app.get('/healthz', (req, res) => {
+    res.status(200).send('ok');
+});
+
 
 // 聊天路由
 app.post('/chat', async (req, res) => {
@@ -711,4 +726,5 @@ app.listen(PORT, HOST, () => {
     console.log(`🔑 Gemini API Key Status: ${apiKey ? 'Loaded' : 'MISSING!'}`);
     console.log(`🚫 Custom Search Tool: Disabled for zero-cost operation.`);
     console.log(`📝 Dialogue Flow Status: Fully Integrated.`);
+    console.log(`🌐 Static files served from: ${PUBLIC_DIR}`); // 🚨 新增日誌
 });
