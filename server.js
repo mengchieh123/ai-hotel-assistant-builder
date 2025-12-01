@@ -207,7 +207,7 @@ class SmartIntentClassifier {
             }
         }
         
-        // 聯絡方式 - EMAIL 提取 (保持不變)
+        // 聯絡方式 - EMAIL 提取
         const emailMatch = message.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
         if (emailMatch) {
             data.email = emailMatch[0];
@@ -311,6 +311,11 @@ class RuleEngine {
             // 1. 提取實體並更新 session (這必須是流程開始的第一件事)
             const extractedEntities = SmartIntentClassifier.extractEntities(message);
             Object.assign(session.collectedData, extractedEntities);
+            // 🚨 輔助日誌：在關鍵步驟打印提取的實體，方便除錯
+            if (session.bookingState === 'ask_contact_info') {
+                 console.log(`DEBUG: Extracted entities in ask_contact_info: ${JSON.stringify(extractedEntities)}`);
+            }
+
 
             // 🚨 優化後的 INIT 狀態處理邏輯
             if (session.bookingState === 'init') {
@@ -395,6 +400,7 @@ class RuleEngine {
                 session.collectedData = {};
             }
 
+            // 🚨 強制返回 shouldProcess: true，確保規則引擎的結果被使用，防止 LLM 劫持
             return {
                 shouldProcess: true,
                 priority: 95, 
@@ -402,7 +408,8 @@ class RuleEngine {
                 nextStep: session.bookingState,
                 updateSession: true
             };
-        }
+        } // if (hasBookingIntent || session.bookingState) 結束
+
         return { shouldProcess: false, priority: 0 };
     }
 
@@ -433,14 +440,12 @@ class RuleEngine {
 
     // 📞 一般規則 (作為最終回退)
     static generalRule(intents, session, message) {
-        if (intents.includes('general_inquiry') || intents.length === 0) {
-            return {
-                shouldProcess: true,
-                priority: 10,
-                response: "👋 您好！我是海灣麗景酒店AI助理小智\n\n我可以協助您：訂房、接送、餐廳推薦、價格查詢、景點導覽、天氣資訊等服務。\n\n請問今天需要什麼協助呢？"
-            };
-        }
-        return { shouldProcess: false, priority: 0 };
+        // 🚨 降低 LLM 的回退權重，讓其只處理真正的一般查詢
+        return {
+            shouldProcess: true,
+            priority: 10,
+            response: "👋 您好！我是海灣麗景酒店AI助理小智\n\n我可以協助您：訂房、接送、餐廳推薦、價格查詢、景點導覽、天氣資訊等服務。\n\n請問今天需要什麼協助呢？"
+        };
     }
 }
 
@@ -533,10 +538,9 @@ async function fetchWithRetry(url, options, attempt = 1) {
 // ---------------------------------------------
 class ResponseGenerator {
     static async handleSpecialCommands(message, session) {
-        // ... (保持不變)
         const translateMatch = message.match(/^\[translate:(.*?)\]$/i);
         if (translateMatch) {
-            // ... (保持不變)
+            return `翻譯功能已禁用，請直接輸入中文。`; 
         }
         return null;
     }
