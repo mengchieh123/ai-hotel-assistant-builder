@@ -18,16 +18,18 @@ dayjs.extend(customParseFormat);
 dayjs.extend(weekday);
 dayjs.extend(isSameOrAfter);
 
+// 服務器配置
 const PORT = process.env.PORT || 10000;
 const HOST = process.env.HOST || '0.0.0.0';
 
+// Gemini API 配置
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
-
 const MODEL_NAME = "gemini-2.5-flash"; 
 const API_VERSION = "v1";
 const apiUrl = `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
+// API 重試機制配置
 const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
 const tools = []; 
@@ -44,7 +46,7 @@ class FlowConfigLoader {
     constructor(filePath) {
         this.filePath = path.resolve(filePath);
         this.config = this.loadConfig();
-        // Render Production 環境不建議使用 fs.watch，但本地開發時可以使用
+        // 僅在本地開發環境啟用 Watcher
         // if (process.env.NODE_ENV !== 'production') {
         //     this.startWatcher();
         // }
@@ -68,16 +70,14 @@ class FlowConfigLoader {
     }
 
     startWatcher() {
-        // 監控檔案變動，但忽略連寫操作中的臨時文件
+        // 監控檔案變動
         fs.watch(this.filePath, { recursive: false }, (eventType, filename) => {
             if (eventType === 'change') {
                 try {
-                    // 重新讀取，避免讀取到未寫入完成的檔案
                     const newData = fs.readFileSync(this.filePath, 'utf8');
                     this.config = JSON.parse(newData);
                     console.log(`🔥 [Hot Reload] 成功更新配置！時間: ${new Date().toLocaleTimeString()}`);
                 } catch (error) {
-                    // 格式錯誤時，僅報錯並保持舊配置
                     console.error(`❌ [Hot Reload] 更新配置失敗，請檢查 JSON 格式: ${error.message}`);
                 }
             }
@@ -106,13 +106,13 @@ class SmartIntentClassifier {
         const lowerMessage = message.toLowerCase();
         const intents = new Set();
             
-        // 核心訂房意圖 (修正：更寬鬆地識別房型、日期、間數)
+        // 核心訂房意圖
         if (/(訂房|預訂|入住|房間|房型|幫我訂|想要訂|預約房間|我要訂房)/.test(lowerMessage) ||
             /(豪華客房|標準雙人房|行政套房|海景|家庭|一間|兩間|.*月.*日|.*天)/.test(lowerMessage)) {
             intents.add('booking');
         }
             
-        // 關鍵流程意圖 (affirm/deny 等)
+        // 關鍵流程意圖
         if (/(是|對|好|確認|願意|繼續|訂|要早餐)/.test(lowerMessage)) intents.add('affirm');
         if (/(否|不|取消|不要|不願意|算了|不要早餐)/.test(lowerMessage)) intents.add('deny');
             
@@ -120,11 +120,11 @@ class SmartIntentClassifier {
         if (lowerMessage === '💳 我要登入會員' || lowerMessage === '我要登入會員') intents.add('member_login');
         if (lowerMessage === '❌ 我不是會員 (或暫不登入)' || lowerMessage === '不是會員') intents.add('deny');
 
-        // 付款意圖 (新增)
+        // 付款意圖
         if (lowerMessage.includes('線上付款')) intents.add('online_payment');
         if (lowerMessage.includes('現場結帳')) intents.add('onsite_payment');
             
-        // 早餐意圖 (修正)
+        // 早餐意圖
         if (lowerMessage === '要早餐' || lowerMessage.includes('加購早餐')) intents.add('member_yes_meal_yes');
         if (lowerMessage === '不要早餐' || lowerMessage.includes('不加購早餐')) intents.add('member_yes_meal_no');
 
@@ -139,7 +139,7 @@ class SmartIntentClassifier {
             'facilities', 'weather', 'itinerary', 'modification', 'emergency'
         ];
             
-        // 意圖正規化判斷 (處理設施、天氣等)
+        // 意圖正規化判斷
         nonBookingIntents.forEach(intent => {
             if (
                 (intent === 'facilities' && /(設施|泳池|健身房|spa|按摩)/.test(lowerMessage)) ||
@@ -290,7 +290,7 @@ class SmartIntentClassifier {
         const data = {};
         const lowerMessage = message.toLowerCase();
 
-        // 1. 處理日期和晚數 (使用新的智慧處理器)
+        // 1. 處理日期和晚數
         const dateResult = this.parseDate(lowerMessage);
         if (dateResult.checkInDate) data.checkInDate = dateResult.checkInDate;
         if (dateResult.nights) data.nights = dateResult.nights;
@@ -331,7 +331,7 @@ class SmartIntentClassifier {
             data.memberAccount = memberMatch[0];
         }
             
-        // 7. 房間間數 (新增)
+        // 7. 房間間數
         const roomCountMatch = lowerMessage.match(/(\d+)[間個]/);
         if (roomCountMatch) {
             data.roomCount = parseInt(roomCountMatch[1], 10);
@@ -358,14 +358,13 @@ class BookingFlowController {
         const flow = this.getFlow(); 
         const stateKey = session.bookingState || 'init';
             
-        // 處理暫停狀態的邏輯
         if (stateKey === 'paused_waiting_for_resume' && session.pausedState) {
             return flow.states[session.pausedState];
         }
         return flow.states[stateKey];
     }
         
-    // 【新增方法】獲取當前可預訂的房型列表
+    // 獲取當前可預訂的房型列表
     static getRoomTypesList() {
         // 模擬從後端 API 取得數據
         const types = [
@@ -379,7 +378,6 @@ class BookingFlowController {
 
     // 執行價格計算 (模擬)
     static calculatePrice(data, isMemberDiscount = false) {
-        // 解構賦值，確保使用到的參數都是最新的
         const { roomType = '豪華客房', nights = 1, childCount = 0, adultCount = 1, hasBreakfast = false, roomCount = 1 } = data;
             
         // 1. 計算基礎房費
@@ -389,29 +387,27 @@ class BookingFlowController {
         else if (roomType.includes('豪華')) basePrice = 3200;
         else if (roomType.includes('家庭')) basePrice = 4500; 
 
-        const baseTotal = basePrice * nights * roomCount; // 房費要乘以間數
+        const baseTotal = basePrice * nights * roomCount; 
             
         // 2. 計算兒童加價 (假設兒童加價 $300/晚)
         const CHILD_DAILY_FEE = 300;
-        // 兒童加價也要乘以間數 (假設人數總和是所有房間的總人數)
         const childCost = (childCount || 0) * CHILD_DAILY_FEE * nights; 
             
-        let total = baseTotal + childCost; // <-- 這是未折扣的房費總價
+        let total = baseTotal + childCost; 
 
-        // 3. 記錄中間值 (重要)
+        // 3. 記錄中間值
         data.totalPriceNoChild = baseTotal;
         data.childCost = childCost; 
 
-        // 4. 應用折扣 (僅一次)
+        // 4. 應用折扣
         if (isMemberDiscount) {
             total *= 0.8; 
         }
             
-        // 5. 計算早餐費 (假設 $150/人/晚)
+        // 5. 計算早餐費
         data.breakfastCost = 0;
         if (hasBreakfast) {
             const BREAKFAST_FEE = 150;
-            // 早餐費基於總人數
             const totalGuests = (adultCount || 0) + (childCount || 0);
             const breakfastCost = totalGuests * BREAKFAST_FEE * nights;
             total += breakfastCost;
@@ -428,9 +424,9 @@ class BookingFlowController {
 class RuleEngine {
     static process(intents, session, message) {
         const rules = [
-            this.emergencyRule, // 最高優先級
-            this.bookingFlowRule, // 次高優先級 (狀態機核心)
-            this.generalRule // 最低優先級 (通用回覆)
+            this.emergencyRule, 
+            this.bookingFlowRule, 
+            this.generalRule 
         ];
 
         for (const rule of rules) {
@@ -446,7 +442,7 @@ class RuleEngine {
 
     // 🏨 訂房流程規則 (核心狀態機邏輯)
     static bookingFlowRule(intents, session, message) {
-        const flow = flowLoader.DIALOGUE_FLOW; // 獲取最新的動態配置
+        const flow = flowLoader.DIALOGUE_FLOW; 
         const hasBookingIntent = intents.includes('booking');
             
         const nonBookingIntents = [
@@ -461,7 +457,6 @@ class RuleEngine {
             if (hasBookingIntent) {
                 session.bookingState = 'init'; 
             } else {
-                // 短暫延遲後清除狀態，避免重複觸發
                 setTimeout(() => { session.bookingState = null; session.collectedData = {}; }, 500); 
                 return { shouldProcess: false, priority: 0 }; 
             }
@@ -485,7 +480,6 @@ class RuleEngine {
                     updateSession: true
                 };
             } else {
-                // 讓 LLM 處理詢問恢復狀態時的追問
                 return { shouldProcess: false, priority: 0 }; 
             }
         }
@@ -497,11 +491,10 @@ class RuleEngine {
             session.pausedState = session.bookingState;
             session.bookingState = 'paused_waiting_for_resume';
             
-            // 讓 LLM 處理打斷問題，並在回覆後提示恢復 (由 ResponseGenerator 處理)
             return { shouldProcess: false, priority: 0 }; 
         }
             
-        // 2.7. 🚫 修正點：若在流程中但收到最低級的 general_inquiry，讓 LLM 接管 (防止 Fallback 循環)
+        // 2.7. 🚫 處理流程中模糊的 general_inquiry
         if (session.bookingState && session.bookingState !== 'init' && intents.includes('general_inquiry')) {
             console.log(`⚠️ 流程中收到 general_inquiry。暫停流程，轉交給 LLM 處理模糊查詢。`);
             
@@ -534,7 +527,6 @@ class RuleEngine {
             // 6. 檢查實體是否收集完畢以轉移到下一個狀態
             if (nextStateKey === session.bookingState && currentState.entities && currentState.next_state) {
                 
-                // 暫時不要求 email 和 memberAccount
                 const requiredEntities = currentState.entities.filter(e => e !== 'email' && e !== 'memberAccount'); 
                     
                 const allEntitiesCollected = requiredEntities.every(
@@ -544,11 +536,11 @@ class RuleEngine {
                 if (allEntitiesCollected) {
                     nextStateKey = currentState.next_state;
                 } else {
-                    // 如果實體不完整，停留在當前狀態，回覆 fallback
+                    // 如果實體不完整，停留在當前狀態，回覆 prompt
                     return {
                         shouldProcess: true,
                         priority: 95, 
-                        response: currentState.prompt, // 修正：使用 prompt 進行引導，而非 fallback
+                        response: currentState.prompt, 
                         nextStep: session.bookingState,
                         updateSession: true,
                         richCard: currentState.richCard || null
@@ -571,11 +563,10 @@ class RuleEngine {
                 data.finalPrice = data.newTotalPrice; 
             }
             
-            // 新增邏輯：處理早餐選項和付款方式轉移
+            // 處理早餐選項和付款方式轉移
             if (nextStateKey === 'ask_payment_method') {
                 const data = session.collectedData;
-                const isMember = session.bookingState === 'apply_member_discount'; // 判斷是否已經打過折
-                // 判斷是否選擇加購早餐 (根據意圖)
+                const isMember = session.bookingState.includes('member_discount'); // 判斷是否已經打過折
                 const hasMealYes = intents.includes('member_yes_meal_yes') || intents.includes('member_no_meal_yes');
                     
                 // 記錄早餐選擇並重新計算價格 (最終價格)
@@ -583,7 +574,7 @@ class RuleEngine {
                 data.finalPrice = BookingFlowController.calculatePrice(data, isMember);
             }
             
-            // 新增邏輯：記錄付款方式
+            // 記錄付款方式
             if (nextStateKey === 'confirm_booking') {
                 const data = session.collectedData;
                 if (intents.includes('online_payment')) {
@@ -595,11 +586,10 @@ class RuleEngine {
                 }
             }
             
-            // 新增邏輯：生成最終訂房訊息
+            // 生成最終訂房訊息
             if (nextStateKey === 'booking_complete') {
                 const data = session.collectedData;
                 if (data.paymentStatus === '已選線上付款') {
-                    // 確保 paymentMethod 顯示在訊息中
                     data.paymentMessage = `**線上付款連結：** 請點擊 [虛擬付款連結：https://pay.hotel.ai/ordxxxxxx] 於 24 小時內完成付款。`;
                 } else {
                     data.paymentMessage = `**現場結帳提醒：** 您的訂單將為您保留 24 小時。請在截止時間前聯繫我們或完成入住手續。`;
@@ -611,7 +601,7 @@ class RuleEngine {
             session.bookingState = nextStateKey;
             let nextState = BookingFlowController.getCurrentState(session);
 
-            // 8.5. 【新增修正】處理 init 狀態的房型列表變數
+            // 8.5. 處理 init 狀態的房型列表變數
             if (session.bookingState === 'init') {
                 session.collectedData.roomTypesList = BookingFlowController.getRoomTypesList();
             }
@@ -620,7 +610,6 @@ class RuleEngine {
             let responseText = nextState.prompt;
             for (const key in session.collectedData) {
                 const value = session.collectedData[key] || '';
-                // 替換 {key} 和 ${key} 兩種格式
                 responseText = responseText.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
                 responseText = responseText.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value); 
             }
@@ -762,6 +751,7 @@ class ResponseGenerator {
             try {
                 const prompt = `請將以下中文文本翻譯成流利的英文，只輸出翻譯結果，不要包含任何額外解釋或註釋："${textToTranslate}"`;
                 session.conversationHistory.push({ role: 'user', message: prompt });
+                // 使用 LLM 進行翻譯，並在完成後移除臨時加入的翻譯 prompt
                 const reply = await this.getGeminiResponse(session, true); 
                 session.conversationHistory.pop();
                 return { reply: `🌐 **翻譯結果：**\n\n${reply}`, richCard: null }; 
@@ -828,7 +818,7 @@ class ResponseGenerator {
         return { reply: finalReply, richCard: finalRichCard };
     }
 
-    // 🟡 核心：與 Gemini API 通訊
+    // 🟡 核心：與 Gemini API 通訊 (已修復 400 Bad Request 錯誤)
     static async getGeminiResponse(session, isSpecialCommand = false) {
         if (!apiKey) {
             console.warn("[Gemini API] API Key is empty. Cannot call LLM.");
@@ -852,20 +842,21 @@ class ResponseGenerator {
             4. **工具使用:** 無需使用任何外部工具 (Tools)。
         `;
 
-        // 篩選對話歷史，只保留最近的幾次對話（避免過長）
-        const historyLimit = isSpecialCommand ? 1 : 10; // 特殊指令只保留最後一條，一般問題保留 10 輪
+        // 篩選對話歷史，只保留最近的幾次對話
+        const historyLimit = isSpecialCommand ? 1 : 10;
         const conversationParts = session.conversationHistory
-            .slice(-historyLimit) // 只保留最近的 N 條
+            .slice(-historyLimit)
             .map(item => ({
                 role: item.role,
                 parts: [{ text: item.message }]
             }));
 
+        // 核心修正：使用 generationConfig 傳遞配置
         const payload = {
             contents: conversationParts,
-            config: {
+            generationConfig: {
                 systemInstruction: systemInstruction,
-                temperature: 0.2, // 確保在處理流程時更穩定
+                temperature: 0.2, 
             },
         };
 
@@ -893,35 +884,27 @@ class ResponseGenerator {
 // 6. Express 路由與啟動 (Express Routes and Server Start)
 // ---------------------------------------------
 
-// ***************************************************************
-// ⚠️ 關鍵修復：前端靜態檔案託管 (讓您的畫面回來) ⚠️
-// ***************************************************************
-
-// 假設您的所有前端文件 (index.html, css, js) 都在名為 'public' 的資料夾中
-const publicPath = path.join(__dirname, 'public'); 
-
 // 1. 中間件設定 (CORS 和 Body Parser)
 app.use(cors());
 app.use(express.json());
 
-// 2. 託管靜態文件
+// 2. 託管靜態文件 (確保 'public' 資料夾存在)
+const publicPath = path.join(__dirname, 'public'); 
 app.use(express.static(publicPath));
 
 // 3. 根目錄路由 - 用於顯示前端畫面
 app.get('/', (req, res) => {
     const indexPath = path.join(publicPath, 'index.html');
     if (fs.existsSync(indexPath)) {
-        // 如果 public/index.html 存在，則提供該文件
         res.sendFile(indexPath);
     } else {
-        // 否則，提供服務健康檢查訊息
         res.send(`AI 訂房助理 (Gemini LLM) 服務運行中，端口: ${PORT} (注意: 缺少 public/index.html 前端文件)`);
     }
 });
-// ***************************************************************
 
-// 4. 核心 API 路由
-app.post('/chat', async (req, res) => { // <--- 將路徑改成 /chat
+// 4. 核心 API 路由 (請確認您的前端使用的是 /api/dialogue 或將其改為 /chat)
+app.post('/api/dialogue', async (req, res) => {
+// 或者使用: app.post('/chat', async (req, res) => {
     const { sessionId, message } = req.body;
 
     if (!sessionId || !message) {
