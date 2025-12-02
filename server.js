@@ -573,7 +573,7 @@ class SessionManager {
                 userType: 'unknown',
                 askedTopics: [],
                 conversationHistory: [],
-                lastActive: new new Date().toISOString(),
+                lastActive: new Date().toISOString(),
                 pausedState: null 
             });
         }
@@ -582,12 +582,12 @@ class SessionManager {
     
     updateSession(sessionId, message, intents) {
         const session = this.getSession(sessionId);
-        session.lastActive = new new Date().toISOString();
+        session.lastActive = new Date().toISOString();
         session.conversationHistory.push({
             role: 'user',
             message,
             intents,
-            timestamp: new new Date().toISOString()
+            timestamp: new Date().toISOString()
         });
         session.userType = SmartIntentClassifier.detectUserType(message);
         (intents || []).forEach(intent => {
@@ -602,7 +602,7 @@ class SessionManager {
             role: 'model',
             message: reply,
             richCard: richCard,
-            timestamp: new new Date().toISOString()
+            timestamp: new Date().toISOString()
         });
     }
 }
