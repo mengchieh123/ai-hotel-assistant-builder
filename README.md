@@ -51,7 +51,7 @@ PORT=10000
 HOST=0.0.0.0
 
 # 部署設定
-RENDER_EXTERNAL_URL=https://your-app.onrender.com
+RENDER_EXTERNAL_URL=https://ai-hotel-assistant-builder.onrender.com
 3. 靜態檔案目錄
 
 目錄路徑：/public/
