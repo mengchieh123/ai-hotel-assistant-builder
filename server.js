@@ -561,7 +561,7 @@ class RuleEngine {
  */
 class SessionManager {
     constructor() {
-        this.sessions = new new Map();
+        this.sessions = new Map();
     }
     
     getSession(sessionId) {
