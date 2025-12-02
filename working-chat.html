@@ -40,7 +40,7 @@
         }
 
         /* 聊天視窗 */
-        #chat-window {
+        #chatbox { /* 將 id 從 chat-window 改為 chatbox 以匹配 JS */
             flex-grow: 1;
             padding: 20px;
             overflow-y: auto;
@@ -71,7 +71,7 @@
             border-radius: 20px;
             line-height: 1.5;
             word-wrap: break-word;
-            text-align: left; /* 修正 bot 氣泡內的文字對齊 */
+            text-align: left;
         }
 
         .user .bubble {
@@ -124,8 +124,8 @@
         /* Rich Card 樣式 */
         .rich-card {
             margin-top: 10px;
-            padding-top: 8px; /* 調整與文字的間距 */
-            border-top: 1px solid #ddd; /* 新增分隔線 */
+            padding-top: 8px;
+            border-top: 1px solid #ddd;
             max-width: 100%;
         }
 
@@ -152,7 +152,6 @@
             text-align: center;
             font-size: 0.9em;
             transition: background-color 0.2s;
-            /* 讓按鈕填滿 bubble 的寬度 */
             width: 100%; 
         }
 
@@ -186,22 +185,18 @@
             const userInput = document.getElementById('user-input');
             const sendBtn = document.getElementById('send-btn');
             
-            // ⚠️ 確保這裡使用相對路徑，以便在 Render 上運行時，能自動找到同一個服務的 /chat 端點
+            // ⚠️ 確保這裡使用相對路徑
             const API_ENDPOINT = '/chat'; 
 
-            // 會話 ID 管理：使用 localStorage 儲存，確保刷新頁面後仍能繼續對話
+            // 會話 ID 管理
             let sessionId = localStorage.getItem('sessionId') || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             localStorage.setItem('sessionId', sessionId);
 
-            // 初始狀態：發送歡迎訊息
             // 首次載入時，發送一個空指令來觸發後端的初始回覆
             sendMessage('', false);
 
             /**
              * 渲染訊息到聊天視窗
-             * @param {string} sender - 'user' 或 'bot'
-             * @param {string} text - 訊息文本
-             * @param {Object} richCardData - 來自後端的結構化按鈕數據
              */
             function appendMessage(sender, text, richCardData = null) {
                 const messageContainer = document.createElement('div');
@@ -240,7 +235,7 @@
                     
                     cardDiv.appendChild(buttonGroup);
                     
-                    // 🚨 關鍵優化：將 Rich Card 插入到文字泡泡 (textBubble) 內
+                    // 將 Rich Card 插入到文字泡泡 (textBubble) 內
                     textBubble.appendChild(cardDiv);
                 }
                 
@@ -259,8 +254,8 @@
             async function sendMessage(customMessage = null, isUserAction = true) {
                 const message = customMessage || userInput.value.trim();
                 
+                // 處理頁面載入時的空訊息
                 if (!message && isUserAction) {
-                    // 如果是空訊息且非初始載入，則忽略
                     return;
                 }
 
@@ -323,7 +318,7 @@
                 }
             });
 
-            // 處理 Rich Card 按鈕點擊
+            // 處理 Rich Card 按鈕點擊 (事件委派)
             chatbox.addEventListener('click', (e) => {
                 if (e.target.classList.contains('rich-card-btn')) {
                     const buttonValue = e.target.getAttribute('data-value');
