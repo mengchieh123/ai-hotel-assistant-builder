@@ -16,8 +16,9 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
-const MODEL_NAME = "gemini-1.5-flash-latest";
-const apiUrl = `${API_BASE}/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+const MODEL_NAME = "gemini-2.5-flash"; 
+const API_VERSION = "v1";
+const apiUrl = `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
 const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
