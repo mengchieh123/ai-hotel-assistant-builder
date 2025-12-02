@@ -1,9 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 訂房助理</title>
+<style>
+  /* Reset & Base */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
+    background-color: #f9f9f9;
+    color: #444;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  /* 容器 */
+  .chat-wrapper {
+    width: 380px;
+    background: #fff;
+    border-radius: 20px;
+    box-shadow: 0 8px 30px rgb(100 100 111 / 0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 90vh; /* 確保高度足夠 */
+  }
+
+  /* 頭部 */
+  .header {
+    background: #eef1f6;
+    padding: 24px 20px;
+    text-align: center;
+    border-bottom: 1px solid #d8dbe5;
+  }
+  .header h1 {
+    font-weight: 600;
+    font-size: 22px;
+    color: #2c3e50;
+  }
+  .header p {
+    margin-top: 6px;
+    font-size: 13px;
+    color: #7f8c8d;
+  }
+
+  /* 人像區 */
+  .avatar-area {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0 10px 0;
+  }
+  .avatar {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    background: #dbe6f4; /* 淡雅淺藍背景 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgb(100 100 111 / 0.15);
+  }
+  .avatar img {
+    width: 90%;
+    height: auto;
+    object-fit: cover;
+    border-radius: 50%;
+  }
+
+  /* 聊天視窗 */
+  .chat-window {
+    flex: 1;
+    background: #fefefe;
+    padding: 15px 20px;
+    overflow-y: auto;
+    border-top: 1px solid #e6e9ed;
+    border-bottom: 1px solid #e6e9ed;
+  }
+
+  .message {
+    max-width: 85%;
+    padding: 12px 18px;
+    border-radius: 18px;
+    margin-bottom: 14px;
+    font-size: 14px;
+    line-height: 1.4;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.05);
+  }
+
+  .message.assistant {
+    background-color: #f0f4ff; /* 淡淡藍色 */
+    color: #34495e;
+    border-bottom-left-radius: 4px;
+  }
+  .message.user {
+    background-color: #dbe6f4; /* 淡雅藍灰 */
+    color: #2c3e50;
+    border-bottom-right-radius: 4px;
+    margin-left: auto;
+  }
+  
+  /* Rich Card 樣式 */
+  .rich-card {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #c0c0c0;
+  }
+  .rich-card p {
+      font-weight: 600; 
+      margin-bottom: 8px;
+  }
+  .rich-card button {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 5px;
+    background-color: #5a85ff;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    text-align: center;
+    margin-bottom: 8px;
+    transition: background-color 0.2s;
+  }
+  .rich-card button:hover:not(:disabled) {
+    background-color: #3b61ff;
+  }
+  .rich-card button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+      opacity: 0.7;
+  }
+
+  /* 輸入區 */
+  .input-area {
+    padding: 15px 20px;
+    background: #eef1f6;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .input-area input[type="text"] {
+    flex: 1;
+    padding: 14px 18px;
+    border: 1.5px solid #cbd3e1;
+    border-radius: 25px;
+    font-size: 14px;
+    color: #2c3e50;
+    background: #fff;
+    transition: border-color 0.3s;
+  }
+  .input-area input[type="text"]:focus {
+    border-color: #7ea6ff;
+    outline: none;
+  }
+  .input-area button {
+    background-color: #7ea6ff;
+    border: none;
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 12px 26px;
+    border-radius: 25px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  .input-area button:hover:not(:disabled) {
+    background-color: #5a85ff;
+  }
+  .input-area button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+
+  /* 滾動條樣式 */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #a8b1cc;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #f0f3f9;
+  }
+</style>
+</head>
+<body>
+  <div class="chat-wrapper" role="main" aria-label="訂房助理聊天介面">
+    <header class="header">
+      <h1>AI 訂房助理</h1>
+      <p>專業且安心的訂房體驗</p>
+    </header>
+
+    <section class="avatar-area" aria-label="助理人像">
+      <div class="avatar">
+        <img src="https://i.imgur.com/4AiXzf8.png" alt="訂房助理人像" />
+      </div>
+    </section>
+
+    <section class="chat-window" id="chat-window" aria-live="polite" aria-relevant="additions">
+          </section>
+
+        <div class="input-area">
+      <input type="text" id="input-message" placeholder="輸入您的問題..." aria-label="輸入問題" autocomplete="off" />
+      <button type="button" id="send-button" aria-label="發送訊息">發送</button>
+    </div>
+  </div>
+
 <script>
     document.addEventListener('DOMContentLoaded', () => {
-        // 獲取 DOM 元素 (使用您的新 ID)
-        const chatWindow = document.getElementById('chat-window'); // 聊天視窗
-        const userInput = document.getElementById('input-message'); // 輸入框
-        const sendBtn = document.getElementById('send-button'); // 發送按鈕 (ID 已修改)
+        // 獲取 DOM 元素
+        const chatWindow = document.getElementById('chat-window'); 
+        const userInput = document.getElementById('input-message'); 
+        const sendBtn = document.getElementById('send-button'); 
         
         const API_ENDPOINT = '/chat'; 
 
@@ -12,7 +231,6 @@
         localStorage.setItem('sessionId', sessionId);
 
         // 首次載入時，發送一個空指令來觸發後端的初始回覆
-        // 確保您在 server.js 中設定了初始 Rich Card 訊息
         sendMessage('', false);
 
         /**
@@ -20,23 +238,22 @@
          */
         function appendMessage(sender, text, richCardData = null) {
             const messageContainer = document.createElement('div');
-            // 匹配您新的 CSS 類別
+            // 匹配新的 CSS 類別
             messageContainer.classList.add('message', sender === 'user' ? 'user' : 'assistant'); 
 
-            // 訊息文本 (Rich Card 處理將添加到這裡)
+            // 訊息文本
             let innerHTML = text.replace(/\n/g, '<br>');
 
             // 渲染 Rich Card / 按鈕 (僅限 assistant 訊息)
             if (sender !== 'user' && richCardData && richCardData.type === 'button_list') {
-                let cardHTML = '<div class="rich-card" style="margin-top:10px; padding-top:10px; border-top: 1px solid #c0c0c0;">';
+                let cardHTML = '<div class="rich-card">';
                 if (richCardData.title) {
                     cardHTML += `<p style="font-weight:600; margin-bottom: 8px;">${richCardData.title}</p>`;
                 }
                 cardHTML += '<div class="button-group" style="display:flex; flex-direction:column; gap:8px;">';
                 
                 richCardData.buttons.forEach(button => {
-                    // 使用內聯樣式來確保按鈕可見且可點擊
-                    cardHTML += `<button class="rich-card-btn" data-value="${button.value}" style="padding: 10px 12px; border: none; border-radius: 5px; background-color: #5a85ff; color: white; cursor: pointer; font-size: 14px; text-align: center;">${button.text}</button>`;
+                    cardHTML += `<button class="rich-card-btn" type="button" data-value="${button.value}">${button.text}</button>`;
                 });
                 
                 cardHTML += '</div></div>';
@@ -101,7 +318,7 @@
             }
         }
         
-        // --- 事件監聽器：使用新的 ID ---
+        // --- 事件監聽器：修正後的事件處理 ---
 
         // 點擊發送按鈕
         sendBtn.addEventListener('click', () => sendMessage());
@@ -123,10 +340,12 @@
                     const buttons = e.target.closest('.message').querySelectorAll('.rich-card-btn');
                     buttons.forEach(btn => btn.disabled = true);
                     
-                    // 將按鈕的值視為用戶輸入發送
+                    // 將按鈕的值視為用戶輸入發送 (確保是字串，不再是 ReferenceError)
                     sendMessage(buttonValue, true);
                 }
             }
         });
     });
 </script>
+</body>
+</html>
