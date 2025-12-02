@@ -1,18 +1,4 @@
-這是結合您的優化邏輯和 Express 伺服器啟動邏輯的完整、可部署版本。
 
-這個版本已經：
-
-1.  **修復了** `ReferenceError: app is not defined` 錯誤。
-2.  **新增了** Express 伺服器初始化、CORS、Body Parser 和 `/api/dialogue` 路由。
-3.  **移除了** 生產環境中不建議使用的 `fs.watch` 熱加載邏輯。
-4.  **修正了** `SessionManager` 中對 `SmartIntentClassifier.detectUserType` 的不正確引用，並在 `SmartIntentClassifier` 中添加了該方法。
-5.  **優化了** 規則引擎在實體不完整時的響應邏輯，使其更健壯。
-
------
-
-## 💻 `server.js` (AI 訂房助理 - 最終優化完整版)
-
-```javascript
 // server.js (AI 訂房助理 - 優化版，CommonJS 風格，模組化結構)
 
 // ---------------------------------------------
