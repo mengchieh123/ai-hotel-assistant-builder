@@ -19,9 +19,9 @@
         },
         "collect_room_and_dates": {
             "prompt": "好的，我們將開始預訂。請問您想預訂的【房型】、預計【入住日期】和【住宿晚數】？ (例如：豪華客房，6月1日入住，共2晚 或 下週三入住三天)",
-            "entities": ["roomType", "checkInDate", "nights"],
+            "entities": ["roomType", "checkInDate", "NumberofRoom", "nights"],
             "next_state": "ask_guest_count",
-            "fallback": "請提供房型、入住日期及住宿晚數，我會為您查詢空房與價格。"
+            "fallback": "請提供房型、入住日期、房間數及住宿晚數，我會為您查詢空房與價格。"
         },
         "ask_guest_count": {
             "prompt": "感謝您！請問總共【幾位大人】和【幾位兒童】入住呢？",
@@ -76,8 +76,8 @@
                 ]
             },
             "intents": {
-                "member_no_meal_yes": "confirm_booking",
-                "member_no_meal_no": "confirm_booking"
+                "member_no_meal_yes": "ask_payment_method",
+                "member_no_meal_no": "ask_payment_method"
             },
             "fallback": "請告知是否加購早餐。"
         },
@@ -92,14 +92,29 @@
                 ]
             },
             "intents": {
-                "member_yes_meal_yes": "confirm_booking",
-                "member_yes_meal_no": "confirm_booking"
+                "member_yes_meal_yes": "ask_payment_method",
+                "member_yes_meal_no": "ask_payment_method"
             },
-            "next_state": "confirm_booking",
             "fallback": "請告知是否加購早餐。"
         },
+        "ask_payment_method": {
+            "prompt": "早餐費用已計入，您最終總價為 **${finalPrice}**。\n\n請問您想選擇【線上付款 (即時確認)】還是【現場結帳 (保留至 24H)】？",
+            "richCard": {
+                "type": "button_list",
+                "title": "請選擇付款方式：",
+                "buttons": [
+                    { "text": "💳 線上付款", "value": "線上付款" },
+                    { "text": "🏨 現場結帳", "value": "現場結帳" }
+                ]
+            },
+            "intents": {
+                "online_payment": "confirm_booking",
+                "onsite_payment": "confirm_booking"
+            },
+            "fallback": "請選擇『線上付款』或『現場結帳』。"
+        },
         "confirm_booking": {
-            "prompt": "【最終確認】您訂購 {roomType} 房，入住 {checkInDate} ，共 {nights} 晚，訂房人 {name}，最終總價 **${finalPrice}**。您是否確認訂房？",
+            "prompt": "【最終確認】您訂購 {roomType} 房，入住 {checkInDate} ，共 {nights} 晚，訂房人 {name}，付款方式：**{paymentMethod}**，最終總價 **${finalPrice}**。\n\n您是否確認訂房？",
             "richCard": {
                 "type": "button_list",
                 "title": "請確認：",
@@ -115,7 +130,7 @@
             "fallback": "請確認訂房資訊，並回答『確認』或『取消』。"
         },
         "booking_complete": {
-            "prompt": "感謝您，訂房完成！訂單編號 [ORD-xxxxxx] 已發送至 {email}。如有需要，可隨時查詢或取消訂單。",
+            "prompt": "感謝您，訂房完成！訂單編號 [ORD-xxxxxx] 已發送至 {email}。\n\n{paymentMessage}",
             "end": true
         },
         "handle_promotion_query": {
