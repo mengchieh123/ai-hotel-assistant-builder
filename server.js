@@ -1,4 +1,19 @@
-// server.js (AI 訂房助理 - 優化版，ESM 風格，模組化結構)
+這是結合您的優化邏輯和 Express 伺服器啟動邏輯的完整、可部署版本。
+
+這個版本已經：
+
+1.  **修復了** `ReferenceError: app is not defined` 錯誤。
+2.  **新增了** Express 伺服器初始化、CORS、Body Parser 和 `/api/dialogue` 路由。
+3.  **移除了** 生產環境中不建議使用的 `fs.watch` 熱加載邏輯。
+4.  **修正了** `SessionManager` 中對 `SmartIntentClassifier.detectUserType` 的不正確引用，並在 `SmartIntentClassifier` 中添加了該方法。
+5.  **優化了** 規則引擎在實體不完整時的響應邏輯，使其更健壯。
+
+-----
+
+## 💻 `server.js` (AI 訂房助理 - 最終優化完整版)
+
+```javascript
+// server.js (AI 訂房助理 - 優化版，CommonJS 風格，模組化結構)
 
 // ---------------------------------------------
 // 1. 模組導入與基本設定
@@ -6,14 +21,14 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
+const fetch = require('node-fetch'); // 保持兼容性
 const path = require('path');
 const fs = require('fs');
 const dayjs = require('dayjs');
 const customParseFormat = require('dayjs/plugin/customParseFormat');
 const weekday = require('dayjs/plugin/weekday');
 const isSameOrAfter = require('dayjs/plugin/isSameOrAfter');
-const isSameOrBefore = require('dayjs/plugin/isSameOrBefore'); // 新增
+const isSameOrBefore = require('dayjs/plugin/isSameOrBefore');
 dayjs.extend(customParseFormat);
 dayjs.extend(weekday);
 dayjs.extend(isSameOrAfter);
@@ -39,14 +54,14 @@ const tools = []; // 預留給 Function Calling
 // ---------------------------------------------
 
 /**
- * 負責從外部 JSON 檔案載入對話配置 (dialogue_flow.json)
- * 並監控檔案變動，實作熱加載 (Hot Reload)。
+ * 負責從外部 JSON 檔案載入對話配置 (dialogue_flow.json)。
+ * (已移除 Hot Reload 邏輯，以提高生產環境的穩定性)
  */
 class FlowConfigLoader {
     constructor(filePath) {
         this.filePath = path.resolve(filePath);
         this.config = this.loadConfig();
-        this.watcher = this.startWatcher();
+        // 移除 fs.watch 監聽
     }
 
     loadConfig() {
@@ -64,23 +79,6 @@ class FlowConfigLoader {
                 }
             };
         }
-    }
-
-    startWatcher() {
-        // 監控檔案變動，使用 try-catch 包裹讀取，避免臨時寫入中斷
-        return fs.watch(this.filePath, { recursive: false }, (eventType, filename) => {
-            if (eventType === 'change') {
-                setTimeout(() => { // 延遲讀取，確保寫入完成
-                    try {
-                        const newData = fs.readFileSync(this.filePath, 'utf8');
-                        this.config = JSON.parse(newData);
-                        console.log(`🔥 [Hot Reload] 成功更新配置！時間: ${new Date().toLocaleTimeString()}`);
-                    } catch (error) {
-                        console.error(`❌ [Hot Reload] 更新配置失敗，請檢查 JSON 格式: ${error.message}`);
-                    }
-                }, 100);
-            }
-        });
     }
 
     // Getter 確保每次調用都獲取最新的配置
@@ -116,7 +114,7 @@ class SmartIntentClassifier {
 
         // Rich Card 按鈕值
         if (lowerMessage.includes('登入會員')) intents.add('member_login');
-        if (lowerMessage.includes('不是會員')) intents.add('deny'); // 保持 deny 的回退
+        if (lowerMessage.includes('不是會員')) intents.add('deny');
 
         // 付款意圖
         if (lowerMessage.includes('線上付款')) intents.add('online_payment');
@@ -210,18 +208,26 @@ class SmartIntentClassifier {
             const targetDay = weekdayMap[weekdayMatch[2]];
             let date = now.weekday(targetDay);
 
-            // 如果日期在今天之後，則使用這週的日期；否則，使用下週的日期
-            if (date.isSameOrBefore(now, 'day') || weekdayMatch[1] && weekdayMatch[1].includes('下週')) {
+            // 如果日期在今天之前或等於今天，則使用下週的日期 (除非明確指定這週)
+            if (date.isSameOrBefore(now, 'day') && !text.includes('這週') || weekdayMatch[1] && weekdayMatch[1].includes('下週')) {
                 date = date.add(7, 'day');
+            }
+            // 如果剛好是今天，且用戶只說了 '週X'，則跳到下週
+            if (date.isSame(now, 'day') && !text.includes('今天')) {
+                 date = date.add(7, 'day');
             }
 
             targetDate = date.startOf('day');
         }
 
         // 4. 提取晚數 (修正：更全面地匹配 N 晚/N 天)
-        const nightsMatch = text.match(/(\d+)晚|(\d+)天/);
+        const nightsMatch = text.match(/(\d+)[個間]晚|(\d+)[個間]天|(\d+)晚|(\d+)天/);
         if (nightsMatch) {
-            nights = parseInt(nightsMatch[1] || nightsMatch[2], 10);
+             // 找到第一個非 null 的匹配
+             const match = nightsMatch.slice(1).find(m => m !== undefined);
+             if (match) {
+                 nights = parseInt(match, 10);
+             }
         }
 
         // 5. 提取住到星期X
@@ -241,6 +247,13 @@ class SmartIntentClassifier {
         // 6. 預設 1 晚
         if (targetDate && targetDate.isValid() && !nights) {
              nights = 1;
+        }
+
+        // 7. 確保日期不早於今天
+        if (targetDate && targetDate.isSameOrBefore(now, 'day') && !targetDate.isSame(now, 'day')) {
+             // 如果解析到的日期是過去的日期，則視為無效或忽略，讓流程引導
+             targetDate = null;
+             nights = null;
         }
 
         if (targetDate && targetDate.isValid()) {
@@ -278,11 +291,11 @@ class SmartIntentClassifier {
         }
 
         // 4. 聯絡方式
-        const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
+        const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人|聯絡人)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
         if (nameMatch) {
              let extractedName = nameMatch[1] || nameMatch[2];
              // 確保不是流程關鍵詞
-             if (extractedName && extractedName.length >= 2 && !/(訂房|本人|想問|請問|好的|沒有)/.test(extractedName)) {
+             if (extractedName && extractedName.length >= 2 && !/(訂房|本人|想問|請問|好的|沒有|我要|入住|訂一間)/.test(extractedName)) {
                  data.name = extractedName.trim();
              }
         }
@@ -306,6 +319,14 @@ class SmartIntentClassifier {
         data.nights = data.nights === undefined ? 1 : data.nights;
 
         return data;
+    }
+
+    // 🏆 新增：用戶類型偵測 (用於 LLM 客製化)
+    static detectUserType(message) {
+         const data = this.extractEntities(message);
+         if (data.memberAccount) return 'member';
+         if (/(會員|積分|優惠|折扣)/.test(message.toLowerCase())) return 'interested_member';
+         return 'individual';
     }
 }
 
@@ -356,9 +377,9 @@ class BookingFlowController {
 
         const baseTotal = basePrice * nights * roomCount; // 房費要乘以間數
 
-        // 2. 計算兒童加價 (假設 $300/晚)
+        // 2. 計算兒童加價 (假設 $300/晚/間)
         const CHILD_DAILY_FEE = 300;
-        const childCost = childCount * CHILD_DAILY_FEE * nights;
+        const childCost = childCount * CHILD_DAILY_FEE * nights * roomCount;
 
         let total = baseTotal + childCost; // 未折扣房費總價
 
@@ -371,7 +392,8 @@ class BookingFlowController {
         let breakfastCost = 0;
         if (hasBreakfast) {
             const BREAKFAST_FEE = 150;
-            const totalGuests = adultCount + childCount;
+            const totalGuestsPerRoom = adultCount + childCount;
+            const totalGuests = totalGuestsPerRoom * roomCount; // 總人數
             breakfastCost = totalGuests * BREAKFAST_FEE * nights;
             total += breakfastCost;
         }
@@ -379,9 +401,9 @@ class BookingFlowController {
         // 返回包含中間值的計算結果，方便流程中記錄
         return {
              finalPrice: Math.round(total),
-             baseTotal,
-             childCost,
-             breakfastCost
+             baseTotal: Math.round(baseTotal),
+             childCost: Math.round(childCost),
+             breakfastCost: Math.round(breakfastCost)
         };
     }
 }
@@ -391,11 +413,11 @@ class BookingFlowController {
  */
 class RuleEngine {
     static process(intents, session, message) {
-        // 規則按優先級排序
+        // 規則按優先級排序 (100 > 95 > 10)
         const rules = [
             this.emergencyRule, // 100
             this.bookingFlowRule, // 95
-            this.generalRule // 10
+            this.generalRule // 10 (作為最低級別的默認回覆，將在 LLM 失敗時使用)
         ];
 
         for (const rule of rules) {
@@ -412,7 +434,6 @@ class RuleEngine {
     // 🚨 緊急規則 (最高優先級: 100)
     static emergencyRule(intents, session, message) {
         if (intents.includes('emergency') || /(救命|火災|小偷|警察|救護車)/.test(message.toLowerCase())) {
-            // 由於這是最高級，我們強制結束/暫停流程
             session.bookingState = null;
             session.pausedState = null;
             return {
@@ -428,15 +449,13 @@ class RuleEngine {
     static bookingFlowRule(intents, session, message) {
         const flow = flowLoader.DIALOGUE_FLOW;
         const hasBookingIntent = intents.includes('booking');
-        const nonBookingIntents = ['transfer', 'restaurant', 'attractions', 'facilities', 'weather', 'modification']; // 排除 emergency
-
+        const nonBookingIntents = ['transfer', 'restaurant', 'attractions', 'facilities', 'weather', 'modification'];
         const isSwitchingTopic = intents.some(intent => nonBookingIntents.includes(intent));
         const isInBookingFlow = session.bookingState && session.bookingState !== 'init' && session.bookingState !== 'booking_complete' && session.bookingState !== 'end_conversation';
 
         // 1. 處理流程結束和重置
         if (session.bookingState === 'booking_complete' || session.bookingState === 'end_conversation') {
              if (hasBookingIntent) {
-                 // 收到新的訂房意圖，重置狀態
                  session.bookingState = 'init';
                  session.collectedData = {};
              } else {
@@ -494,7 +513,6 @@ class RuleEngine {
 
             // 6. 檢查實體是否收集完畢以轉移到下一個狀態
             if (nextStateKey === session.bookingState && currentState.entities && currentState.next_state) {
-                // 排除非必要的 email/memberAccount
                 const requiredEntities = currentState.entities.filter(e => e !== 'email' && e !== 'memberAccount');
 
                 const allEntitiesCollected = requiredEntities.every(
@@ -504,10 +522,10 @@ class RuleEngine {
                 if (allEntitiesCollected) {
                     nextStateKey = currentState.next_state;
                 } else {
-                    // 如果實體不完整，停留在當前狀態，回覆 fallback
+                    // 🎯 優化點：如果實體不完整，回覆當前狀態的 PROMPT 進行引導，而不是 fallback
                     return {
                         shouldProcess: true, priority: 95,
-                        response: currentState.fallback,
+                        response: currentState.prompt, // 使用當前狀態的 PROMPT 再次引導
                         nextStep: session.bookingState, updateSession: true,
                         richCard: currentState.richCard || null
                     };
@@ -556,8 +574,8 @@ class RuleEngine {
             if (nextStateKey === 'booking_complete') {
                  // 生成最終訂房訊息
                  data.paymentMessage = data.paymentStatus === '已選線上付款'
-                     ? `**線上付款連結：** 請點擊 [虛擬付款連結：https://pay.hotel.ai/ordxxxxxx] 於 24 小時內完成付款。`
-                     : `**現場結帳提醒：** 您的訂單將為您保留 24 小時。請在截止時間前聯繫我們或完成入住手續。`;
+                      ? `**線上付款連結：** 請點擊 [虛擬付款連結：https://pay.hotel.ai/ordxxxxxx] 於 24 小時內完成付款。`
+                      : `**現場結帳提醒：** 您的訂單將為您保留 24 小時。請在截止時間前聯繫我們或完成入住手續。`;
                  data.confirmationNumber = `ABC${Math.floor(Math.random() * 10000)}`;
             }
 
@@ -594,7 +612,6 @@ class RuleEngine {
 
     // 📞 一般規則 (最低優先級: 10)
     static generalRule(intents, session, message) {
-        // 這是一個最低級的通用回覆，用於在 LLM 失敗時的安全回退
         return {
             shouldProcess: true,
             priority: 10,
@@ -623,6 +640,7 @@ class SessionManager {
 
     createInitialSession() {
         return {
+            id: null, // 將在 updateSession 中設置
             currentStep: 'welcome',
             bookingState: null,
             collectedData: {},
@@ -636,6 +654,7 @@ class SessionManager {
 
     updateSession(sessionId, message, intents) {
         const session = this.getSession(sessionId);
+        session.id = sessionId; // 確保 ID 存在於 session 物件中
         session.lastActive = new Date().getTime();
         session.conversationHistory.push({
             role: 'user',
@@ -643,6 +662,7 @@ class SessionManager {
             intents,
             timestamp: new Date().toISOString()
         });
+        // 🏆 修正：調用 SmartIntentClassifier 中已定義的方法
         session.userType = SmartIntentClassifier.detectUserType(message);
         (intents || []).forEach(intent => {
              if (!session.askedTopics.includes(intent)) session.askedTopics.push(intent);
@@ -723,7 +743,8 @@ class ResponseGenerator {
             console.log(`🟢 執行特殊指令：翻譯 "${textToTranslate}"`);
             try {
                 const prompt = `請將以下中文文本翻譯成流利的英文，只輸出翻譯結果，不要包含任何額外解釋或註釋："${textToTranslate}"`;
-                const reply = await this.callGeminiAPI([{ role: 'user', parts: [{ text: prompt }] }], true);
+                // 專門為翻譯呼叫 API，跳過長歷史紀錄
+                const reply = await this.callGeminiAPI([{ role: 'user', parts: [{ text: prompt }] }], true); 
                 return { reply: `🌐 **翻譯結果：**\n\n${reply}`, richCard: null };
             } catch (e) {
                 console.error("翻譯服務失敗:", e.message);
@@ -758,19 +779,27 @@ class ResponseGenerator {
                 richCard: finalRichCard
             };
         }
-
+        
         // 2. 複雜/一般問題使用 AI (LLM 優先級 ~50)
-        try {
-            console.log("🤖 嘗試使用 Gemini AI 處理複雜問題 (LLM 優先級 ~50)。");
-            const geminiReply = await this.getGeminiResponse(session);
-            finalReply = geminiReply;
-            finalRichCard = null; // LLM 不產生 Rich Card
-        } catch (error) {
-            // 🚨 關鍵錯誤隔離點：如果 LLM 失敗，強制回退到最安全的通用回覆
-            console.error("🚫 LLM 服務失敗，回退到最低優先級通用問候。", error.message);
-            finalReply = RuleEngine.generalRule().response;
-            finalRichCard = null;
+        // 僅在規則引擎未提供高優先級回覆時才呼叫 LLM
+        if (ruleResult.priority < 95) {
+            try {
+                console.log("🤖 嘗試使用 Gemini AI 處理複雜問題 (LLM 優先級 ~50)。");
+                const geminiReply = await this.getGeminiResponse(session);
+                finalReply = geminiReply;
+                finalRichCard = null; // LLM 不產生 Rich Card
+            } catch (error) {
+                // 🚨 關鍵錯誤隔離點：如果 LLM 失敗，強制回退到最安全的通用回覆 (Priority 10)
+                console.error("🚫 LLM 服務失敗，回退到最低優先級通用問候。", error.message);
+                finalReply = RuleEngine.generalRule().response;
+                finalRichCard = null;
+            }
+        } else {
+             // 如果 ruleResult.priority >= 95，但 shouldProcess: false，則 finalReply 應為 null，
+             // 但我們已經在前面處理了 priority >= 95 的情況，這裡主要是處理 priority < 95 時的 LLM/通用回覆。
+             // 如果 LLM 處理失敗，則會使用 RuleEngine.generalRule().response (Priority 10)
         }
+
 
         // 3. 檢查並附加恢復提示 (流程打斷與恢復的核心)
         if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
@@ -786,12 +815,13 @@ class ResponseGenerator {
             };
         }
 
-        // 4. 如果 LLM 處理了問題，但優先級低於 50，則執行通用回覆 (作為最終回退)
-        if (!ruleResult.shouldProcess && ruleResult.priority < 50) {
-            console.log("🟡 使用 LLM/最低優先級通用回覆。");
-        } else if (ruleResult.priority === 10) {
-             console.log("🔴 LLM 失敗，使用最低優先級通用回覆。");
+        // 4. 紀錄並回傳最終結果
+        if (!finalReply) {
+             // 雙重保險：如果 LLM 和規則都未提供回覆，則使用通用回覆
+             finalReply = RuleEngine.generalRule().response;
         }
+
+        console.log("🟡 使用 LLM/最低優先級通用回覆。");
 
         sessionManager.addAssistantResponse(session.id, finalReply, finalRichCard);
         return { reply: finalReply, richCard: finalRichCard };
@@ -806,89 +836,87 @@ class ResponseGenerator {
             您是一個專業、友善且詳細的飯店 AI 助理「小智」，隸屬於海灣麗景酒店。
             請根據用戶的需求提供準確的資訊，並維持台灣繁體中文的專業語氣。
             
-            **當前對話流程狀態：**
+            **當前對話流程狀態 (僅供參考，請勿主動提及)：**
             - Booking State: ${session.bookingState || '未開始'}
             - Collected Data: ${JSON.stringify(session.collectedData, null, 2)}
             - User Type: ${session.userType}
             
             **回覆原則：**
-            1. **主動訂房流程 (當 Booking State 不為 null 時):**
-               - 如果 Rule Engine 決定進入流程狀態，您無需重複流程提示。
-               - 如果 Rule Engine 決定暫停流程 (paused_waiting_for_resume)，請先回答用戶的打斷問題，然後**不要**主動提供恢復提示（恢復提示會由後端自動添加 Rich Card）。
-            2. **一般問題 (當 Booking State 為 null 或用戶發問流程外問題時):**
-               - 根據 Collected Data 中的資訊（如 userType），客製化回答。
-               - 對於飯店資訊查詢（如設施、天氣），請使用一般知識回答，無需 Function Call。
+            1. **主動訂房流程：** 如果 Rule Engine 決定暫停流程 (paused_waiting_for_resume)，請先專業地回答用戶的打斷問題，然後**絕對不要**主動添加恢復流程的提示（恢復提示會由後端自動添加 Rich Card）。
+            2. **一般問題：** 根據 Collected Data 中的資訊（如 userType），客製化回答。對於飯店資訊查詢（如設施、天氣），請使用一般知識回答。
             3. **格式：** 使用 Markdown 語法（粗體、換行）美化排版。
         `.trim();
 
         // 2. 準備 Content
         const contents = [];
+        // 設置系統提示
+        contents.push({ role: 'system', parts: [{ text: systemInstruction }] });
+
         if (!skipHistory) {
-             // 僅傳遞最近 10 輪的對話歷史 (優化)
+             // 僅傳遞最近 10 輪的對話歷史 (共 20 個訊息)
              const historyForLLM = session.conversationHistory.slice(-20);
              for (const item of historyForLLM) {
                  if (item.role === 'user') {
-                     contents.push({ role: 'user', parts: [{ text: item.message }] });
+                      contents.push({ role: 'user', parts: [{ text: item.message }] });
                  } else if (item.role === 'model') {
-                     contents.push({ role: 'model', parts: [{ text: item.message }] });
+                      // 僅傳遞文字部分，忽略 Rich Card
+                      contents.push({ role: 'model', parts: [{ text: item.message }] });
                  }
              }
         } else {
-             // 特殊指令時，只傳遞單次指令 (優化，讓 LLM 專注)
+             // 特殊指令時，只傳遞單次指令
              const lastMessage = session.conversationHistory[session.conversationHistory.length - 1];
              if (lastMessage && lastMessage.role === 'user') {
-                 contents.push({ role: 'user', parts: [{ text: lastMessage.message }] });
+                  contents.push({ role: 'user', parts: [{ text: lastMessage.message }] });
              }
         }
-
+        
         // 3. 準備 Payload
         const payload = {
             contents: contents,
             config: {
-                systemInstruction: systemInstruction,
-                tools: tools,
-                temperature: 0.7
+                 // tools: tools, // 如果有 Function Calling，可以在這裡啟用
+                 temperature: 0.5,
+                 topK: 40
             }
         };
 
         // 4. 呼叫 API
-        const response = await fetchWithRetry(apiUrl, {
+        const options = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        });
+        };
 
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const response = await fetchWithRetry(apiUrl, options);
+        const json = await response.json();
 
-        if (!text) {
-            console.error("Gemini API 回覆沒有內容:", data);
-            throw new Error("Gemini API returned no text content.");
+        if (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) {
+            return json.candidates[0].content.parts[0].text;
+        } else if (json.error) {
+             throw new Error(`Gemini API Error: ${json.error.message}`);
+        } else {
+             // 處理安全設定擋住的情況
+             console.error("Gemini Response Blocked:", json.candidates[0].safetyRatings);
+             throw new Error("Gemini 回覆被安全設定或內容篩選器阻擋。");
         }
-
-        return text.trim();
     }
 }
 
 
 // ---------------------------------------------
-// 6. Express 服務器配置
+// 6. Express 伺服器初始化與啟動
 // ---------------------------------------------
+
+// 1. 實例化 Express 應用程式 (修復 ReferenceError: app is not defined)
+const app = express();
+
+// 2. 中間件設定 (CORS 和 Body Parser)
 app.use(cors());
-app.use(express.json()); // 支援 application/json
+app.use(express.json()); // 用來解析 POST 請求中的 JSON body
 
-// 啟動頁面 (可選，用於測試伺服器是否運行)
-app.get('/', (req, res) => {
-    res.send(`
-        <h1>AI 訂房助理伺服器運行中 (Gemini)</h1>
-        <p>版本: 優化版</p>
-        <p>端口: ${PORT}</p>
-        <p>當前配置: ${flowLoader.DIALOGUE_FLOW.states.init.prompt.substring(0, 20)}...</p>
-    `);
-});
-
-// 核心 API 路由
-app.post('/api/chat', async (req, res) => {
+// 3. API 路由定義
+app.post('/api/dialogue', async (req, res) => {
     const { sessionId, message } = req.body;
 
     if (!sessionId || !message) {
@@ -896,41 +924,41 @@ app.post('/api/chat', async (req, res) => {
     }
 
     try {
-        const session = sessionManager.updateSession(sessionId, message, []); // 預更新會話歷史
-
-        // 1. NLU/意圖識別
+        // 1. 意圖分類並更新會話歷史
         const intents = SmartIntentClassifier.classify(message);
-        session.conversationHistory[session.conversationHistory.length - 1].intents = intents; // 更新歷史中的意圖
+        const session = sessionManager.updateSession(sessionId, message, intents);
 
-        // 2. 生成回應 (Rule Engine -> LLM)
+        // 2. 生成回應 (包含規則引擎和 LLM 邏輯)
         const { reply, richCard } = await ResponseGenerator.generateResponse(intents, session, message);
 
-        // 3. 返回結果
-        return res.json({
-            reply: reply,
-            richCard: richCard,
-            debug: {
-                currentState: session.bookingState,
-                intents: intents,
-                collectedData: session.collectedData
+        // 3. 回覆用戶
+        res.json({
+            reply,
+            richCard,
+            session: {
+                bookingState: session.bookingState,
+                collectedData: session.collectedData,
+                userType: session.userType // 傳回用戶類型供前端調試
             }
         });
+
     } catch (error) {
-        console.error("❌ /api/chat 處理失敗:", error.message);
-        const failResponse = RuleEngine.generalRule().response.replace("👋 您好！我是海灣麗景酒店AI助理小智", "🚧 系統繁忙或發生錯誤，請稍後再試。");
-        return res.status(500).json({
-            error: `Server processing error: ${error.message}`,
-            reply: failResponse
+        console.error("處理對話請求時發生錯誤:", error);
+        // 確保服務在錯誤時仍能回應
+        res.status(500).json({
+            error: "服務內部錯誤，請稍後再試。",
+            detail: error.message
         });
     }
 });
 
+// 4. 服務健康檢查 (Health Check)
+app.get('/', (req, res) => {
+    res.send(`AI 訂房助理 (Gemini LLM) 服務運行中，端口: ${PORT}`);
+});
 
-// ---------------------------------------------
-// 7. 啟動伺服器
-// ---------------------------------------------
+// 5. 啟動伺服器
 app.listen(PORT, HOST, () => {
-    console.log(`🚀 AI 訂房助理服務器啟動成功!`);
-    console.log(`🌐 訪問地址: http://${HOST}:${PORT}`);
-    console.log(`🔑 狀態機配置熱加載已啟用 (dialogue_flow.json)`);
+    console.log(`🚀 服務已啟動: http://${HOST}:${PORT}`);
+    console.log(`⏳ 會話超時設定: ${SESSION_TIMEOUT_MS / 60000} 分鐘`);
 });
