@@ -581,7 +581,7 @@ class ResponseGenerator {
             const payload = {
                 contents: contents,
                 generationConfig: {
-                    maxOutputTokens: 500,
+                    maxOutputTokens: 1000,
                     temperature: 0.7,
                 },
                 // 🚀 關鍵修正 3：放寬安全設置，解決 'content was blocked'
