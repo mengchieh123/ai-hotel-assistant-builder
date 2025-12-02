@@ -8,7 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch'); 
 const path = require('path');
-const fs = require('fs'); // 導入 fs 模組 (熱加載需要)
+const fs = require('fs'); 
 const app = express();
 const dayjs = require('dayjs');
 const customParseFormat = require('dayjs/plugin/customParseFormat'); 
@@ -30,7 +30,7 @@ const apiUrl = `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?
 
 const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
-const tools = []; //禁用外部工具
+const tools = []; 
 
 // ---------------------------------------------
 // 2. DIALOGUE FLOW 配置加載器 (FlowConfigLoader)
@@ -103,8 +103,11 @@ class SmartIntentClassifier {
         const lowerMessage = message.toLowerCase();
         const intents = new Set();
         
-        // 核心訂房意圖
-        if (/(訂房|預訂|入住|房間|住.*晚|房型|幫我訂|想要訂|預約房間|我要訂房)/.test(lowerMessage)) intents.add('booking');
+        // 核心訂房意圖 (修正：更寬鬆地識別房型、日期、間數)
+        if (/(訂房|預訂|入住|房間|房型|幫我訂|想要訂|預約房間|我要訂房)/.test(lowerMessage) ||
+            /(豪華客房|標準雙人房|行政套房|海景|家庭|一間|兩間|.*月.*日|.*天)/.test(lowerMessage)) {
+            intents.add('booking');
+        }
         
         // 關鍵流程意圖 (affirm/deny 等)
         if (/(是|對|好|確認|願意|繼續|訂|要早餐)/.test(lowerMessage)) intents.add('affirm');
@@ -174,11 +177,27 @@ class SmartIntentClassifier {
         let nights = null;
 
         // 1. 處理特定日期格式 (MM/DD, YYYY/MM/DD)
-        const dateMatch = text.match(/(\d{1,4}[/\-]\d{1,2}[/\-]?\d{1,2})|(\d{1,2}[/\-]\d{1,2})/);
+        const dateMatch = text.match(/(\d{1,4}[/\-]\d{1,2}[/\-]?\d{1,2})|(\d{1,2}[/\-]\d{1,2})|(\d{1,2}月\d{1,2}日)/);
         if (dateMatch) {
             let dateStr = dateMatch[0];
             let year = now.year();
-            if (dateStr.match(/\d{4}/)) { 
+
+            if (dateStr.includes('月') && dateStr.includes('日')) {
+                 const parts = dateStr.match(/(\d{1,2})月(\d{1,2})日/);
+                 if (parts) {
+                    const month = parseInt(parts[1], 10);
+                    const day = parseInt(parts[2], 10);
+                    let currentMonth = dayjs().month() + 1; 
+                    let checkYear = year;
+                    
+                    if (month < currentMonth) {
+                         checkYear = year + 1;
+                    } else if (month === currentMonth && day < dayjs().date()) {
+                         checkYear = year + 1;
+                    }
+                    targetDate = dayjs(`${checkYear}-${month}-${day}`, 'YYYY-M-D').startOf('day');
+                 }
+            } else if (dateStr.match(/\d{4}/)) { 
                 targetDate = dayjs(dateStr, ['YYYY/MM/DD', 'YYYY-MM-DD']).startOf('day');
             } else { 
                 if (dateStr.match(/\d{1,2}[/\-]\d{1,2}/)) {
@@ -274,8 +293,8 @@ class SmartIntentClassifier {
         if (dateResult.nights) data.nights = dateResult.nights;
 
         // 2. 房型
-        if (/(豪華客房|海景房|標準雙人房|行政套房)/.test(lowerMessage)) {
-            data.roomType = lowerMessage.match(/(豪華客房|海景房|標準雙人房|行政套房)/)[0];
+        if (/(豪華客房|海景房|標準雙人房|行政套房|家庭四人房)/.test(lowerMessage)) {
+            data.roomType = lowerMessage.match(/(豪華客房|海景房|標準雙人房|行政套房|家庭四人房)/)[0];
         }
         
         // 3. 人數
@@ -308,10 +327,17 @@ class SmartIntentClassifier {
         if (memberMatch) {
             data.memberAccount = memberMatch[0];
         }
+        
+        // 7. 房間間數 (新增)
+        const roomCountMatch = lowerMessage.match(/(\d+)[間個]/);
+        if (roomCountMatch) {
+            data.roomCount = parseInt(roomCountMatch[1], 10);
+        }
 
         // 預設值
         if (data.adultCount === undefined) data.adultCount = 1;
         if (data.childCount === undefined) data.childCount = 0;
+        if (data.roomCount === undefined) data.roomCount = 1; // 【新增修正】
         
         return data;
     }
@@ -336,21 +362,35 @@ class BookingFlowController {
         return flow.states[stateKey];
     }
     
+    // 【新增方法】獲取當前可預訂的房型列表
+    static getRoomTypesList() {
+        // 模擬從後端 API 取得數據
+        const types = [
+            "標準雙人房 (NT$2200)",
+            "豪華客房 (海景) (NT$3200)",
+            "行政套房 (含酒廊) (NT$4800)",
+            "家庭四人房 (NT$4500)" // 新增一個價格讓邏輯更完整
+        ];
+        return types.join('、');
+    }
+
     // 執行價格計算 (模擬)
     static calculatePrice(data, isMemberDiscount = false) {
         // 解構賦值，確保使用到的參數都是最新的
-        const { roomType = '豪華客房', nights = 1, childCount = 0, adultCount = 1, hasBreakfast = false } = data;
+        const { roomType = '豪華客房', nights = 1, childCount = 0, adultCount = 1, hasBreakfast = false, roomCount = 1 } = data;
         
         // 1. 計算基礎房費
         let basePrice = 3200; 
         if (roomType.includes('標準')) basePrice = 2200;
         else if (roomType.includes('行政')) basePrice = 4800;
         else if (roomType.includes('豪華')) basePrice = 3200;
+        else if (roomType.includes('家庭')) basePrice = 4500; // 新增家庭房價格
 
-        const baseTotal = basePrice * nights;
+        const baseTotal = basePrice * nights * roomCount; // 房費要乘以間數
         
         // 2. 計算兒童加價 (假設兒童加價 $300/晚)
         const CHILD_DAILY_FEE = 300;
+        // 兒童加價也要乘以間數 (假設人數總和是所有房間的總人數)
         const childCost = (childCount || 0) * CHILD_DAILY_FEE * nights; 
         
         let total = baseTotal + childCost; // <-- 這是未折扣的房費總價
@@ -368,6 +408,7 @@ class BookingFlowController {
         data.breakfastCost = 0;
         if (hasBreakfast) {
             const BREAKFAST_FEE = 150;
+            // 早餐費基於總人數
             const totalGuests = (adultCount || 0) + (childCount || 0);
             const breakfastCost = totalGuests * BREAKFAST_FEE * nights;
             total += breakfastCost;
@@ -566,6 +607,11 @@ class RuleEngine {
             // 8. 確保狀態轉移
             session.bookingState = nextStateKey;
             let nextState = BookingFlowController.getCurrentState(session);
+
+            // 8.5. 【新增修正】處理 init 狀態的房型列表變數
+            if (session.bookingState === 'init') {
+                session.collectedData.roomTypesList = BookingFlowController.getRoomTypesList();
+            }
 
             // 9. 格式化回覆 (變數替換)
             let responseText = nextState.prompt;
@@ -892,7 +938,9 @@ app.post('/chat', async (req, res) => {
                  session.bookingState = 'init';
                  
                  const initialState = flowLoader.DIALOGUE_FLOW.states['init']; 
-                 const reply = initialState.prompt;
+                 // 手動應用房型列表
+                 const roomTypesList = BookingFlowController.getRoomTypesList();
+                 const reply = initialState.prompt.replace('{roomTypesList}', roomTypesList);
                  const richCard = initialState.richCard;
                  
                  return res.json({ reply, richCard, sessionId });
