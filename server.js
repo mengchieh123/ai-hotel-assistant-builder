@@ -630,13 +630,16 @@ class ResponseGenerator {
 // 靜態檔案服務設定
 const PUBLIC_DIR = path.join(__dirname, 'public');
 app.use(express.static(PUBLIC_DIR));
-app.use(cors({
-    origin: '*', 
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+
+// 🚨 關鍵調整順序：讓 Body 解析器優先於 CORS
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true })); // 🌟 新增這一行
+app.use(express.urlencoded({ extended: true })); // 保持健壯性
+
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 
 // 根路徑導向 - 讓 Express 的靜態檔案服務自動處理 public/index.html
 // (由於 app.use(express.static(...)) 會自動服務 index.html，這個路由可以被簡化或移除)
