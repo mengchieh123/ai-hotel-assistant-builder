@@ -40,7 +40,7 @@
         }
 
         /* 聊天視窗 */
-        #chatbox { /* 將 id 從 chat-window 改為 chatbox 以匹配 JS */
+        #chatbox {
             flex-grow: 1;
             padding: 20px;
             overflow-y: auto;
@@ -174,7 +174,7 @@
             </div>
         <div id="input-container">
             <input type="text" id="user-input" placeholder="輸入訊息..." />
-            <button id="send-btn">發送</button>
+            <button id="send-btn" type="button">發送</button> 
         </div>
     </div>
 
@@ -185,7 +185,7 @@
             const userInput = document.getElementById('user-input');
             const sendBtn = document.getElementById('send-btn');
             
-            // ⚠️ 確保這裡使用相對路徑
+            // 確保這裡使用相對路徑
             const API_ENDPOINT = '/chat'; 
 
             // 會話 ID 管理
@@ -228,6 +228,7 @@
                     richCardData.buttons.forEach(button => {
                         const btn = document.createElement('button');
                         btn.classList.add('rich-card-btn');
+                        // 按鈕不需要 type="button"，因為它在 JS 監聽下
                         btn.textContent = button.text;
                         btn.setAttribute('data-value', button.value); // 將值存儲在數據屬性中
                         buttonGroup.appendChild(btn);
@@ -305,7 +306,7 @@
                 }
             }
             
-            // --- 事件監聽器：確保程式碼更清潔 ---
+            // --- 事件監聽器 ---
 
             // 點擊發送按鈕
             sendBtn.addEventListener('click', () => sendMessage());
