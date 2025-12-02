@@ -1,4 +1,4 @@
-// server.js (Dialogue Flow 完整整合版 - 針對 Render 部署優化)
+// server.js (Dialogue Flow 完整整合版 - 新增流程中斷與恢復)
 
 // ---------------------------------------------
 // 1. 模組導入與基本設定
@@ -256,6 +256,10 @@ class BookingFlowController {
 
     static getCurrentState(session) {
         const stateKey = session.bookingState || 'init';
+        // 處理暫停狀態，讓流程知道要找哪個狀態的資訊
+        if (stateKey === 'paused_waiting_for_resume' && session.pausedState) {
+            return DIALOGUE_FLOW.states[session.pausedState];
+        }
         return DIALOGUE_FLOW.states[stateKey];
     }
     
@@ -299,12 +303,11 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 🏨 訂房流程規則 (已修正跳題問題)
+    // 🏨 訂房流程規則 (已修正跳題與新增流程中斷/恢復)
     static bookingFlowRule(intents, session, message) {
         const hasBookingIntent = intents.includes('booking');
         
         // 🚨 意圖檢查清單：排除與訂房流程無關的意圖
-        // 關鍵修正：將 date_input, pricing, member, affirm, deny 移除，允許這些關鍵意圖通過流程
         const nonBookingIntents = [
             'transfer', 'restaurant', 'attractions', 'shopping', 
             'facilities', 'weather', 'itinerary', 'modification', 'emergency'
@@ -321,18 +324,50 @@ class RuleEngine {
                 return { shouldProcess: false, priority: 0 }; 
             }
         }
+        
+        // 2. 🚦 **流程恢復處理** (最高優先級檢查)
+        if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
+            if (intents.includes('affirm')) {
+                // 恢復流程：將狀態切換回暫停前的狀態
+                console.log(`✅ 檢測到 affirm。從暫停狀態 ${session.pausedState} 恢復流程。`);
+                session.bookingState = session.pausedState;
+                session.pausedState = null;
+                // 讓流程繼續執行 (跳到 3. 的正常流程)
+            } else if (intents.includes('deny')) {
+                // 結束流程
+                console.log(`❌ 檢測到 deny。結束訂房流程。`);
+                session.bookingState = 'end_conversation';
+                session.pausedState = null;
+                return {
+                    shouldProcess: true,
+                    priority: 95,
+                    response: DIALOGUE_FLOW.states['end_conversation'].prompt,
+                    nextStep: 'end_conversation',
+                    updateSession: true
+                };
+            } else {
+                // 如果用戶沒有明確回覆「確認/取消」，讓 LLM 處理用戶的非流程回覆
+                return { shouldProcess: false, priority: 0 }; 
+            }
+        }
 
-        // 2. 🚨 核心切換邏輯：如果在訂房流程中，但用戶切換到其他主題
+
+        // 2.5. 🚨 **核心切換邏輯 (流程暫停)**：如果在訂房流程中，但用戶切換到其他主題
         if (session.bookingState && session.bookingState !== 'init' && isSwitchingTopic) {
-             console.log(`⚠️ 用戶在流程中 (State: ${session.bookingState}) 詢問了不相關的主題 (${intents.filter(i => nonBookingIntents.includes(i)).join(', ')}). 跳過 bookingFlowRule。`);
-             // 讓控制權轉交給 LLM 或 General Rule
+             console.log(`⚠️ 用戶在流程中 (State: ${session.bookingState}) 詢問了不相關的主題. 暫停流程，轉交給 LLM 處理。`);
+             
+             // 暫停流程：保存當前狀態並切換到暫停狀態
+             session.pausedState = session.bookingState;
+             session.bookingState = 'paused_waiting_for_resume';
+             
+             // 讓控制權轉交給 LLM 或 General Rule 處理不相關的查詢
              return { shouldProcess: false, priority: 0 }; 
         }
 
         // 3. 如果訊息包含 booking 意圖，或者 session 已經在流程中 (且沒有切換主題)
         if (hasBookingIntent || session.bookingState) {
             
-            // 確定當前狀態
+            // 確定當前狀態 (此處 session.bookingState 可能已從 pausedState 恢復)
             if (!session.bookingState) session.bookingState = 'init';
             
             let currentState = BookingFlowController.getCurrentState(session);
@@ -404,7 +439,7 @@ class RuleEngine {
                 shouldProcess: true,
                 priority: 95, 
                 response: responseText, 
-                richCard: richCard, // <--- 修正：確保 Rich Card 被傳遞
+                richCard: richCard, 
                 nextStep: session.bookingState,
                 updateSession: true
             };
@@ -451,7 +486,8 @@ class SessionManager {
                 userType: 'unknown',
                 askedTopics: [],
                 conversationHistory: [],
-                lastActive: new Date().toISOString()
+                lastActive: new Date().toISOString(),
+                pausedState: null // 新增：用於流程打斷與恢復
             });
         }
         return this.sessions.get(sessionId);
@@ -552,29 +588,50 @@ class ResponseGenerator {
         // 1. 使用規則引擎處理所有意圖 (高優先級)
         const ruleResult = RuleEngine.process(intents, session, message);
         
-        if (ruleResult.shouldProcess && ruleResult.response && ruleResult.priority >= 50) {
+        let finalReply = ruleResult.response || null;
+        let finalRichCard = ruleResult.richCard || null;
+        
+        if (ruleResult.shouldProcess && ruleResult.priority >= 50) {
             // 如果是緊急狀況 (100) 或訂房流程 (95)，直接使用規則回覆
             console.log("🟢 使用高優先級規則引擎回覆。");
+            // 規則引擎處理的回复，不需要額外附加恢復提示，因為規則引擎已經完成了流程的切換或恢復
             return { 
-                reply: ruleResult.response, 
-                richCard: ruleResult.richCard || null
+                reply: finalReply, 
+                richCard: finalRichCard
             };
         }
 
-        // 2. 複雜/一般問題使用 AI 
+        // 2. 複雜/一般問題使用 AI (只有 LLM 運行時才會到這裡)
         try {
             console.log("🤖 嘗試使用 Gemini AI 處理複雜問題 (LLM 優先級 ~50)");
             const geminiReply = await this.getGeminiResponse(session, false);
-            return { reply: geminiReply, richCard: null };
+            finalReply = geminiReply; // LLM 回覆賦值給 finalReply
+            finalRichCard = null; // LLM 回覆不帶 Rich Card
         } catch (error) {
-            // 🚨 這是關鍵錯誤隔離點：LLM 失敗時，安全回退到最簡單的問候語。
+            // 🚨 關鍵錯誤隔離點
             console.error("🚫 LLM 服務失敗，強制回退到最安全的通用問候。", error.message);
+            finalReply = "👋 您好！目前 AI 服務暫時無法處理複雜查詢，但我可以隨時為您啟動訂房流程（說『我要訂房』），或處理緊急事項（說『緊急求助』）。";
+            finalRichCard = null;
+        }
+        
+        // 3. 檢查並附加恢復提示 (流程打斷與恢復的核心)
+        if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
+            // 由於 LLM 已經回答了問題，現在附加恢復提示
+            // 找到用戶剛才詢問的話題，用於提升提示的相關性
+            const lastUserMessage = session.conversationHistory.length > 0 ? session.conversationHistory[session.conversationHistory.length - 1].message : "剛才的查詢";
             
-            return {
-                reply: "👋 您好！目前 AI 服務暫時無法處理複雜查詢，但我可以隨時為您啟動訂房流程（說『我要訂房』），或處理緊急事項（說『緊急求助』）。",
-                richCard: null
+            finalReply += `\n\n您剛才詢問了**${lastUserMessage.substring(0, 15).trim()}...**相關資訊。請問您是否需要**回到訂房流程**，繼續我們剛才的步驟呢？`;
+            finalRichCard = {
+                 "type": "button_list",
+                 "title": "請選擇：",
+                 "buttons": [
+                     { "text": "✅ 恢復訂房流程", "value": "確認" },
+                     { "text": "❌ 取消本次訂房", "value": "取消" }
+                 ]
             };
         }
+        
+        return { reply: finalReply, richCard: finalRichCard };
     }
 
     // 🟡 核心：與 Gemini API 通訊
@@ -695,7 +752,7 @@ app.post('/chat', async (req, res) => {
                 return res.status(400).json({ error: '缺少 sessionId 或 message 參數', reply: '缺少 sessionId 或 message 參數', sessionId: sessionId || 'unknown' });
             }
             
-            // 處理初始訊息，避免將 'initial_connection_message' 存入歷史紀錄
+            // 處理初始訊息
             if (message === 'initial_connection_message') {
                  // 強制進入 init 狀態，並跳過 history update
                  const session = sessionManager.getSession(sessionId);
