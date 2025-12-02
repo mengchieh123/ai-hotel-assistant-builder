@@ -1,339 +1,132 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>海灣麗景酒店 AI 助理</title>
-    <style>
-        /* 基礎佈局 */
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f7f6;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // 獲取 DOM 元素 (使用您的新 ID)
+        const chatWindow = document.getElementById('chat-window'); // 聊天視窗
+        const userInput = document.getElementById('input-message'); // 輸入框
+        const sendBtn = document.getElementById('send-button'); // 發送按鈕 (ID 已修改)
+        
+        const API_ENDPOINT = '/chat'; 
+
+        // 會話 ID 管理
+        let sessionId = localStorage.getItem('sessionId') || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        localStorage.setItem('sessionId', sessionId);
+
+        // 首次載入時，發送一個空指令來觸發後端的初始回覆
+        // 確保您在 server.js 中設定了初始 Rich Card 訊息
+        sendMessage('', false);
+
+        /**
+         * 渲染訊息到聊天視窗
+         */
+        function appendMessage(sender, text, richCardData = null) {
+            const messageContainer = document.createElement('div');
+            // 匹配您新的 CSS 類別
+            messageContainer.classList.add('message', sender === 'user' ? 'user' : 'assistant'); 
+
+            // 訊息文本 (Rich Card 處理將添加到這裡)
+            let innerHTML = text.replace(/\n/g, '<br>');
+
+            // 渲染 Rich Card / 按鈕 (僅限 assistant 訊息)
+            if (sender !== 'user' && richCardData && richCardData.type === 'button_list') {
+                let cardHTML = '<div class="rich-card" style="margin-top:10px; padding-top:10px; border-top: 1px solid #c0c0c0;">';
+                if (richCardData.title) {
+                    cardHTML += `<p style="font-weight:600; margin-bottom: 8px;">${richCardData.title}</p>`;
+                }
+                cardHTML += '<div class="button-group" style="display:flex; flex-direction:column; gap:8px;">';
+                
+                richCardData.buttons.forEach(button => {
+                    // 使用內聯樣式來確保按鈕可見且可點擊
+                    cardHTML += `<button class="rich-card-btn" data-value="${button.value}" style="padding: 10px 12px; border: none; border-radius: 5px; background-color: #5a85ff; color: white; cursor: pointer; font-size: 14px; text-align: center;">${button.text}</button>`;
+                });
+                
+                cardHTML += '</div></div>';
+                
+                innerHTML += cardHTML;
+            }
+            
+            messageContainer.innerHTML = innerHTML;
+            chatWindow.appendChild(messageContainer);
+            
+            // 滾動到最新訊息
+            chatWindow.scrollTop = chatWindow.scrollHeight;
         }
 
-        #chat-container {
-            width: 100%;
-            max-width: 450px;
-            height: 90vh;
-            background-color: #fff;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
+        /**
+         * 處理用戶輸入和 API 請求
+         */
+        async function sendMessage(customMessage = null, isUserAction = true) {
+            const message = customMessage || userInput.value.trim();
+            
+            if (!message && isUserAction) {
+                return;
+            }
 
-        /* 標頭 */
-        #chat-header {
-            background-color: #007bff;
-            color: white;
-            padding: 15px;
-            text-align: center;
-            font-size: 1.1em;
-            font-weight: 600;
-        }
+            if (!customMessage) {
+                userInput.value = '';
+            }
 
-        /* 聊天視窗 */
-        #chatbox {
-            flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-        }
+            if (message && isUserAction) {
+                appendMessage('user', message);
+            }
 
-        /* 訊息基本樣式 */
-        .message {
-            display: flex;
-            margin-bottom: 15px;
-            max-width: 85%;
-        }
+            // 禁用輸入，等待回應
+            userInput.disabled = true;
+            sendBtn.disabled = true;
 
-        .message.user {
-            justify-content: flex-end;
-            align-self: flex-end;
-        }
+            try {
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId, message })
+                });
 
-        .message.bot {
-            justify-content: flex-start;
-            align-self: flex-start;
-        }
+                const data = await response.json();
 
-        /* 訊息氣泡 */
-        .bubble {
-            padding: 12px 16px;
-            border-radius: 20px;
-            line-height: 1.5;
-            word-wrap: break-word;
-            text-align: left;
-        }
+                if (response.ok) {
+                    appendMessage('assistant', data.reply, data.richCard); 
+                    sessionId = data.sessionId; 
+                } else {
+                    const errorMessage = data.error || data.reply || `[HTTP 錯誤 ${response.status}] 服務器發生錯誤。`;
+                    appendMessage('assistant', `發生錯誤: ${errorMessage}。請稍後再試。`);
+                }
 
-        .user .bubble {
-            background-color: #007bff;
-            color: white;
-            border-bottom-right-radius: 5px;
-        }
-
-        .bot .bubble {
-            background-color: #e5e5ea;
-            color: #333;
-            border-bottom-left-radius: 5px;
-        }
-
-        /* 輸入區塊 */
-        #input-container {
-            display: flex;
-            padding: 10px;
-            border-top: 1px solid #ddd;
-        }
-
-        #user-input {
-            flex-grow: 1;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 20px;
-            margin-right: 10px;
-            font-size: 1em;
-        }
-
-        #send-btn {
-            padding: 10px 15px;
-            background-color: #28a745;
-            color: white;
-            border: none;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-
-        #send-btn:hover:not(:disabled) {
-            background-color: #218838;
+            } catch (error) {
+                console.error('API Request Failed:', error);
+                appendMessage('assistant', `抱歉，伺服器連接失敗，請檢查網路或聯繫管理員。`);
+            } finally {
+                // 重新啟用輸入
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
         }
         
-        #send-btn:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
+        // --- 事件監聽器：使用新的 ID ---
 
-        /* Rich Card 樣式 */
-        .rich-card {
-            margin-top: 10px;
-            padding-top: 8px;
-            border-top: 1px solid #ddd;
-            max-width: 100%;
-        }
+        // 點擊發送按鈕
+        sendBtn.addEventListener('click', () => sendMessage());
 
-        .rich-card .card-title {
-            font-weight: bold;
-            margin: 0 0 10px 0;
-            color: #333;
-            font-size: 0.95em;
-        }
-
-        .button-group {
-            display: flex;
-            flex-direction: column; 
-            gap: 8px;
-        }
-
-        .rich-card-btn {
-            padding: 10px 12px;
-            border: none;
-            border-radius: 5px;
-            background-color: #007bff;
-            color: white;
-            cursor: pointer;
-            text-align: center;
-            font-size: 0.9em;
-            transition: background-color 0.2s;
-            width: 100%; 
-        }
-
-        .rich-card-btn:hover:not(:disabled) {
-            background-color: #0056b3;
-        }
-
-        .rich-card-btn:disabled {
-            background-color: #cccccc;
-            color: #666;
-            cursor: not-allowed;
-            opacity: 0.8;
-        }
-    </style>
-</head>
-<body>
-    <div id="chat-container">
-        <div id="chat-header">海灣麗景酒店 AI 助理</div>
-        <div id="chatbox"> 
-            </div>
-        <div id="input-container">
-            <input type="text" id="user-input" placeholder="輸入訊息..." />
-            <button id="send-btn" type="button">發送</button> 
-        </div>
-    </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // 獲取 DOM 元素
-            const chatbox = document.getElementById('chatbox');
-            const userInput = document.getElementById('user-input');
-            const sendBtn = document.getElementById('send-btn');
-            
-            // 確保這裡使用相對路徑
-            const API_ENDPOINT = '/chat'; 
-
-            // 會話 ID 管理
-            let sessionId = localStorage.getItem('sessionId') || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-            localStorage.setItem('sessionId', sessionId);
-
-            // 首次載入時，發送一個空指令來觸發後端的初始回覆
-            sendMessage('', false);
-
-            /**
-             * 渲染訊息到聊天視窗
-             */
-            function appendMessage(sender, text, richCardData = null) {
-                const messageContainer = document.createElement('div');
-                messageContainer.classList.add('message', sender);
-
-                // 訊息氣泡
-                const textBubble = document.createElement('div');
-                textBubble.classList.add('bubble');
-                // 將換行符替換為 <br>
-                textBubble.innerHTML = text.replace(/\n/g, '<br>'); 
-                
-                // 渲染 Rich Card / 按鈕 (僅限 bot 訊息)
-                if (sender === 'bot' && richCardData && richCardData.type === 'button_list') {
-                    const cardDiv = document.createElement('div');
-                    cardDiv.classList.add('rich-card');
-                    
-                    // 渲染標題
-                    if (richCardData.title) {
-                        const title = document.createElement('p');
-                        title.classList.add('card-title');
-                        title.textContent = richCardData.title;
-                        cardDiv.appendChild(title);
-                    }
-
-                    // 渲染按鈕列表
-                    const buttonGroup = document.createElement('div');
-                    buttonGroup.classList.add('button-group');
-                    
-                    richCardData.buttons.forEach(button => {
-                        const btn = document.createElement('button');
-                        btn.classList.add('rich-card-btn');
-                        // 按鈕不需要 type="button"，因為它在 JS 監聽下
-                        btn.textContent = button.text;
-                        btn.setAttribute('data-value', button.value); // 將值存儲在數據屬性中
-                        buttonGroup.appendChild(btn);
-                    });
-                    
-                    cardDiv.appendChild(buttonGroup);
-                    
-                    // 將 Rich Card 插入到文字泡泡 (textBubble) 內
-                    textBubble.appendChild(cardDiv);
-                }
-                
-                messageContainer.appendChild(textBubble);
-                chatbox.appendChild(messageContainer);
-                
-                // 滾動到最新訊息
-                chatbox.scrollTop = chatbox.scrollHeight;
+        // 按下 Enter 鍵
+        userInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                sendMessage();
+                event.preventDefault(); 
             }
-
-            /**
-             * 處理用戶輸入和 API 請求
-             * @param {string} customMessage - 可選，用於按鈕點擊時傳入的值
-             * @param {boolean} isUserAction - 是否是明確的用戶行為 (用於區分頁面載入時的空指令)
-             */
-            async function sendMessage(customMessage = null, isUserAction = true) {
-                const message = customMessage || userInput.value.trim();
-                
-                // 處理頁面載入時的空訊息
-                if (!message && isUserAction) {
-                    return;
-                }
-
-                // 如果是透過輸入框發送，先清空輸入框
-                if (!customMessage) {
-                    userInput.value = '';
-                }
-
-                // 顯示用戶訊息（按鈕觸發的訊息也視為用戶發送）
-                if (message && isUserAction) {
-                    appendMessage('user', message);
-                }
-
-                // 禁用輸入，等待回應
-                userInput.disabled = true;
-                sendBtn.disabled = true;
-
-                try {
-                    const response = await fetch(API_ENDPOINT, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ sessionId, message })
-                    });
-
-                    const data = await response.json();
-
-                    if (response.ok) {
-                        // 顯示 AI 回覆
-                        appendMessage('bot', data.reply, data.richCard); 
-                        sessionId = data.sessionId; // 更新 sessionId 
-                    } else {
-                        // 處理錯誤回應 (非 200 狀態碼)
-                        const errorMessage = data.error || data.reply || `[HTTP 錯誤 ${response.status}] 服務器發生錯誤。`;
-                        appendMessage('bot', `發生錯誤: ${errorMessage}。請稍後再試。`);
-                    }
-
-                } catch (error) {
-                    console.error('API Request Failed:', error);
-                    appendMessage('bot', `抱歉，伺服器連接失敗，請檢查網路或聯繫管理員。`);
-                } finally {
-                    // 重新啟用輸入
-                    userInput.disabled = false;
-                    sendBtn.disabled = false;
-                    userInput.focus();
-                }
-            }
-            
-            // --- 事件監聽器 ---
-
-            // 點擊發送按鈕
-            sendBtn.addEventListener('click', () => sendMessage());
-
-            // 按下 Enter 鍵
-            userInput.addEventListener('keydown', (event) => {
-                if (event.key === 'Enter') {
-                    sendMessage();
-                    event.preventDefault(); // 阻止 Enter 鍵換行
-                }
-            });
-
-            // 處理 Rich Card 按鈕點擊 (事件委派)
-            chatbox.addEventListener('click', (e) => {
-                if (e.target.classList.contains('rich-card-btn')) {
-                    const buttonValue = e.target.getAttribute('data-value');
-                    if (buttonValue) {
-                        // 禁用當前訊息泡泡中的所有按鈕
-                        const buttons = e.target.closest('.bubble').querySelectorAll('.rich-card-btn');
-                        buttons.forEach(btn => btn.disabled = true);
-                        
-                        // 將按鈕的值視為用戶輸入發送
-                        sendMessage(buttonValue, true);
-                    }
-                }
-            });
         });
-    </script>
-</body>
-</html>
+
+        // 處理 Rich Card 按鈕點擊 (事件委派)
+        chatWindow.addEventListener('click', (e) => {
+            if (e.target.classList.contains('rich-card-btn')) {
+                const buttonValue = e.target.getAttribute('data-value');
+                if (buttonValue) {
+                    // 禁用當前訊息泡泡中的所有按鈕
+                    const buttons = e.target.closest('.message').querySelectorAll('.rich-card-btn');
+                    buttons.forEach(btn => btn.disabled = true);
+                    
+                    // 將按鈕的值視為用戶輸入發送
+                    sendMessage(buttonValue, true);
+                }
+            }
+        });
+    });
+</script>
