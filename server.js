@@ -1,4 +1,4 @@
-// server.js (Dialogue Flow 完整整合版 - 新增流程中斷與恢復)
+// server.js (Dialogue Flow 完整整合版 - 新增兒童費用、智慧日期、會員流程)
 
 // ---------------------------------------------
 // 1. 模組導入與基本設定
@@ -9,6 +9,13 @@ const cors = require('cors');
 const fetch = require('node-fetch'); 
 const path = require('path');
 const app = express();
+const dayjs = require('dayjs'); // <-- 新增 Dayjs
+const customParseFormat = require('dayjs/plugin/customParseFormat'); 
+const weekday = require('dayjs/plugin/weekday'); // <-- 處理星期
+const isSameOrAfter = require('dayjs/plugin/isSameOrAfter');
+dayjs.extend(customParseFormat);
+dayjs.extend(weekday);
+dayjs.extend(isSameOrAfter);
 
 const PORT = process.env.PORT || 10000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -22,10 +29,10 @@ const apiUrl = `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?
 
 const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
-const tools = []; // 徹底禁用外部工具
+const tools = []; //徹底禁用物外部工具
 
 // ---------------------------------------------
-// 2. Dialogue Flow 配置
+// 2. Dialogue Flow 配置 (更新：新增會員流程、調整價格顯示)
 // ---------------------------------------------
 const DIALOGUE_FLOW = {
     "states": {
@@ -47,7 +54,7 @@ const DIALOGUE_FLOW = {
             "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
         },
         "collect_room_and_dates": {
-            "prompt": "好的，我們將開始預訂。請問您想預訂的【房型】、預計【入住日期】和【住宿晚數】？ (例如：豪華客房，6月1日入住，共2晚)",
+            "prompt": "好的，我們將開始預訂。請問您想預訂的【房型】、預計【入住日期】和【住宿晚數】？ (例如：豪華客房，6月1日入住，共2晚 或 下週三入住三天)",
             "entities": ["roomType", "checkInDate", "nights"],
             "next_state": "ask_guest_count",
             "fallback": "請提供房型、入住日期及住宿晚數，我會為您查詢空房與價格。"
@@ -58,8 +65,8 @@ const DIALOGUE_FLOW = {
             "next_state": "check_availability_and_price",
             "fallback": "請提供大人及兒童的人數。"
         },
-        "check_availability_and_price": {
-            "prompt": "根據您的需求，我們已確認 {roomType} 房有空位，總價為 ${totalPrice}。**請注意：**2歲以上兒童需加收費用。請問您是否確認【以總價 ${totalPrice} 繼續預訂】？",
+        "check_availability_and_price": { // <--- 更新價格顯示
+            "prompt": "根據您的需求，我們已確認 {roomType} 房有空位。\n\n• 房費：${totalPriceNoChild}\n• 兒童加價 ({childCount}位)：${childCost}\n• **總計：${totalPrice}**\n\n請問您是否確認【以總價 ${totalPrice} 繼續預訂】？",
             "intents": {
                 "affirm": "ask_contact_info",
                 "deny": "end_conversation"
@@ -69,35 +76,66 @@ const DIALOGUE_FLOW = {
         "ask_contact_info": {
             "prompt": "請提供您的【訂房姓名】和【聯絡Email】，以便我們為您完成預訂。",
             "entities": ["name", "email"],
-            "next_state": "confirm_member_and_meal",
+            "next_state": "check_membership", // <--- 轉到會員檢查流程
             "fallback": "請提供您的姓名和 Email。"
         },
-        "confirm_member_and_meal": {
-            "prompt": "請問您是會員嗎？(會員可享Gold等級8折優惠)。另外，請問是否需要【加購早餐】？",
+        "check_membership": { // <--- 新增狀態
+            "prompt": "感謝您！在確認價格前，您是否有本酒店的會員帳號呢？\n\n**溫馨提示：**登入會員可享 Gold 等級 8 折優惠！",
             "richCard": {
                 "type": "button_list",
-                "title": "請選擇您的會員及早餐需求：",
+                "title": "會員登入：",
                 "buttons": [
-                    { "text": "✅ 會員 + 加購早餐", "value": "是會員且要早餐" },
-                    { "text": "🧑‍💼 會員 + 不加購早餐", "value": "是會員但不加購早餐" },
-                    { "text": "🍽️ 不是會員 + 加購早餐", "value": "不是會員但要早餐" },
-                    { "text": "❌ 不是會員 + 不加購早餐", "value": "不是會員且不要早餐" }
+                    { "text": "💳 我要登入會員", "value": "我要登入會員" },
+                    { "text": "❌ 我不是會員 (或暫不登入)", "value": "不是會員" }
                 ]
             },
             "intents": {
-                "member_yes_meal_yes": "apply_member_discount",
-                "member_yes_meal_no": "apply_member_discount",
-                "member_no_meal_yes": "confirm_booking",
-                "member_no_meal_no": "confirm_booking"
+                "member_login": "login_member_account",
+                "deny": "confirm_member_and_meal"
             },
-            "fallback": "請告知是否為會員，以及是否加購早餐。"
+            "fallback": "請選擇是否登入會員，或告知『不是會員』。"
+        },
+        "login_member_account": { // <--- 新增狀態
+            "prompt": "請輸入您的【會員帳號】或【會員手機號碼】。",
+            "entities": ["memberAccount"],
+            "next_state": "apply_member_discount", // 假設登入成功，直接套用折扣
+            "fallback": "請輸入您的會員帳號或手機號碼，才能套用優惠喔！"
+        },
+        "confirm_member_and_meal": {
+            "prompt": "您選擇不登入會員，將以原價 ${finalPrice} 計算。\n\n請問是否需要【加購早餐】？", // 修正提示，直接顯示價格
+            "richCard": {
+                "type": "button_list",
+                "title": "請選擇早餐需求：",
+                "buttons": [
+                    { "text": "🍽️ 加購早餐", "value": "要早餐" },
+                    { "text": "❌ 不加購早餐", "value": "不要早餐" }
+                ]
+            },
+            "intents": {
+                "member_no_meal_yes": "confirm_booking", // 沿用舊意圖
+                "member_no_meal_no": "confirm_booking" // 沿用舊意圖
+            },
+            "fallback": "請告知是否加購早餐。"
         },
         "apply_member_discount": {
-            "prompt": "已為您套用會員優惠，新的總價為 ${newTotalPrice}。即將進入最終確認。",
-            "next_state": "confirm_booking"
+            "prompt": "✅ 會員登入成功！已為您套用 Gold 8折優惠，新的總價為 **${newTotalPrice}**。請問是否需要【加購早餐】？",
+            "richCard": { // 新增 Rich Card 讓用戶選擇早餐
+                "type": "button_list",
+                "title": "請選擇早餐需求：",
+                "buttons": [
+                    { "text": "🍽️ 加購早餐", "value": "要早餐" },
+                    { "text": "❌ 不加購早餐", "value": "不要早餐" }
+                ]
+            },
+            "intents": {
+                "member_yes_meal_yes": "confirm_booking", // 沿用舊意圖
+                "member_yes_meal_no": "confirm_booking" // 沿用舊意圖
+            },
+            "next_state": "confirm_booking", // 僅用於非按鈕情況下，確保流程繼續
+            "fallback": "請告知是否加購早餐。"
         },
         "confirm_booking": {
-            "prompt": "【最終確認】您訂購 {roomType} 房，入住 {checkInDate} ，共 {nights} 晚，訂房人 {name}，最終總價 ${finalPrice}。您是否確認訂房？",
+            "prompt": "【最終確認】您訂購 {roomType} 房，入住 {checkInDate} ，共 {nights} 晚，訂房人 {name}，最終總價 **${finalPrice}**。您是否確認訂房？",
             "richCard": {
                 "type": "button_list",
                 "title": "請確認：",
@@ -145,30 +183,32 @@ class SmartIntentClassifier {
         if (/(訂房|預訂|入住|房間|住.*晚|房型|幫我訂|想要訂|預約房間|我要訂房)/.test(lowerMessage)) intents.add('booking');
         
         // 關鍵流程意圖 (affirm/deny 等)
-        if (/(是|對|好|確認|願意|繼續|訂)/.test(lowerMessage)) intents.add('affirm');
-        if (/(否|不|取消|不要|不願意|算了)/.test(lowerMessage)) intents.add('deny');
+        if (/(是|對|好|確認|願意|繼續|訂|要早餐)/.test(lowerMessage)) intents.add('affirm'); // 新增 要早餐
+        if (/(否|不|取消|不要|不願意|算了|不要早餐)/.test(lowerMessage)) intents.add('deny'); // 新增 不要早餐
         
-        // Rich Card 按鈕值
-        if (lowerMessage === '是會員且要早餐') intents.add('member_yes_meal_yes');
-        if (lowerMessage === '是會員但不加購早餐') intents.add('member_yes_meal_no');
-        if (lowerMessage === '不是會員但要早餐') intents.add('member_no_meal_yes');
-        if (lowerMessage === '不是會員且不要早餐') intents.add('member_no_meal_no');
-        
+        // Rich Card 按鈕值 (更新為新流程)
+        if (lowerMessage === '💳 我要登入會員' || lowerMessage === '我要登入會員') intents.add('member_login'); // <-- 新增
+        if (lowerMessage === '❌ 我不是會員 (或暫不登入)' || lowerMessage === '不是會員') intents.add('deny'); // <-- 新增
+
+        // 早餐意圖 (用於 apply_member_discount/confirm_member_and_meal)
+        if (lowerMessage === '要早餐' || lowerMessage.includes('加購早餐')) intents.add('member_yes_meal_yes');
+        if (lowerMessage === '不要早餐' || lowerMessage.includes('不加購早餐')) intents.add('member_yes_meal_no');
+
         // 流程相關的資訊意圖 (允許在流程中出現，不觸發跳題)
         if (/(價格|價錢|多少錢|房價|費用|收費)/.test(lowerMessage)) intents.add('pricing');
         if (/(會員|積分|優惠|折扣|促銷|金卡|宣傳語)/.test(lowerMessage)) intents.add('member');
         if (this.containsDatePatterns(message)) intents.add('date_input');
         
         // 其他不相關的資訊意圖 (會觸發跳題)
-        if (/(接送|機場|接機|送機|交通|距離|多遠|車程)/.test(lowerMessage)) intents.add('transfer');
-        if (/(餐廳|推薦|美食|吃|海鮮|晚餐|午餐|訂位)/.test(lowerMessage)) intents.add('restaurant');
-        if (/(景點|觀光|好玩|旅遊|推薦.*地方|去哪玩)/.test(lowerMessage)) intents.add('attractions');
-        if (/(購物|夜市|商店|超市|便利商店|買東西)/.test(lowerMessage)) intents.add('shopping');
-        if (/(設施|泳池|健身房|spa|按摩|三溫暖)/.test(lowerMessage)) intents.add('facilities');
-        if (/(天氣|氣象|溫度|下雨|颱風|氣溫)/.test(lowerMessage)) intents.add('weather'); 
-        if (/(行程|規劃|安排|旅遊計畫|一日遊)/.test(lowerMessage)) intents.add('itinerary');
-        if (/(取消|退訂|改期|變更|修改)/.test(lowerMessage)) intents.add('modification');
-        if (/(緊急|救命|幫忙|協助|問題|麻煩)/.test(lowerMessage)) intents.add('emergency');
+        const nonBookingIntents = [
+            'transfer', 'restaurant', 'attractions', 'shopping', 
+            'facilities', 'weather', 'itinerary', 'modification', 'emergency'
+        ];
+        if (nonBookingIntents.some(intent => lowerMessage.includes(intent.replace(/_\w+/, '')))) {
+             nonBookingIntents.forEach(intent => {
+                if (lowerMessage.includes(intent.replace(/_\w+/, ''))) intents.add(intent);
+             });
+        }
         
         // 最終回退
         return intents.size > 0 ? Array.from(intents) : ['general_inquiry'];
@@ -180,7 +220,7 @@ class SmartIntentClassifier {
             /\d{1,2}\/\d{1,2}/,
             /\d{1,2}月\d{1,2}日/,
             /\d{1,2}月\d{1,2}號/,
-            /明天|後天|週末|下週|月底|今天|今晚/
+            /明天|後天|週末|下週|月底|今天|今晚|週[一二三四五六日]/
         ];
         return datePatterns.some(pattern => pattern.test(message));
     }
@@ -193,30 +233,103 @@ class SmartIntentClassifier {
         return 'individual';
     }
 
+    // <--- 智慧時間處理邏輯 (大幅度更新) --->
+    static parseDate(text) {
+        const now = dayjs();
+        let targetDate = null;
+        let nights = null;
+
+        // 1. 處理特定日期格式 (MM/DD, YYYY/MM/DD)
+        const dateMatch = text.match(/(\d{1,4}[/\-]\d{1,2}[/\-]?\d{1,2})|(\d{1,2}[/\-]\d{1,2})/);
+        if (dateMatch) {
+            let dateStr = dateMatch[0];
+            let year = now.year();
+            if (dateStr.match(/\d{4}/)) { // YYYY/MM/DD
+                targetDate = dayjs(dateStr, ['YYYY/MM/DD', 'YYYY-MM-DD']);
+            } else { // MM/DD
+                if (dateStr.match(/\d{1,2}[/\-]\d{1,2}/)) {
+                    const [month, day] = dateStr.split(/[\/\-]/).map(n => parseInt(n, 10));
+                    targetDate = dayjs(`${year}-${month}-${day}`, 'YYYY-M-D');
+                }
+            }
+        }
+
+        // 2. 處理相對時間 (今天, 明天, 後天)
+        if (text.includes('今天')) targetDate = now;
+        else if (text.includes('明天')) targetDate = now.add(1, 'day');
+        else if (text.includes('後天')) targetDate = now.add(2, 'day');
+
+        // 3. 處理星期 (下週三)
+        const weekdayMatch = text.match(/(下週|這週)?週([一二三四五六日])/);
+        if (weekdayMatch) {
+            const weekdayMap = { '日': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 };
+            const targetDay = weekdayMap[weekdayMatch[2]];
+            let date = now.weekday(targetDay);
+
+            if (!weekdayMatch[1] || weekdayMatch[1].includes('這週')) {
+                // 如果是今天或已過，則定在下週
+                if (date.isSameOrAfter(now, 'day')) {
+                    targetDate = date;
+                } else {
+                    targetDate = date.add(7, 'day');
+                }
+            } else if (weekdayMatch[1].includes('下週')) {
+                // 強制定在下週
+                if (date.isSameOrAfter(now, 'day')) {
+                    targetDate = date.add(7, 'day');
+                } else {
+                    targetDate = date.add(7, 'day');
+                }
+            }
+        }
+
+        // 4. 提取晚數
+        const nightsMatch = text.match(/(\d+)晚|(\d+)天|住到週([一二三四五六日])/);
+        if (nightsMatch) {
+            if (nightsMatch[1] || nightsMatch[2]) {
+                nights = parseInt(nightsMatch[1] || nightsMatch[2], 10);
+            } else if (nightsMatch[3] && targetDate) { // 住到週X
+                const weekdayMap = { '日': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6 };
+                const endDay = weekdayMap[nightsMatch[3]];
+                let endDate = targetDate.weekday(endDay);
+                
+                // 確保退房日晚於入住日
+                if (endDate.isSameOrBefore(targetDate, 'day')) {
+                    endDate = endDate.add(7, 'day');
+                }
+                nights = endDate.diff(targetDate, 'day');
+            }
+        }
+        
+        // 確保至少為 1 晚
+        if (nights === 0) nights = 1;
+
+        if (targetDate && targetDate.isValid()) {
+            return {
+                checkInDate: targetDate.format('YYYY/MM/DD'),
+                nights: nights
+            };
+        }
+        return {};
+    }
+    // <--- 智慧時間處理邏輯結束 --->
+
+
     static extractEntities(message) {
         const data = {};
         const lowerMessage = message.toLowerCase();
 
-        // 房型
+        // 1. 處理日期和晚數 (使用新的智慧處理器)
+        const dateResult = this.parseDate(lowerMessage);
+        if (dateResult.checkInDate) data.checkInDate = dateResult.checkInDate;
+        if (dateResult.nights) data.nights = dateResult.nights;
+
+        // 2. 房型
         if (/(豪華客房|海景房|標準雙人房|行政套房)/.test(lowerMessage)) {
             data.roomType = lowerMessage.match(/(豪華客房|海景房|標準雙人房|行政套房)/)[0];
         }
         
-        // 日期
-        const dateMatch = lowerMessage.match(/(\d{1,2}[\/\-]\d{1,2})|(\d{1,2}月\d{1,2}日)|(明天|後天)/);
-        if (dateMatch) {
-            data.checkInDate = dateMatch[0].trim().replace(/\s/g, ''); 
-        }
-        
-        // 晚數
-        const nightsMatch = lowerMessage.match(/(\d+)晚/);
-        if (nightsMatch) {
-            data.nights = parseInt(nightsMatch[1], 10);
-        } else if (/(一|兩)晚/.test(lowerMessage)) { 
-            data.nights = lowerMessage.includes('兩晚') ? 2 : 1;
-        }
-
-        // 人數
+        // 3. 人數
         const adultMatch = lowerMessage.match(/(\d+)位大人|(\d+)大/);
         if (adultMatch) {
             data.adultCount = parseInt(adultMatch[1] || adultMatch[2], 10);
@@ -226,7 +339,7 @@ class SmartIntentClassifier {
             data.childCount = parseInt(childMatch[1] || childMatch[2], 10);
         }
 
-        // 聯絡方式 - NAME
+        // 4. 聯絡方式 - NAME
         const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
         if (nameMatch) {
             let extractedName = nameMatch[1] || nameMatch[2]; 
@@ -235,10 +348,16 @@ class SmartIntentClassifier {
             }
         }
         
-        // 聯絡方式 - EMAIL
+        // 5. 聯絡方式 - EMAIL
         const emailMatch = message.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
         if (emailMatch) {
             data.email = emailMatch[0];
+        }
+        
+        // 6. 會員帳號/手機號碼
+        const memberMatch = message.match(/(\d{8,12})|([A-Za-z0-9]{5,10})/);
+        if (memberMatch) {
+            data.memberAccount = memberMatch[0];
         }
 
         if (data.adultCount === undefined) data.adultCount = 0;
@@ -256,23 +375,31 @@ class BookingFlowController {
 
     static getCurrentState(session) {
         const stateKey = session.bookingState || 'init';
-        // 處理暫停狀態，讓流程知道要找哪個狀態的資訊
+        // 處理暫停狀態
         if (stateKey === 'paused_waiting_for_resume' && session.pausedState) {
             return DIALOGUE_FLOW.states[session.pausedState];
         }
         return DIALOGUE_FLOW.states[stateKey];
     }
     
-    // 執行價格計算 (模擬)
+    // 執行價格計算 (模擬) <--- 更新：分離出兒童費用
     static calculatePrice(data, isMemberDiscount = false) {
         const { roomType = '豪華客房', nights = 1, childCount = 0 } = data;
         let basePrice = 3200; 
         if (roomType.includes('標準')) basePrice = 2200;
         else if (roomType.includes('行政')) basePrice = 4800;
 
-        let total = basePrice * nights;
+        const baseTotal = basePrice * nights;
         
-        total += (childCount || 0) * 300; 
+        // 兒童加價：每位兒童每日 300 元
+        const CHILD_DAILY_FEE = 300;
+        const childCost = (childCount || 0) * CHILD_DAILY_FEE * nights; 
+        
+        let total = baseTotal + childCost;
+
+        // 為了顯示，將不含兒童的總價也存起來
+        data.totalPriceNoChild = baseTotal;
+        data.childCost = childCost; 
 
         if (isMemberDiscount) {
             total *= 0.8; 
@@ -288,8 +415,8 @@ class RuleEngine {
     static process(intents, session, message) {
         const rules = [
             this.emergencyRule,
-            this.bookingFlowRule, // 優先級 95
-            this.generalRule // 優先級 10 (最終回退)
+            this.bookingFlowRule, 
+            this.generalRule 
         ];
 
         for (const rule of rules) {
@@ -303,11 +430,10 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 🏨 訂房流程規則 (已修正跳題與新增流程中斷/恢復)
+    // 🏨 訂房流程規則 
     static bookingFlowRule(intents, session, message) {
         const hasBookingIntent = intents.includes('booking');
         
-        // 🚨 意圖檢查清單：排除與訂房流程無關的意圖
         const nonBookingIntents = [
             'transfer', 'restaurant', 'attractions', 'shopping', 
             'facilities', 'weather', 'itinerary', 'modification', 'emergency'
@@ -318,14 +444,14 @@ class RuleEngine {
         // 1. 處理流程結束和重置
         if (session.bookingState === 'booking_complete' || session.bookingState === 'end_conversation') {
             if (hasBookingIntent) {
-                session.bookingState = 'init'; // 結束後又發起訂房，則重新開始
+                session.bookingState = 'init'; 
             } else {
                 setTimeout(() => { session.bookingState = null; session.collectedData = {}; }, 500); 
                 return { shouldProcess: false, priority: 0 }; 
             }
         }
         
-        // 2. 🚦 **流程恢復處理** (最高優先級檢查)
+        // 2. 🚦 流程恢復處理 (最高優先級檢查)
         if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
             if (intents.includes('affirm')) {
                 // 恢復流程：將狀態切換回暫停前的狀態
@@ -352,22 +478,19 @@ class RuleEngine {
         }
 
 
-        // 2.5. 🚨 **核心切換邏輯 (流程暫停)**：如果在訂房流程中，但用戶切換到其他主題
+        // 2.5. 🚨 核心切換邏輯 (流程暫停)
         if (session.bookingState && session.bookingState !== 'init' && isSwitchingTopic) {
-             console.log(`⚠️ 用戶在流程中 (State: ${session.bookingState}) 詢問了不相關的主題. 暫停流程，轉交給 LLM 處理。`);
+             console.log(`⚠️ 用戶在流程中 (State: ${session.bookingState}) 詢問了不相關的主題. 暫停流程。`);
              
-             // 暫停流程：保存當前狀態並切換到暫停狀態
              session.pausedState = session.bookingState;
              session.bookingState = 'paused_waiting_for_resume';
              
-             // 讓控制權轉交給 LLM 或 General Rule 處理不相關的查詢
              return { shouldProcess: false, priority: 0 }; 
         }
 
-        // 3. 如果訊息包含 booking 意圖，或者 session 已經在流程中 (且沒有切換主題)
+        // 3. 正常流程/初始化流程
         if (hasBookingIntent || session.bookingState) {
             
-            // 確定當前狀態 (此處 session.bookingState 可能已從 pausedState 恢復)
             if (!session.bookingState) session.bookingState = 'init';
             
             let currentState = BookingFlowController.getCurrentState(session);
@@ -387,8 +510,8 @@ class RuleEngine {
 
             // 6. 檢查實體是否收集完畢以轉移到下一個狀態
             if (nextStateKey === session.bookingState && currentState.entities && currentState.next_state) {
-                // 針對 'ask_contact_info' 狀態，Email 可以選填 (若未輸入，則為空字串或null)
-                const requiredEntities = currentState.entities.filter(e => !(e === 'email' && currentState.next_state === 'confirm_member_and_meal'));
+                // 排除 email 和 memberAccount 的必填性檢查
+                const requiredEntities = currentState.entities.filter(e => e !== 'email' && e !== 'memberAccount');
                 
                 const allEntitiesCollected = requiredEntities.every(
                     entity => session.collectedData[entity] !== undefined && session.collectedData[entity] !== null
@@ -410,14 +533,19 @@ class RuleEngine {
             }
 
             // 7. 處理特殊狀態的後端動作 (價格計算和折扣)
-            if (nextStateKey === 'check_availability_and_price') {
+            // 在這些狀態切換前，先計算價格，因為它們可能會被多個路徑調用
+            if (nextStateKey === 'check_membership' || nextStateKey === 'confirm_member_and_meal') {
+                 // 在價格顯示前，先計算一次無折扣的總價
+                 const data = session.collectedData;
+                 data.totalPrice = BookingFlowController.calculatePrice(data, false);
+                 data.finalPrice = data.totalPrice; // 作為非會員時的最終價格基礎
+            }
+            
+            if (nextStateKey === 'apply_member_discount') {
                 const data = session.collectedData;
-                data.totalPrice = BookingFlowController.calculatePrice(data, false);
-                data.finalPrice = data.totalPrice; 
-            } else if (nextStateKey === 'apply_member_discount') {
-                const data = session.collectedData;
+                // 登入成功，計算會員折扣價格
                 data.newTotalPrice = BookingFlowController.calculatePrice(data, true);
-                data.finalPrice = data.newTotalPrice; 
+                data.finalPrice = data.newTotalPrice; // 更新為會員最終價格
             }
 
             // 8. 確保狀態轉移
@@ -428,18 +556,19 @@ class RuleEngine {
             let responseText = nextState.prompt;
             for (const key in session.collectedData) {
                 const value = session.collectedData[key] || '';
+                // 替換所有價格變量
                 responseText = responseText.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
                 responseText = responseText.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
             }
             
-            // 10. Rich Card/按鈕列表 邏輯 (確保 Rich Card 被傳遞)
+            // 10. Rich Card/按鈕列表 邏輯
             let richCard = nextState.richCard || null;
             
             return {
                 shouldProcess: true,
                 priority: 95, 
                 response: responseText, 
-                richCard: richCard, 
+                richCard: richCard,
                 nextStep: session.bookingState,
                 updateSession: true
             };
@@ -447,7 +576,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 🚨 緊急規則 (優先級 100)
+    // 🚨 緊急規則 (優先級 100) (保持不變)
     static emergencyRule(intents, session, message) {
         if (intents.includes('emergency') || /(救命|火災|小偷|警察|救護車)/.test(message.toLowerCase())) {
             return {
@@ -459,9 +588,8 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 📞 一般規則 (優先級 10)
+    // 📞 一般規則 (優先級 10) (保持不變)
     static generalRule(intents, session, message) {
-        // 這個規則只作為 LLM 失敗時的最終回退
         return {
             shouldProcess: true,
             priority: 10,
@@ -471,7 +599,7 @@ class RuleEngine {
 }
 
 
-// 會話狀態管理器
+// 會話狀態管理器 (保持不變)
 class SessionManager {
     constructor() {
         this.sessions = new Map();
@@ -487,7 +615,7 @@ class SessionManager {
                 askedTopics: [],
                 conversationHistory: [],
                 lastActive: new Date().toISOString(),
-                pausedState: null // 新增：用於流程打斷與恢復
+                pausedState: null 
             });
         }
         return this.sessions.get(sessionId);
@@ -523,7 +651,7 @@ class SessionManager {
 const sessionManager = new SessionManager();
 
 // ---------------------------------------------
-// 4. API 通訊工具
+// 4. API 通訊工具 (保持不變)
 // ---------------------------------------------
 async function fetchWithRetry(url, options, attempt = 1) {
     try {
@@ -555,7 +683,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
 }
 
 // ---------------------------------------------
-// 5. 回應生成與 LLM 邏輯 (包含錯誤隔離修正)
+// 5. 回應生成與 LLM 邏輯 (保持不變)
 // ---------------------------------------------
 class ResponseGenerator {
     static async handleSpecialCommands(message, session) {
@@ -592,21 +720,19 @@ class ResponseGenerator {
         let finalRichCard = ruleResult.richCard || null;
         
         if (ruleResult.shouldProcess && ruleResult.priority >= 50) {
-            // 如果是緊急狀況 (100) 或訂房流程 (95)，直接使用規則回覆
             console.log("🟢 使用高優先級規則引擎回覆。");
-            // 規則引擎處理的回复，不需要額外附加恢復提示，因為規則引擎已經完成了流程的切換或恢復
             return { 
                 reply: finalReply, 
                 richCard: finalRichCard
             };
         }
 
-        // 2. 複雜/一般問題使用 AI (只有 LLM 運行時才會到這裡)
+        // 2. 複雜/一般問題使用 AI (LLM 優先級 ~50)
         try {
             console.log("🤖 嘗試使用 Gemini AI 處理複雜問題 (LLM 優先級 ~50)");
             const geminiReply = await this.getGeminiResponse(session, false);
-            finalReply = geminiReply; // LLM 回覆賦值給 finalReply
-            finalRichCard = null; // LLM 回覆不帶 Rich Card
+            finalReply = geminiReply; 
+            finalRichCard = null; 
         } catch (error) {
             // 🚨 關鍵錯誤隔離點
             console.error("🚫 LLM 服務失敗，強制回退到最安全的通用問候。", error.message);
@@ -616,8 +742,6 @@ class ResponseGenerator {
         
         // 3. 檢查並附加恢復提示 (流程打斷與恢復的核心)
         if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
-            // 由於 LLM 已經回答了問題，現在附加恢復提示
-            // 找到用戶剛才詢問的話題，用於提升提示的相關性
             const lastUserMessage = session.conversationHistory.length > 0 ? session.conversationHistory[session.conversationHistory.length - 1].message : "剛才的查詢";
             
             finalReply += `\n\n您剛才詢問了**${lastUserMessage.substring(0, 15).trim()}...**相關資訊。請問您是否需要**回到訂房流程**，繼續我們剛才的步驟呢？`;
@@ -634,7 +758,7 @@ class ResponseGenerator {
         return { reply: finalReply, richCard: finalRichCard };
     }
 
-    // 🟡 核心：與 Gemini API 通訊
+    // 🟡 核心：與 Gemini API 通訊 (保持不變)
     static async getGeminiResponse(session, isSpecialCommand = false) {
         if (!apiKey) {
             console.warn("[Gemini API] API Key is empty. Cannot call LLM.");
@@ -701,44 +825,34 @@ class ResponseGenerator {
 }
 
 // ---------------------------------------------
-// 6. Express 路由定義
+// 6. Express 路由定義 (保持不變)
 // ---------------------------------------------
-
-// 靜態檔案服務設定
-const PUBLIC_DIR = path.join(__dirname, 'public');
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// 根路徑導向
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// 健康檢查路徑
 app.get('/healthz', (req, res) => {
     res.status(200).send({ status: 'ok', api_status: apiKey ? 'ready' : 'missing_key' });
 });
 
-// 聊天路由 (前端連線的唯一 API) - 🌟 使用手動解析，繞過 Express.json() 問題
 app.post('/chat', async (req, res) => {
     let rawBody = '';
-
-    // 步驟 1: 監聽數據流，收集原始請求體
     req.on('data', chunk => {
         rawBody += chunk.toString();
     });
 
-    // 步驟 2: 數據收集完畢後執行業務邏輯
     req.on('end', async () => {
         let payload;
-        let sessionId = 'unknown'; // 預設值，以防解析失敗
+        let sessionId = 'unknown'; 
 
         try {
-            // 嘗試手動解析 JSON
             if (!rawBody) {
                 throw new Error("Empty request body received.");
             }
@@ -748,13 +862,10 @@ app.post('/chat', async (req, res) => {
             const message = payload.message;
             
             if (!sessionId || !message) {
-                // 如果解析成功，但缺少關鍵參數，返回 400
                 return res.status(400).json({ error: '缺少 sessionId 或 message 參數', reply: '缺少 sessionId 或 message 參數', sessionId: sessionId || 'unknown' });
             }
             
-            // 處理初始訊息
             if (message === 'initial_connection_message') {
-                 // 強制進入 init 狀態，並跳過 history update
                  const session = sessionManager.getSession(sessionId);
                  session.bookingState = 'init';
                  
@@ -762,7 +873,6 @@ app.post('/chat', async (req, res) => {
                  const reply = initialState.prompt;
                  const richCard = initialState.richCard;
                  
-                 // 不記錄 history，直接回傳
                  return res.json({ reply, richCard, sessionId });
             }
             
@@ -773,20 +883,16 @@ app.post('/chat', async (req, res) => {
                 return res.status(503).json({ error: errorReply, reply: errorReply, sessionId });
             }
 
-            // 1. 更新會話狀態並獲取意圖
             const intents = SmartIntentClassifier.classify(message);
             const session = sessionManager.updateSession(sessionId, message, intents);
 
-            // 2. 生成回應
             const result = await ResponseGenerator.generateResponse(intents, session, message);
             
             const reply = result.reply;
             const richCard = result.richCard;
 
-            // 3. 儲存 AI 回應
             sessionManager.addAssistantResponse(sessionId, reply, richCard);
 
-            // 4. 回傳結構化 JSON
             res.json({ 
                 reply: reply, 
                 richCard: richCard,
@@ -794,7 +900,6 @@ app.post('/chat', async (req, res) => {
             });
 
         } catch (error) {
-            // 捕捉解析錯誤 (JSON.parse 失敗) 或其他未處理的錯誤
             console.error("🚫 聊天路由發生錯誤:", error.message, error.stack);
             
             const errorReply = `抱歉，系統發生錯誤，無法處理您的請求。錯誤細節：${error.message.substring(0, 150)}...`;
@@ -809,7 +914,6 @@ app.post('/chat', async (req, res) => {
         }
     });
 
-    // 處理潛在的連線錯誤
     req.on('error', (err) => {
         console.error('Request stream error:', err);
         if (!res.headersSent) {
@@ -820,9 +924,8 @@ app.post('/chat', async (req, res) => {
 
 
 // ---------------------------------------------
-// 7. 伺服器啟動
+// 7. 伺服器啟動 (保持不變)
 // ---------------------------------------------
-
 app.listen(PORT, HOST, () => {
     console.log(`✅ Server is running on http://${HOST}:${PORT}`);
     console.log(`🔑 Gemini API Key Status: ${apiKey ? 'Loaded' : 'MISSING!'}`);
