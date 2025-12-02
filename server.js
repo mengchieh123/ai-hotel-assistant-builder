@@ -6,6 +6,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+// 在較新版本的 Node.js 中，可以直接使用內建的 global fetch()
+// 但為了向下兼容性，如果環境需要，請確保已安裝 node-fetch
 const fetch = require('node-fetch'); 
 const path = require('path');
 const fs = require('fs'); 
@@ -36,7 +38,17 @@ const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
 
 // ---------------------------------------------
-// 2. DIALOGUE FLOW 配置加載器 (FlowConfigLoader)
+// 2. 中間件配置 (Middleware)
+// ---------------------------------------------
+// 處理跨域請求
+app.use(cors());
+// 解析 JSON 格式的請求主體 (POST 請求的核心)
+app.use(express.json());
+// 服務靜態檔案 (如果需要，例如 index.html, css, js)
+// app.use(express.static('public')); // 假設您的前端檔案放在 public 資料夾
+
+// ---------------------------------------------
+// 3. DIALOGUE FLOW 配置加載器 (FlowConfigLoader) 與 SessionManager
 // ---------------------------------------------
 
 /**
@@ -121,7 +133,7 @@ const sessionManager = new (class SessionManager {
 })();
 
 // ---------------------------------------------
-// 3. 核心工具類 (NLU, 狀態機, 規則引擎)
+// 4. 核心工具類 (NLU, 狀態機, 規則引擎)
 // ---------------------------------------------
 
 /**
@@ -149,7 +161,7 @@ class SmartIntentClassifier {
 
         // 付款意圖
         if (lowerMessage.includes('線上付款')) intents.add('online_payment');
-        if (lowerMessage.includes('現場結帳')) intents.add('onsite_payment');
+        if (lowerMessage.includes('現場結帳')) intents.test(lowerMessage)) intents.add('onsite_payment');
             
         // 早餐意圖
         if (lowerMessage === '要早餐' || lowerMessage.includes('加購早餐')) intents.add('member_yes_meal_yes');
@@ -704,7 +716,7 @@ class RuleEngine {
 
 
 // ---------------------------------------------
-// 4. API 通訊工具 (重試機制)
+// 5. API 通訊工具 (重試機制)
 // ---------------------------------------------
 async function fetchWithRetry(url, options, attempt = 1) {
     try {
@@ -735,7 +747,7 @@ async function fetchWithRetry(url, options, attempt = 1) {
 }
 
 // ---------------------------------------------
-// 5. 回應生成與 LLM 邏輯 (ResponseGenerator)
+// 6. 回應生成與 LLM 邏輯 (ResponseGenerator)
 // ---------------------------------------------
 class ResponseGenerator {
         
@@ -833,129 +845,108 @@ class ResponseGenerator {
             contents: conversationParts,
             generationConfig: {
                 systemInstruction: systemInstruction,
-                temperature: 0.2, 
+                // 補齊 temperature 參數
+                temperature: 0.5,
             },
+            // safetySettings 也可以在這裡添加，但暫時省略以簡化
         };
 
         const options = {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         };
 
-        const response = await fetchWithRetry(apiUrl, options);
-        const data = await response.json();
-        
-        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
-            return data.candidates[0].content.parts[0].text;
-        } else {
-            console.error("Gemini Response Error/Safety Block:", JSON.stringify(data, null, 2));
-            throw new Error("API response is empty or blocked.");
+        try {
+            const response = await fetchWithRetry(apiUrl, options);
+            const data = await response.json();
+
+            // 處理錯誤或無效回應
+            if (!data.candidates || data.candidates.length === 0) {
+                const error = data.error || { message: "Unknown API error" };
+                throw new Error(`Gemini response invalid or blocked: ${error.message}`);
+            }
+
+            // 提取 LLM 回應
+            const reply = data.candidates[0].content.parts[0].text;
+            return reply;
+        } catch (error) {
+            console.error("🚫 Gemini API Call Error:", error.message);
+            throw error;
         }
     }
 }
 
 // ---------------------------------------------
-// 6. Express 路由與啟動 (Express Routes and Server Start)
+// 7. 路由定義 (Routes)
 // ---------------------------------------------
 
-// 1. 中間件設定 (CORS 和 Body Parser)
-app.use(cors());
-app.use(express.json());
-
-// 2. 託管靜態文件 (優先放在前面，避免和 API 路由衝突)
-const publicPath = path.join(__dirname, 'public'); 
-app.use(express.static(publicPath));
-
-// 3. 根目錄路由 - 用於顯示前端畫面
+// 處理根目錄的 GET 請求 (避免 Cannot GET /)
 app.get('/', (req, res) => {
-    const indexPath = path.join(publicPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-    } else {
-        res.send(`AI 訂房助理 (Gemini LLM) 服務運行中，端口: ${PORT} (注意: 缺少 public/index.html 前端文件)`);
-    }
-});
-
-// **健康檢查路由** - 用於快速診斷環境變數和伺服器狀態
-app.get('/health', (req, res) => {
-    const isKeyPresent = !!process.env.GEMINI_API_KEY;
-    const keyStatus = isKeyPresent ? "已載入" : "遺失 (請立即設定)";
-    res.status(200).json({ 
-        status: "OK", 
-        model: MODEL_NAME,
-        apiKeyStatus: keyStatus,
-        message: "AI Chatbot 服務器正在運行" 
-    });
+    res.send(`
+        <h1>海灣麗景酒店 AI 助理服務</h1>
+        <p>服務正在運行 (v2.0 - 帶有促銷碼和規則引擎)。</p>
+        <p>請通過 POST 請求訪問 API 路徑 <code>/api/dialogue</code> 來啟動對話。</p>
+        <p>狀態檢查：<code>/health</code></p>
+    `);
 });
 
 
-// 4. 核心 API 路由 (請確保前端呼叫的是 /api/dialogue)
+// 核心 API 路由 (注意：這是 POST 請求)
 app.post('/api/dialogue', async (req, res) => {
     const { sessionId, message } = req.body;
 
     if (!sessionId || !message) {
-        return res.status(400).json({ error: 'Missing sessionId or message in request body.' });
+        return res.status(400).json({ error: "Missing sessionId or message in request body." });
     }
 
     try {
-        // 1. 識別意圖
         const intents = SmartIntentClassifier.classify(message);
-
-        // 2. 更新會話狀態
         const session = sessionManager.updateSession(sessionId, message, intents);
-
-        // 3. 生成回應 (規則引擎或 LLM)
-        const responseData = await ResponseGenerator.generateResponse(intents, session, message);
-
-        // 4. 記錄助理回應
-        sessionManager.addAssistantResponse(sessionId, responseData.reply, responseData.richCard);
-
-        // 5. 返回結果
+        
+        const { reply, richCard } = await ResponseGenerator.generateResponse(intents, session, message);
+        
+        // 記錄 AI 回應
+        sessionManager.addAssistantResponse(sessionId, reply, richCard);
+        
+        // 返回給前端的結構
         res.json({
-            reply: responseData.reply,
-            richCard: responseData.richCard,
-            session: {
-                sessionId: sessionId,
-                bookingState: session.bookingState,
-                collectedData: session.collectedData,
-                userType: session.userType
-            }
+            reply,
+            richCard,
+            sessionId,
+            currentStep: session.bookingState,
+            collectedData: session.collectedData,
+            intents: intents,
         });
 
     } catch (error) {
-        console.error('API 處理錯誤:', error.message);
-        // 返回 500 JSON 錯誤，而非 HTML
-        res.status(500).json({
-            error: 'Internal server error processing the dialogue.',
-            detail: error.message
+        console.error("🚫 處理對話請求時發生錯誤:", error.message);
+        res.status(500).json({ 
+            error: "An internal server error occurred while processing the dialogue.",
+            details: error.message
         });
     }
 });
 
-// 5. 服務啟動
-app.listen(PORT, HOST, () => {
-    console.log(`🚀 服務已啟動: http://${HOST}:${PORT}`);
-    console.log(`💡 請訪問 /health 檢查 API Key 狀態。`);
+
+// 健康檢查路由 (Health Check)
+app.get('/health', (req, res) => {
+    const keyStatus = apiKey ? '已載入' : '遺失';
+    const configName = flowLoader.DIALOGUE_FLOW.name || '未命名配置';
+    res.json({
+        status: "OK",
+        model: MODEL_NAME,
+        apiKeyStatus: keyStatus,
+        configLoaded: configName,
+        message: "AI Chatbot 服務器正在運行"
+    });
 });
 
+
 // ---------------------------------------------
-// 7. 額外：閒置會話清理機制
+// 8. 服務器啟動
 // ---------------------------------------------
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000; 
-setInterval(() => {
-    const now = new Date();
-    let cleanedCount = 0;
-    sessionManager.sessions.forEach((session, sessionId) => {
-        const lastActive = new Date(session.lastActive);
-        if (now.getTime() - lastActive.getTime() > SESSION_TIMEOUT_MS) {
-            sessionManager.sessions.delete(sessionId);
-            cleanedCount++;
-        }
-    });
-    if (cleanedCount > 0) {
-        console.log(`🧹 清理了 ${cleanedCount} 個超時會話。當前活躍會話數: ${sessionManager.sessions.size}`);
-    }
-}, SESSION_TIMEOUT_MS);
+app.listen(PORT, HOST, () => {
+    console.log(`🚀 服務已啟動: http://${HOST}:${PORT}`);
+    console.log('💡 請訪問 /health 檢查 API Key 狀態。');
+});
