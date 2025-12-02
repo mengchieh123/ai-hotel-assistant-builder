@@ -17,12 +17,12 @@
             },
             "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
         },
-        "collect_room_and_dates": {
-            "prompt": "好的，我們將開始預訂。請問您想預訂的【房型】、預計【入住日期】和【住宿晚數】？ (例如：豪華客房，6月1日入住，共2晚 或 下週三入住三天)",
-            "entities": ["roomType", "checkInDate", "nights"],
-            "next_state": "ask_guest_count",
-            "fallback": "請提供房型、入住日期及住宿晚數，我會為您查詢空房與價格。"
-        },
+     "collect_room_and_dates": {
+    "prompt": "好的，我們將開始預訂。請問您想預訂的【房型】、預計【入住日期】、【房間間數】和【住宿晚數】？ (例如：豪華客房，12月24日入住，2間，共2晚)",
+    "entities": ["roomType", "checkInDate", "nights", "roomCount"], // <--- 新增 roomCount
+    "next_state": "ask_guest_count",
+    "fallback": "請提供房型、入住日期、房間間數及住宿晚數，我會為您查詢空房與價格。" // <--- 更改 fallback 提示以符合
+},
         "ask_guest_count": {
             "prompt": "感謝您！請問總共【幾位大人】和【幾位兒童】入住呢？",
             "entities": ["adultCount", "childCount"],
