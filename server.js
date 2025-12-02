@@ -921,7 +921,7 @@ app.get('/', (req, res) => {
 // ***************************************************************
 
 // 4. 核心 API 路由
-app.post('/api/dialogue', async (req, res) => {
+app.post('/chat', async (req, res) => { // <--- 將路徑改成 /chat
     const { sessionId, message } = req.body;
 
     if (!sessionId || !message) {
