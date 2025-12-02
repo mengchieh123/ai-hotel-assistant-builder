@@ -23,7 +23,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 // Gemini API 配置
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
-const MODEL_NAME = "gemini-1.5-flash";
+const MODEL_NAME = "gemini-2.5-flash";
 const API_VERSION = "v1";
 const apiUrl = `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
 
