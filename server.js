@@ -735,5 +735,10 @@ class ResponseGenerator {
                 const reply = await this.getGeminiResponse(session, true); 
                 session.conversationHistory.pop();
                 return { reply: `🌐 **翻譯結果：**\n\n${reply}`, richCard: null }; 
-            } catch (e) {
-                console.error("翻譯服務失敗:", e
+           } catch (e) {
+                console.error("翻譯服務失敗:", e.message); // <-- 修正：確保這裡的括號是完整的！
+                return { reply: `🌐 翻譯服務暫時不可用，但您想翻譯的文本是：「${textToTranslate}」。`, richCard: null };
+            }
+        }
+        return null;
+    }
