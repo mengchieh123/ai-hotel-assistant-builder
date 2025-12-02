@@ -1,5 +1,4 @@
-// server.js (Dialogue Flow 完整整合版 - 支援靜態網頁服務, 強化意圖切換與錯誤隔離)
-// 海灣麗景酒店 AI 智能助理 - 針對 Render 部署優化
+// server.js (Dialogue Flow 完整整合版 - 針對 Render 部署優化)
 
 // ---------------------------------------------
 // 1. 模組導入與基本設定
@@ -645,8 +644,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// 🚨 關鍵修正：由於 Express.json() 在某些環境下可能失效，這裡手動處理 raw body
-// 請移除或註解 app.use(express.json()) 和 app.use(express.urlencoded())
+// 🚨 移除或註解 app.use(express.json()) 和 app.use(express.urlencoded())
 
 // 根路徑導向
 app.get('/', (req, res) => {
@@ -675,7 +673,6 @@ app.post('/chat', async (req, res) => {
         try {
             // 嘗試手動解析 JSON
             if (!rawBody) {
-                // 如果是空請求體，當作缺少參數處理
                 throw new Error("Empty request body received.");
             }
             payload = JSON.parse(rawBody);
@@ -687,6 +684,21 @@ app.post('/chat', async (req, res) => {
                 // 如果解析成功，但缺少關鍵參數，返回 400
                 return res.status(400).json({ error: '缺少 sessionId 或 message 參數', reply: '缺少 sessionId 或 message 參數', sessionId: sessionId || 'unknown' });
             }
+            
+            // 處理初始訊息，避免將 'initial_connection_message' 存入歷史紀錄
+            if (message === 'initial_connection_message') {
+                 // 強制進入 init 狀態，並跳過 history update
+                 const session = sessionManager.getSession(sessionId);
+                 session.bookingState = 'init';
+                 
+                 const initialState = DIALOGUE_FLOW.states['init'];
+                 const reply = initialState.prompt;
+                 const richCard = initialState.richCard;
+                 
+                 // 不記錄 history，直接回傳
+                 return res.json({ reply, richCard, sessionId });
+            }
+            
 
             if (!apiKey) {
                 const errorReply = "服務器錯誤：未配置 Gemini API Key。";
@@ -716,12 +728,11 @@ app.post('/chat', async (req, res) => {
 
         } catch (error) {
             // 捕捉解析錯誤 (JSON.parse 失敗) 或其他未處理的錯誤
-            console.error("🚫 聊天路由發生錯誤 (可能為 JSON 解析失敗):", error.message, error.stack);
+            console.error("🚫 聊天路由發生錯誤:", error.message, error.stack);
             
             const errorReply = `抱歉，系統發生錯誤，無法處理您的請求。錯誤細節：${error.message.substring(0, 150)}...`;
             
-            // 由於 400 錯誤很可能是由這個手動解析的 check 拋出的，所以回傳 400 或 500
-            const statusCode = (error.message.includes('sessionId') || error.message.includes('message')) ? 400 : 500;
+            const statusCode = (error.message.includes('sessionId') || error.message.includes('message') || error.message.includes('Empty request body')) ? 400 : 500;
 
             res.status(statusCode).json({ 
                 error: errorReply,
