@@ -10,6 +10,8 @@ const cors = require('cors');
 const fetch = require('node-fetch'); 
 const path = require('path');
 const app = express();
+// 🌟 新增：設定 Express 服務靜態檔案
+app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 10000;
 const HOST = process.env.HOST || '0.0.0.0';
