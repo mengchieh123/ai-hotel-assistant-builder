@@ -1,0 +1,134 @@
+{
+    "states": {
+        "init": {
+            "prompt": "您好，歡迎使用 AI 訂房助理！請問您是想【預訂房間】還是【查詢資訊】呢？",
+            "richCard": {
+                "type": "button_list",
+                "title": "請選擇服務類型：",
+                "buttons": [
+                    { "text": "🛏️ 預訂房間", "value": "我要訂房" },
+                    { "text": "ℹ️ 查詢資訊", "value": "我想查詢資訊" }
+                ]
+            },
+            "intents": {
+                "booking": "collect_room_and_dates",
+                "ask_promotion": "handle_promotion_query",
+                "general_inquiry": "handle_general_inquiry"
+            },
+            "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
+        },
+        "collect_room_and_dates": {
+            "prompt": "好的，我們將開始預訂。請問您想預訂的【房型】、預計【入住日期】和【住宿晚數】？ (例如：豪華客房，6月1日入住，共2晚 或 下週三入住三天)",
+            "entities": ["roomType", "checkInDate", "nights"],
+            "next_state": "ask_guest_count",
+            "fallback": "請提供房型、入住日期及住宿晚數，我會為您查詢空房與價格。"
+        },
+        "ask_guest_count": {
+            "prompt": "感謝您！請問總共【幾位大人】和【幾位兒童】入住呢？",
+            "entities": ["adultCount", "childCount"],
+            "next_state": "check_availability_and_price",
+            "fallback": "請提供大人及兒童的人數。"
+        },
+        "check_availability_and_price": {
+            "prompt": "根據您的需求，我們已確認 {roomType} 房有空位。\n\n• 房費：${totalPriceNoChild} (不含兒童加價)\n• 兒童加價 ({childCount}位)：${childCost}\n• **總計：${totalPrice}**\n\n請問您是否確認【以總價 ${totalPrice} 繼續預訂】？",
+            "intents": {
+                "affirm": "ask_contact_info",
+                "deny": "end_conversation"
+            },
+            "fallback": "請回答『確認』或『取消』。"
+        },
+        "ask_contact_info": {
+            "prompt": "請提供您的【訂房姓名】和【聯絡Email】，以便我們為您完成預訂。",
+            "entities": ["name", "email"],
+            "next_state": "check_membership",
+            "fallback": "請提供您的姓名和 Email。"
+        },
+        "check_membership": {
+            "prompt": "感謝您！在確認價格前，您是否有本酒店的會員帳號呢？\n\n**溫馨提示：**登入會員可享 Gold 等級 8 折優惠！",
+            "richCard": {
+                "type": "button_list",
+                "title": "會員登入：",
+                "buttons": [
+                    { "text": "💳 我要登入會員", "value": "我要登入會員" },
+                    { "text": "❌ 我不是會員 (或暫不登入)", "value": "不是會員" }
+                ]
+            },
+            "intents": {
+                "member_login": "login_member_account",
+                "deny": "confirm_member_and_meal"
+            },
+            "fallback": "請選擇是否登入會員，或告知『不是會員』。"
+        },
+        "login_member_account": {
+            "prompt": "請輸入您的【會員帳號】或【會員手機號碼】。",
+            "entities": ["memberAccount"],
+            "next_state": "apply_member_discount",
+            "fallback": "請輸入您的會員帳號或手機號碼，才能套用優惠喔！"
+        },
+        "confirm_member_and_meal": {
+            "prompt": "您選擇不登入會員，將以原價 ${finalPrice} 計算。\n\n請問是否需要【加購早餐】？",
+            "richCard": {
+                "type": "button_list",
+                "title": "請選擇早餐需求：",
+                "buttons": [
+                    { "text": "🍽️ 加購早餐", "value": "要早餐" },
+                    { "text": "❌ 不加購早餐", "value": "不要早餐" }
+                ]
+            },
+            "intents": {
+                "member_no_meal_yes": "confirm_booking",
+                "member_no_meal_no": "confirm_booking"
+            },
+            "fallback": "請告知是否加購早餐。"
+        },
+        "apply_member_discount": {
+            "prompt": "✅ 會員登入成功！已為您套用 Gold 8折優惠，新的總價為 **${newTotalPrice}**。請問是否需要【加購早餐】？",
+            "richCard": {
+                "type": "button_list",
+                "title": "請選擇早餐需求：",
+                "buttons": [
+                    { "text": "🍽️ 加購早餐", "value": "要早餐" },
+                    { "text": "❌ 不加購早餐", "value": "不要早餐" }
+                ]
+            },
+            "intents": {
+                "member_yes_meal_yes": "confirm_booking",
+                "member_yes_meal_no": "confirm_booking"
+            },
+            "next_state": "confirm_booking",
+            "fallback": "請告知是否加購早餐。"
+        },
+        "confirm_booking": {
+            "prompt": "【最終確認】您訂購 {roomType} 房，入住 {checkInDate} ，共 {nights} 晚，訂房人 {name}，最終總價 **${finalPrice}**。您是否確認訂房？",
+            "richCard": {
+                "type": "button_list",
+                "title": "請確認：",
+                "buttons": [
+                    { "text": "✅ 確認訂房", "value": "確認" },
+                    { "text": "❌ 取消訂房", "value": "取消" }
+                ]
+            },
+            "intents": {
+                "affirm": "booking_complete",
+                "deny": "end_conversation"
+            },
+            "fallback": "請確認訂房資訊，並回答『確認』或『取消』。"
+        },
+        "booking_complete": {
+            "prompt": "感謝您，訂房完成！訂單編號 [ORD-xxxxxx] 已發送至 {email}。如有需要，可隨時查詢或取消訂單。",
+            "end": true
+        },
+        "handle_promotion_query": {
+            "prompt": "目前促銷資訊有 Gold 會員享8折優惠，還有免費早餐活動。請問您是否要開始【訂房流程】？",
+            "next_state": "init"
+        },
+        "handle_general_inquiry": {
+            "prompt": "請問您有什麼其他問題？",
+            "next_state": "init"
+        },
+        "end_conversation": {
+            "prompt": "感謝您的使用，祝您有美好的一天！",
+            "end": true
+        }
+    }
+}
