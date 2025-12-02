@@ -637,10 +637,11 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// 根路徑導向 (修正：現在改為重新導向到實際的靜態檔案名稱)
+// 根路徑導向 - 讓 Express 的靜態檔案服務自動處理 public/index.html
+// (由於 app.use(express.static(...)) 會自動服務 index.html，這個路由可以被簡化或移除)
+// 為了避免混淆，我們設定它直接服務 index.html
 app.get('/', (req, res) => {
-    // 讓訪問根路徑的用戶自動導向到 working-chat.html 檔案
-    res.redirect('/working-chat.html');
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // 健康檢查路徑
