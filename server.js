@@ -635,9 +635,10 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// 根路徑導向
+// 根路徑導向 (修正：現在改為重新導向到實際的靜態檔案名稱)
 app.get('/', (req, res) => {
-    res.sendFile(path.join(PUBLIC_DIR, 'working-chat.html')); 
+    // 讓訪問根路徑的用戶自動導向到 working-chat.html 檔案
+    res.redirect('/working-chat.html');
 });
 
 // 健康檢查路徑
