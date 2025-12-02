@@ -636,6 +636,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true })); // 🌟 新增這一行
 
 // 根路徑導向 - 讓 Express 的靜態檔案服務自動處理 public/index.html
 // (由於 app.use(express.static(...)) 會自動服務 index.html，這個路由可以被簡化或移除)
