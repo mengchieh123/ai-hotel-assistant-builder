@@ -16,6 +16,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
+
+// 🚀 關鍵修正 1：使用最新的模型名稱和穩定的 API 版本 v1
 const MODEL_NAME = "gemini-2.5-flash"; 
 const API_VERSION = "v1";
 const apiUrl = `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
@@ -562,14 +564,17 @@ class ResponseGenerator {
 
             const systemInstruction = `你是一個專業、親切的[海灣麗景酒店]AI助理。你的任務是解答用戶關於酒店、旅遊、生活等任何問題。如果用戶的請求未被高優先級規則（例如訂房、緊急）處理，請使用你的專業知識回答。請使用繁體中文回應。`;
 
-            // 確保 contents 的結構正確，並將 systemInstruction 放在開頭
+            // 🚀 關鍵修正 2：淨化歷史記錄，解決 400 Bad Request
             const contents = [
+                // 系統指令作為用戶角色發送（標準做法）
                 { role: 'user', parts: [{ text: systemInstruction }] },
+                
+                // 過濾並映射歷史記錄，確保每個 parts 只有 text 字段
                 ...history
-                    .filter(item => item.role === 'user' || item.role === 'model') 
+                    .filter(item => item.role === 'user' || item.role === 'model') // 只保留用戶和模型的回合
                     .map(item => ({
                         role: item.role === 'user' ? 'user' : 'model',
-                        parts: [{ text: item.message }]
+                        parts: [{ text: item.message || '' }] // 確保 parts 只有 text
                     }))
             ];
 
@@ -579,9 +584,12 @@ class ResponseGenerator {
                     maxOutputTokens: 500,
                     temperature: 0.7,
                 },
+                // 🚀 關鍵修正 3：放寬安全設置，解決 'content was blocked'
                 safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" }
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" }
                 ],
             };
             
