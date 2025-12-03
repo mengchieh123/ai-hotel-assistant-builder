@@ -15,6 +15,7 @@ dayjs.extend(weekday);
 dayjs.extend(isSameOrAfter);
 
 // 使用 Node.js 18+ 內建的 fetch
+// 如果您使用的是舊版 Node.js，可能需要 npm install node-fetch
 const fetch = global.fetch || require('node-fetch');
 
 const PORT = process.env.PORT || 10000;
@@ -30,13 +31,19 @@ const apiUrl = `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?
 const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
 
+// ---------------------------------------------
+// 1. EXPRESS 中間件與靜態檔案
+// ---------------------------------------------
+
 // 處理跨域請求
 app.use(cors());
 app.use(express.json());
+
+// 服務靜態檔案。確保 public 資料夾內有 index.html
 app.use(express.static('public'));
 
 // ---------------------------------------------
-// 3. DIALOGUE FLOW 配置加載器 (FlowConfigLoader) 與 SessionManager
+// 2. DIALOGUE FLOW 配置加載器 (FlowConfigLoader) 與 SessionManager
 // ---------------------------------------------
 
 class FlowConfigLoader {
@@ -170,7 +177,7 @@ class FlowConfigLoader {
                     "fallback": "請確認訂房資訊，並回答『確認』或『取消』。"
                 },
                 "booking_complete": {
-                    "prompt": "🎉 訂房完成！\n\n訂單編號：[ORD-{orderId}]\n訂房人：{name}\nEmail：{email}\n\n確認信已發送至您的信箱，感謝您的預訂！",
+                    "prompt": "🎉 訂房完成！\n\n訂單編號：{orderId}\n訂房人：{name}\nEmail：{email}\n\n確認信已發送至您的信箱，感謝您的預訂！",
                     "end": true
                 },
                 "end_conversation": {
@@ -231,7 +238,7 @@ const sessionManager = new (class SessionManager {
 })();
 
 // ---------------------------------------------
-// 4. 智能意圖分類器 (SmartIntentClassifier)
+// 3. 智能意圖分類器 (SmartIntentClassifier)
 // ---------------------------------------------
 
 class SmartIntentClassifier {
@@ -246,7 +253,7 @@ class SmartIntentClassifier {
         }
 
         // 確認/拒絕意圖
-        if (/(是|對|好|確認|願意|繼續|訂|要早餐|我是會員)/.test(lowerMessage)) intents.add('affirm');
+        if (/(是|對|好|確認|願意|繼續|訂|要早餐|我是會員|繼續訂房)/.test(lowerMessage)) intents.add('affirm');
         if (/(否|不|取消|不要|不願意|算了|不訂|不要早餐|不是會員)/.test(lowerMessage)) intents.add('deny');
 
         // 按鈕值處理
@@ -451,7 +458,7 @@ class SmartIntentClassifier {
 }
 
 // ---------------------------------------------
-// 5. 訂房流程控制器 (BookingFlowController)
+// 4. 訂房流程控制器 (BookingFlowController)
 // ---------------------------------------------
 
 class BookingFlowController {
@@ -548,7 +555,7 @@ function interpolatePrompt(text, data) {
 }
 
 // ---------------------------------------------
-// 6. 規則引擎 (RuleEngine)
+// 5. 規則引擎 (RuleEngine)
 // ---------------------------------------------
 
 class RuleEngine {
@@ -574,6 +581,7 @@ class RuleEngine {
     static bookingFlowRule(intents, session, message) {
         const flow = flowLoader.DIALOGUE_FLOW;
         const hasBookingIntent = intents.includes('booking');
+        const isAffirm = intents.includes('affirm');
 
         // 非訂房意圖
         const nonBookingIntents = [
@@ -589,6 +597,7 @@ class RuleEngine {
                 session.bookingState = 'init';
                 session.collectedData = {};
             } else {
+                // 如果在流程結束後用戶只是閒聊，不處理流程邏輯
                 setTimeout(() => { 
                     session.bookingState = null; 
                     session.collectedData = {}; 
@@ -597,9 +606,9 @@ class RuleEngine {
             }
         }
 
-        // 流程恢復處理
+        // 流程恢復處理 (用戶回復 "繼續" 或 "確認")
         if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
-            if (intents.includes('affirm')) {
+            if (isAffirm) {
                 session.bookingState = session.pausedState;
                 session.pausedState = null;
                 console.log(`🔄 恢復流程到: ${session.bookingState}`);
@@ -614,24 +623,39 @@ class RuleEngine {
                     updateSession: true
                 };
             } else {
+                // 如果在暫停狀態，用戶問了問題，讓它走 AI 自由問答，但流程仍處於 paused
                 return { shouldProcess: false, priority: 0 };
             }
         }
 
         // 流程暫停邏輯
-        if (session.bookingState && session.bookingState !== 'init' && isSwitchingTopic) {
+        if (session.bookingState && session.bookingState !== 'init' && session.bookingState !== 'paused_waiting_for_resume' && (isSwitchingTopic || intents.includes('general_inquiry'))) {
+            // 排除問了價格但已收集到所有資訊的情況
+            if (intents.includes('pricing') && session.bookingState === 'confirm_booking') {
+                // 允許在確認步驟重新詢問價格
+                return { shouldProcess: false, priority: 0 }; 
+            }
+
             console.log(`⚠️ 用戶在流程中 (State: ${session.bookingState}) 詢問了不相關的主題。暫停流程。`);
             session.pausedState = session.bookingState;
             session.bookingState = 'paused_waiting_for_resume';
-            return { shouldProcess: false, priority: 0 };
-        }
-
-        // 處理模糊查詢
-        if (session.bookingState && session.bookingState !== 'init' && intents.includes('general_inquiry')) {
-            console.log(`⚠️ 流程中收到 general_inquiry。暫停流程。`);
-            session.pausedState = session.bookingState;
-            session.bookingState = 'paused_waiting_for_resume';
-            return { shouldProcess: false, priority: 0 };
+            
+            // 返回一個提示讓 AI 自由問答後提示用戶
+            return {
+                shouldProcess: true,
+                priority: 99,
+                response: `好的，我暫時將訂房流程放在一邊。請告訴我您想知道的資訊。\n\n**當您準備好繼續時，請回覆『繼續』或『確認』。**`,
+                richCard: {
+                    "type": "button_list",
+                    "title": "要繼續訂房嗎？",
+                    "buttons": [
+                        { "text": "✅ 繼續訂房", "value": "繼續訂房" },
+                        { "text": "❌ 取消流程", "value": "取消" }
+                    ]
+                },
+                nextStep: 'paused_waiting_for_resume',
+                updateSession: true
+            };
         }
 
         // 正常流程/初始化流程
@@ -665,6 +689,7 @@ class RuleEngine {
                 if (allEntitiesCollected) {
                     nextStateKey = currentState.next_state;
                 } else {
+                    // 實體未收集完，停留在當前狀態，並返回 prompt
                     return {
                         shouldProcess: true,
                         priority: 95,
@@ -677,23 +702,21 @@ class RuleEngine {
             }
 
             // 價格計算處理
-            if (nextStateKey === 'ask_promo_code' || nextStateKey === 'check_membership') {
-                const data = session.collectedData;
-                data.finalPrice = BookingFlowController.calculatePrice(data, false);
-            }
+            const data = session.collectedData;
+            const isMemberDiscount = nextStateKey === 'ask_breakfast';
+            data.finalPrice = BookingFlowController.calculatePrice(data, isMemberDiscount);
 
-            // 促銷代碼處理
-            if (session.bookingState === 'ask_promo_code') {
-                const data = session.collectedData;
+
+            // 促銷代碼處理 (必須在 ask_promo_code 狀態下處理)
+            if (session.bookingState === 'ask_promo_code' && data.promoCode) {
                 const promoCode = data.promoCode;
                 let discountRate = 1.0;
-                let promoMessage = "（未應用促銷代碼）";
+                let promoMessage = "";
 
                 if (promoCode === 'NO_CODE_PROVIDED') {
                     discountRate = 1.0;
                     promoMessage = "（未使用促銷代碼）";
-                } else if (promoCode) {
-                    // 簡單的促銷代碼驗證邏輯
+                } else {
                     if (promoCode === 'SUMMER2024') {
                         discountRate = 0.9;
                         promoMessage = "（已應用夏日9折優惠）";
@@ -705,6 +728,8 @@ class RuleEngine {
                         promoMessage = "（已應用VIP 8折優惠）";
                     } else {
                         data.promoCode = null;
+                        data.currentPromoRate = 1.0;
+                        
                         return {
                             shouldProcess: true,
                             priority: 95,
@@ -715,41 +740,38 @@ class RuleEngine {
                     }
                     data.currentPromoRate = discountRate;
                 }
-
+                
                 data.promoMessage = promoMessage;
+                data.finalPrice = BookingFlowController.calculatePrice(data, false); // 重新計算價格
             }
 
-            // 應用會員折扣
+            // 處理會員折扣
             if (nextStateKey === 'apply_member_discount') {
                 const data = session.collectedData;
                 data.finalPrice = BookingFlowController.calculatePrice(data, true);
             }
 
             // 處理早餐選項
-            if (nextStateKey === 'ask_payment_method') {
+            if (session.bookingState === 'ask_breakfast' && nextStateKey === 'ask_payment_method') {
                 const data = session.collectedData;
-                const isMemberDiscount = session.bookingState.includes('member_discount');
-                const hasMealYes = intents.includes('member_yes_meal_yes') || intents.includes('member_no_meal_yes');
-
-                data.hasBreakfast = hasMealYes;
-                data.finalPrice = BookingFlowController.calculatePrice(data, isMemberDiscount);
+                data.hasBreakfast = intents.includes('member_yes_meal_yes'); // 這裡簡化處理
+                data.finalPrice = BookingFlowController.calculatePrice(data, intents.includes('member_login'));
             }
 
             // 記錄付款方式
-            if (nextStateKey === 'confirm_booking') {
+            if (session.bookingState === 'ask_payment_method' && nextStateKey === 'confirm_booking') {
                 const data = session.collectedData;
                 if (intents.includes('online_payment')) {
                     data.paymentStatus = '線上付款';
                 } else if (intents.includes('onsite_payment')) {
                     data.paymentStatus = '現場結帳';
                 }
+                data.finalPrice = BookingFlowController.calculatePrice(data, data.memberAccount ? true : false);
             }
 
             // 生成最終訂房訊息
             if (nextStateKey === 'booking_complete') {
-                const data = session.collectedData;
                 data.orderId = 'ORD-' + Math.random().toString(36).substr(2, 8).toUpperCase();
-                data.finalPrice = data.finalPrice || BookingFlowController.calculatePrice(data, false);
             }
 
             // 確保狀態轉移
@@ -775,6 +797,9 @@ class RuleEngine {
     // 緊急規則
     static emergencyRule(intents, session, message) {
         if (intents.includes('emergency') || /(救命|火災|小偷|警察|救護車)/.test(message.toLowerCase())) {
+            // 處理緊急情況，可能會覆蓋流程
+            session.bookingState = null;
+            session.pausedState = null;
             return {
                 shouldProcess: true,
                 priority: 100,
@@ -784,7 +809,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // 一般規則
+    // 一般規則 (如果沒有其他高優先級規則觸發，將執行 AI 自由問答)
     static generalRule(intents, session, message) {
         return {
             shouldProcess: true,
@@ -794,7 +819,10 @@ class RuleEngine {
     }
 }
 
-// API 通訊工具
+// ---------------------------------------------
+// 6. API 通訊工具
+// ---------------------------------------------
+
 async function fetchWithRetry(url, options, attempt = 1) {
     try {
         const response = await fetch(url, options);
@@ -828,15 +856,85 @@ async function fetchWithRetry(url, options, attempt = 1) {
 // ---------------------------------------------
 
 class ResponseGenerator {
+    
+    // 與 Gemini 進行實際通訊
+    static async getGeminiResponse(session, isTranslation = false) {
+        if (!apiKey) {
+            return "錯誤：未配置 GEMINI_API_KEY。請檢查 .env 檔案。";
+        }
+        
+        const history = session.conversationHistory;
+        const systemInstruction = `您是海灣麗景酒店的 AI 客服助理。您的職責是：
+1. **優先執行訂房流程**：如果用戶處於訂房流程 (BookingFlowController 正在處理)，您應保持專注，不進行閒聊。
+2. **回答非流程問題**：如果用戶詢問關於酒店設施、交通、景點、天氣等問題，您必須提供簡潔、準確且有幫助的資訊。酒店資訊：
+    - 名稱：海灣麗景酒店 (Bayview Grand Hotel)
+    - 地理：位於台北市信義區，鄰近捷運站，交通方便。
+    - 服務：提供機場接送服務（需預約）。
+    - 設施：頂樓有海景無邊際泳池、24H 健身房、Spa 中心。
+    - 餐廳：提供免費早餐（除非用戶選擇不加購），主營台式/西式自助餐。
+3. **保持語氣**：專業、友善、樂於助人。
+4. **輸出格式**：只輸出回覆內容，不要包含任何流程資訊或 JSON 格式。
+
+【當前流程狀態】: ${session.bookingState || '不在流程中'}
+【已收集資訊】: ${JSON.stringify(session.collectedData)}
+`;
+
+        const contents = [
+            {
+                role: "user",
+                parts: [{ text: systemInstruction }]
+            }
+        ];
+        
+        // 僅傳遞歷史訊息中的文字部分 (角色和內容)
+        // 注意：為了避免 token 過長，這裡只取最後 10 個對話
+        const relevantHistory = history.slice(-10);
+        
+        relevantHistory.forEach(item => {
+            if (item.role === 'user') {
+                 contents.push({ role: "user", parts: [{ text: item.message }] });
+            } else if (item.role === 'model') {
+                 contents.push({ role: "model", parts: [{ text: item.message }] });
+            }
+        });
+        
+        const options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: contents,
+                config: {
+                    // 確保 AI 專注於回答
+                    temperature: 0.2, 
+                    maxOutputTokens: 1024
+                }
+            })
+        };
+
+        console.log(`📡 正在呼叫 Gemini API... (Session: ${session.sessionId})`);
+        
+        const response = await fetchWithRetry(apiUrl, options);
+        const data = await response.json();
+        
+        if (data.candidates && data.candidates[0].content.parts[0].text) {
+            return data.candidates[0].content.parts[0].text;
+        } else {
+            console.error("Gemini Response Error:", data);
+            return "抱歉，AI 助理目前無法回答這個問題。請稍後再試。";
+        }
+    }
+
     static async handleSpecialCommands(message, session) {
         const translateMatch = message.match(/^\[translate:(.*?)\]$/i);
         if (translateMatch) {
             const textToTranslate = translateMatch[1].trim();
             try {
-                const prompt = `請將以下中文文本翻譯成流利的英文，只輸出翻譯結果，不要包含任何額外解釋或註釋："${textToTranslate}"`;
-                session.conversationHistory.push({ role: 'user', message: prompt });
+                // 暫時將翻譯請求加入歷史記錄
+                session.conversationHistory.push({ role: 'user', message: `請將以下中文文本翻譯成流利的英文，只輸出翻譯結果，不要包含任何額外解釋或註釋："${textToTranslate}"` });
                 const reply = await this.getGeminiResponse(session, true);
-                session.conversationHistory.pop();
+                session.conversationHistory.pop(); // 移除臨時的翻譯 prompt
                 return { reply: `🌐 **翻譯結果：**\n\n${reply}`, richCard: null };
             } catch (e) {
                 return { reply: `🌐 翻譯服務暫時不可用，但您想翻譯的文本是：「${textToTranslate}」。`, richCard: null };
@@ -844,224 +942,115 @@ class ResponseGenerator {
         }
         return null;
     }
-
-    static async generateResponse(intents, session, message) {
-        const specialReplyResult = await this.handleSpecialCommands(message, session);
-        if (specialReplyResult) {
-            return specialReplyResult;
-        }
-
-        const ruleResult = RuleEngine.process(intents, session, message);
-        let finalReply = ruleResult.response || null;
-        let finalRichCard = ruleResult.richCard || null;
-
-        if (ruleResult.shouldProcess && ruleResult.priority >= 90) {
-            return { reply: finalReply, richCard: finalRichCard };
-        }
-
-        try {
-            const geminiReply = await this.getGeminiResponse(session, false);
-            finalReply = geminiReply;
-            finalRichCard = null;
-        } catch (error) {
-            console.error("🚫 LLM 服務失敗，強制回退:", error.message);
-            finalReply = "👋 您好！目前 AI 服務暫時無法處理複雜查詢，但我可以協助您啟動訂房流程（說『我要訂房』）。";
-            finalRichCard = null;
-        }
-
-        // 檢查並附加恢復提示
-        if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
-            const lastUserMessage = session.conversationHistory.length > 0 ? 
-                session.conversationHistory[session.conversationHistory.length - 1].message : "剛才的查詢";
-            
-            finalReply += `\n\n**[💡 流程恢復提示]**\n您剛才詢問了**${lastUserMessage.substring(0, 15).trim()}...**相關資訊。請問您是否需要**回到訂房流程**？`;
-            finalRichCard = {
-                "type": "button_list",
-                "title": "請選擇：",
-                "buttons": [
-                    { "text": "🔄 回到訂房流程", "value": "回到訂房流程" },
-                    { "text": "❌ 結束對話", "value": "結束對話" }
-                ]
-            };
-        }
-
-        return { reply: finalReply, richCard: finalRichCard };
-    }
-
-    static async getGeminiResponse(session, isSpecialCommand = false) {
-        if (!apiKey) {
-            console.warn("[Gemini API] API Key is empty. Cannot call LLM.");
-            throw new Error("Gemini API Key Missing.");
-        }
-
-        // 構建系統提示
-        let systemInstruction = "你是一個專業、親切的海灣麗景酒店AI助理。你的任務是解答用戶關於酒店、旅遊、生活等任何問題。如果用戶的請求未被高優先級規則處理，請使用你的專業知識回答。請使用繁體中文回應，保持專業且友善。";
-
-        if (session.bookingState && session.bookingState !== 'paused_waiting_for_resume') {
-            systemInstruction += `\n\n當前訂房流程狀態：${session.bookingState}`;
-            systemInstruction += `\n已收集資訊：${JSON.stringify(session.collectedData)}`;
-        }
-
-        // 篩選對話歷史
-        const historyLimit = isSpecialCommand ? 1 : 10;
-        const conversationParts = session.conversationHistory
-            .slice(-historyLimit)
-            .map(entry => ({
-                role: entry.role,
-                parts: [{ text: entry.message }]
-            }));
-
-        // 構建 API 請求主體
-        const apiBody = {
-            contents: conversationParts,
-            systemInstruction: {
-                parts: [{ text: systemInstruction }]
-            },
-            generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 1024,
-            },
-            safetySettings: [
-                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" }
-            ]
-        };
-
-        const options = {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(apiBody),
-        };
-
-        const response = await fetchWithRetry(apiUrl, options);
-        const data = await response.json();
-
-        if (data.candidates && data.candidates.length > 0) {
-            return data.candidates[0].content.parts[0].text.trim();
-        } else {
-            console.error("[Gemini API] No response candidate:", JSON.stringify(data));
-            throw new Error("LLM 返回空回應。");
-        }
-    }
 }
 
 // ---------------------------------------------
-// 8. Express 路由處理器
+// 8. 聊天處理邏輯函數
 // ---------------------------------------------
 
-app.get('/', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>海灣麗景酒店 AI 助理</title>
-            <style>
-                body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
-                h1 { color: #2c3e50; }
-                code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
-                .endpoint { background: #e8f4fc; padding: 15px; border-radius: 5px; margin: 10px 0; }
-            </style>
-        </head>
-        <body>
-            <h1>🏨 海灣麗景酒店 AI 助理服務</h1>
-            <p>版本: 2.0 (完整規則引擎版)</p>
-            <div class="endpoint">
-                <h3>📡 API 端點：</h3>
-                <p><strong>POST</strong> <code>/api/chat</code> - 主要聊天接口</p>
-                <p><strong>GET</strong> <code>/health</code> - 健康檢查</p>
-            </div>
-            <h3>🛠️ 功能特色：</h3>
-            <ul>
-                <li>完整訂房流程 (包含促銷代碼、會員折扣)</li>
-                <li>智能意圖識別 (15+ 種意圖)</li>
-                <li>流程暫停與恢復機制</li>
-                <li>混合式回應 (規則引擎 + LLM)</li>
-                <li>Rich Card 按鈕回應</li>
-            </ul>
-            <p><strong>狀態：</strong> ${apiKey ? '✅ API Key 已載入' : '⚠️ API Key 未設定'}</p>
-            <p><strong>模型：</strong> ${MODEL_NAME}</p>
-        </body>
-        </html>
-    `);
-});
+async function processChatMessage(sessionId, message) {
+    // 獲取並更新 Session (記錄用戶訊息)
+    const session = sessionManager.getSession(sessionId);
+    const intents = SmartIntentClassifier.classify(message);
+    sessionManager.updateSession(sessionId, message, intents); // 這裡先記錄用戶輸入
+
+    // 處理緊急情況或流程
+    const ruleResult = RuleEngine.process(intents, session, message);
+    
+    let reply = '';
+    let richCard = null;
+    let nextStep = session.bookingState;
+
+    if (ruleResult.shouldProcess && ruleResult.priority >= 90) {
+        // 流程或緊急規則處理 (優先級高於 90)
+        reply = ruleResult.response;
+        richCard = ruleResult.richCard || null;
+        nextStep = ruleResult.nextStep || session.bookingState;
+        
+    } else {
+        // 詢問非流程問題或暫停流程問答 (優先級低於 90)
+        
+        // 處理特殊命令，例如翻譯
+        const specialCommandResult = await ResponseGenerator.handleSpecialCommands(message, session);
+
+        if (specialCommandResult) {
+            reply = specialCommandResult.reply;
+            richCard = specialCommandResult.richCard;
+        } else {
+            // 呼叫 Gemini 進行一般問答
+            // 在呼叫 Gemini 前，如果處於暫停狀態，需要將恢復提示加入歷史記錄
+            if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
+                // 這裡無需再次發送恢復提示，讓 AI 直接回答用戶剛提出的問題
+            }
+            
+            try {
+                reply = await ResponseGenerator.getGeminiResponse(session); 
+            } catch (e) {
+                console.error("Gemini Call Failed:", e);
+                reply = "很抱歉，我們的 AI 服務目前無法連接。請檢查您的 API Key 或稍後再試。";
+            }
+        }
+        
+        // 如果處於暫停狀態，在 AI 回覆後，提醒用戶可以繼續訂房
+        if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
+             reply += "\n\n**提醒：訂房流程已暫停。您可以回覆『繼續』來恢復訂房。**";
+        }
+    }
+
+    // 更新 Session (記錄助理回覆)
+    sessionManager.addAssistantResponse(sessionId, reply, richCard);
+    
+    return {
+        reply: reply,
+        richCard: richCard,
+        nextStep: nextStep,
+        sessionId: sessionId,
+        status: "Success"
+    };
+}
+
+
+// ---------------------------------------------
+// 9. EXPRESS API 路由 (Chat API) <--- 【修復 SyntaxError 的關鍵】
+// ---------------------------------------------
 
 app.post('/api/chat', async (req, res) => {
-    const { sessionId, message } = req.body;
-
-    if (!sessionId || !message) {
-        return res.status(400).json({ 
-            error: "Missing sessionId or message",
-            reply: "請提供 sessionId 和 message 參數。"
-        });
-    }
-
     try {
-        // 處理初始連線訊息
-        if (message === 'initial_connection_message') {
-            const session = sessionManager.getSession(sessionId);
-            session.bookingState = 'init';
-            const initialState = flowLoader.DIALOGUE_FLOW.states['init'];
-            return res.json({ 
-                reply: initialState.prompt, 
-                richCard: initialState.richCard, 
-                sessionId 
-            });
+        const { sessionId, message } = req.body;
+        
+        if (!sessionId || !message) {
+            return res.status(400).json({ status: "Error", message: "Missing sessionId or message" });
         }
 
-        const intents = SmartIntentClassifier.classify(message);
-        const session = sessionManager.updateSession(sessionId, message, intents);
-
-        const { reply, richCard } = await ResponseGenerator.generateResponse(intents, session, message);
+        const response = await processChatMessage(sessionId, message);
+        res.json(response);
         
-        sessionManager.addAssistantResponse(sessionId, reply, richCard);
-        
-        return res.json({
-            reply,
-            richCard,
-            sessionId,
-            currentStep: session.bookingState,
-            collectedData: session.collectedData,
-            intents: intents
-        });
-
     } catch (error) {
-        console.error("🚫 總處理錯誤:", error);
-        const errorMessage = error.message.includes('Key Missing') ? 
-                             "服務器配置錯誤：缺少 Gemini API Key" : 
-                             "服務器內部錯誤，請稍後再試。";
-        res.status(500).json({
-            error: errorMessage,
-            reply: "抱歉，系統暫時出現問題，請稍後再試。",
-            sessionId: sessionId || 'unknown'
-        });
+        console.error("❌ API Chat Error:", error.message);
+        res.status(500).json({ status: "Error", message: "Internal server error: " + error.message });
     }
 });
 
-app.get('/health', (req, res) => {
-    const keyStatus = apiKey ? '已載入' : '遺失';
-    const configName = flowLoader.DIALOGUE_FLOW.name || '預設配置';
-    res.json({
-        status: "OK",
-        model: MODEL_NAME,
-        apiKeyStatus: keyStatus,
-        configLoaded: configName,
-        timestamp: new Date().toISOString(),
-        sessions: sessionManager.sessions.size
-    });
+// Fallback 路由: 處理所有未匹配的 GET 請求 (用於 SPA 路由)
+app.get('*', (req, res) => {
+    // 這裡確保只有在請求不是 API 路由時才發送 index.html
+    if (req.path.startsWith('/api/')) {
+        return res.status(404).send('Not Found');
+    }
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ---------------------------------------------
-// 9. 服務器啟動
+// 10. 伺服器啟動 (Server Listen)
 // ---------------------------------------------
 
+// 檢查 API Key
 if (!apiKey) {
-    console.warn(`⚠️ GEMINI_API_KEY 未設定，LLM 功能將無法使用。`);
+    console.error("❌ 嚴重錯誤：GEMINI_API_KEY 未在 .env 檔案中配置。伺服器啟動失敗。");
+    // 不啟動伺服器或返回錯誤
+} else {
+    app.listen(PORT, HOST, () => {
+        console.log(`🚀 伺服器已啟動於 http://${HOST}:${PORT}`);
+        console.log(`💡 Chat API 位於 http://${HOST}:${PORT}/api/chat`);
+    });
 }
-
-app.listen(PORT, HOST, () => {
-    console.log(`🚀 服務已啟動: http://${HOST}:${PORT}`);
-    console.log(`🔑 Gemini API Key: ${apiKey ? '✅ 已載入' : '❌ 未設定'}`);
-    console.log(`🤖 模型: ${MODEL_NAME}`);
-    console.log(`📊 對話流程: ${flowLoader.DIALOGUE_FLOW.name}`);
-    console.log(`📡 API 端點: POST /api/chat`);
-});
