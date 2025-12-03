@@ -1,6 +1,6 @@
 {
   "name": "HotelBookingFlow",
-  "version": "1.1",
+  "version": "1.2",
   "initial_state": "init",
   "states": {
     "init": {
@@ -79,27 +79,26 @@
     },
     
     "check_availability_and_price": {
-      "prompt": "【即時報價】\n您選擇的 {roomType}，入住 {checkInDate} 共 {nights} 晚，費用總計：NT$ **{finalPrice}** (已包含兒童加價 NT$ {childCost})。\n\n請問您是 **海灣麗景酒店會員** 嗎？\n\n**房價明細**：\n- 房間總價 (不含兒童/折扣)：NT$ {totalPriceNoChild}\n- 兒童加價：NT$ {childCost}",
+      "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。請問您是否為會員？",
       "richCard": {
         "type": "button_list",
-        "title": "選擇下一步：",
+        "title": "會員獨享八折優惠：",
         "buttons": [
           {
-            "text": "🙋‍♂️ 我是會員，我要登入",
-            "value": "我要登入會員"
+            "text": "我是會員，我要登入",
+            "value": "我是會員，我要登入會員"
           },
           {
-            "text": "🔠 我不是會員，直接訂房",
+            "text": "我不是會員",
             "value": "我不是會員"
           }
         ]
       },
       "intents": {
         "member_login": "login_member_account",
-        "deny": "confirm_member_and_meal", 
-        "affirm": "confirm_member_and_meal" 
+        "deny": "confirm_member_and_meal"
       },
-      "fallback": "請告訴我您是否是海灣麗景酒店的會員？"
+      "fallback": "請回答您是否是會員，以便為您計算折扣。"
     },
     
     "login_member_account": {
@@ -174,33 +173,40 @@
         ]
       },
       "intents": {
-        "online_payment": "confirm_booking",
-        "onsite_payment": "confirm_booking"
+        "online_payment": "ask_contact_info",
+        "onsite_payment": "ask_contact_info"
       },
       "fallback": "請選擇線上付款或現場結帳。"
     },
+
+    "ask_contact_info": { 
+        "prompt": "請問您的【訂房姓名】和【聯絡電話或電子郵件】？我們將用此資訊完成預訂。",
+        "entities": [
+            "contactName",
+            "contactDetail"
+        ],
+        "next_state": "confirm_booking",
+        "fallback": "請提供訂房姓名和聯絡方式（電話或Email）。"
+    },
     
     "confirm_booking": {
-      "prompt": "【最終確認】您訂購了 {roomCount} 間 {roomType}，共 {adultCount} 大 {childCount} 小，總價：NT$ {finalPrice} ({paymentMethod})。請問是否確認訂房？",
-      "entities": [
-        "name", 
-        "email"
-      ],
+      // ⚠️ 註：prompt 中的 [SUMMARY] 標籤需要後端 rule_engine.js 動態替換為實際訂單摘要
+      "prompt": "【最終確認】請檢視您的訂單：\n\n[SUMMARY]\n\n若資料正確，請回覆『確認』；若要修改，請回覆『修改』。",
       "intents": {
-        "affirm": "booking_complete",
-        "deny": "end_conversation"
+        "affirm": "booking_complete", 
+        "correction": "show_room_types" // ⏪ 新增：回退到流程起點進行修改
       },
-      "fallback": "請確認訂房資訊，並回答『確認』或『取消』。"
+      "fallback": "請確認訂房資訊，並回答『確認』或『修改』。"
     },
     
     "booking_complete": {
-      "prompt": "🎉 訂房完成！\n\n感謝 {name} 先生/女士 (Email: {email})。您的訂單編號是 **{orderId}**，最終價格 NT$ {finalPrice}。\n\n**付款方式**: {paymentMethod}\n{paymentMessage}",
-      "end": true
+      "prompt": "🎉 訂房完成！\n\n感謝 {contactName} 先生/女士。您的訂單編號是 {orderId}，最終價格 NT$ {finalPrice}。\n\n{paymentMessage}",
+      "end": true // 結束流程，讓 SessionManager 設置下一個狀態為 init
     },
     
     "end_conversation": {
       "prompt": "感謝您的使用，期待下次為您服務。",
-      "end": true
+      "end": true // 結束流程
     },
     
     "handle_general_inquiry": {
