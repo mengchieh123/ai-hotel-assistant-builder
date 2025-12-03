@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require = require('cors');
+const cors = require('cors'); // ❗ 修正：拿掉多餘的 'require ='
 const path = require('path');
 const fs = require('fs');
 const dayjs = require('dayjs');
@@ -225,7 +225,6 @@ const sessionManager = new (class SessionManager {
                     totalPrice: '0',
                     totalPriceNoChild: '0',
                     childCost: '0',
-                    breakfastCost: '0',
                     discountRate: '0',
                     paymentMethod: '未選擇'
                 }, 
@@ -813,7 +812,7 @@ class RuleEngine {
                 response: responsePrompt,
                 nextStep: nextStateKey,
                 richCard: nextState.richCard || null,
-                // 如果轉移到 handle_general_inquiry，才允許呼叫 Gemini
+                // 如果轉移到 handle_general_inquiry 或 paused_waiting_for_resume，才允許呼叫 Gemini
                 skipGeminiCall: nextStateKey !== 'handle_general_inquiry' && nextStateKey !== 'paused_waiting_for_resume' 
             };
         }
@@ -910,8 +909,8 @@ class ResponseGenerator {
                 } else {
                     // 處理 API 返回的錯誤 (4xx, 5xx)
                     console.error(`❌ Gemini API 回應錯誤 (Status: ${response.status})：`, JSON.stringify(responseBody, null, 2));
-                    // 如果是 400 錯誤，通常是請求結構問題，不需要重試
-                    if (response.status === 400 && i === 0) {
+                    // 如果是 400 錯誤，這通常是請求結構問題，不需要重試
+                    if (response.status === 400) {
                         return "API 請求格式錯誤，請檢查伺服器日誌。";
                     }
                 }
