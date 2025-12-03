@@ -1,20 +1,8 @@
-// server.js (第四步重構後版本)
+// server.js (第五步重構後版本)
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors'); 
 const path = require('path');
-// ⚠️ 由於 Day.js 已經被移到 intent_classifier.js 和 booking_controller.js 中，這裡不再需要
-//     但為了計算價格的 BookingFlowController (還在下方) 仍然需要它，所以我們先保留它。
-//     （注意：在第五步拆分 BookingController 時，我們會再將 Day.js 從這裡移除）
-const dayjs = require('dayjs');
-
-// --- Day.js 插件導入 (為了暫時保留的 BookingFlowController) ---
-const customParseFormat = require('dayjs/plugin/customParseFormat');
-const weekday = require('dayjs/plugin/weekday');
-const isSameOrAfter = require('dayjs/plugin/isSameOrAfter');
-dayjs.extend(customParseFormat);
-dayjs.extend(weekday);
-dayjs.extend(isSameOrAfter);
 
 // 使用 Node.js 18+ 內建的 fetch
 const fetch = global.fetch || require('node-fetch');
@@ -23,31 +11,23 @@ const PORT = process.env.PORT || 10000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // --- 導入模組 ---
-const config = require('./config'); // 導入配置
-const sessionManager = require('./session_manager'); // 導入 sessionManager 實例
-const { FlowConfigLoader } = require('./flow_loader'); // 導入 FlowConfigLoader 類別
-const SmartIntentClassifier = require('./intent_classifier'); // 導入意圖分類器
+const config = require('./config'); 
+const sessionManager = require('./session_manager'); 
+const SmartIntentClassifier = require('./intent_classifier'); 
+const BookingFlowController = require('./booking_controller'); // 導入訂房控制器
+const { FlowConfigLoader } = require('./flow_loader'); // 雖然只在 RuleEngine 中被 BookingFlowController.getFlow() 依賴，但 RuleEngine 仍需 BookingFlowController 
 
-// 實例化 FlowConfigLoader，供 BookingFlowController 和 RuleEngine 使用
-const flowLoader = new FlowConfigLoader('dialogue_flow.json'); 
+// 由於 flowLoader 實例化已移至 session_manager.js 和 booking_controller.js，這裡不再需要實例化。
 
-// 由於 config.js 已經導入，這裡不再需要重複宣告常數
-// const apiKey = process.env.GEMINI_API_KEY; 
-// ...
-
-// --- 虛擬資料庫與配置 --- (已移至 config.js，但在這裡為了向下相容，將config數據解構出來)
+// --- Gemini API 配置 (僅保留 ResponseGenerator 需要的) ---
 const {
-    ROOM_RATES,
-    WEEKEND_MULTIPLIER,
-    CHILD_FEE_PER_NIGHT,
-    DEFAULT_ROOM_INVENTORY,
-    VIRTUAL_INVENTORY,
-    VIRTUAL_MEMBERS,
     CHAT_INSTRUCTIONS,
     apiUrl,
     MAX_RETRIES,
     INITIAL_BACKOFF_MS
 } = config;
+
+const app = express();
 
 // ---------------------------------------------
 // 1. EXPRESS 中間件與靜態檔案
@@ -56,112 +36,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-const app = express();
-
 
 // ---------------------------------------------
-// 2. DIALOGUE FLOW 配置加載器 與 SessionManager (已模組化，僅保留實例引用)
+// 2. 實用函數 (保留)
 // ---------------------------------------------
-
-// ---------------------------------------------
-// 4. 訂房流程控制器 (BookingFlowController) - 暫時保留
-// ---------------------------------------------
-
-class BookingFlowController {
-    static getFlow() {
-        return flowLoader.getFlow();
-    }
-
-    /**
-     * 【動態價格計算和庫存檢查】
-     */
-    static calculatePrice(data) {
-        const { 
-            roomType, 
-            checkInDate, 
-            nights = 1, 
-            adultCount = 1, 
-            childCount = 0, 
-            roomCount = 1,
-            memberAccount
-        } = data;
-        
-        // --- 1. 數據完整性檢查 ---
-        if (!roomType || !ROOM_RATES[roomType] || !checkInDate || nights <= 0 || roomCount <= 0 || adultCount <= 0) {
-            return { success: false, errorMessage: "價格計算所需的數據不完整或無效 (請檢查房型、日期、晚數、房間數、大人數)。" };
-        }
-        
-        let currentDate = dayjs(checkInDate, 'YYYY/MM/DD');
-        let totalRoomPrice = 0;
-        
-        // --- 2. 逐晚檢查庫存與動態計算房價 ---
-        for (let i = 0; i < nights; i++) {
-            const dateKey = currentDate.format('YYYY-MM-DD'); 
-            const dayOfWeek = currentDate.day(); // 0 (Sun) - 6 (Sat)
-            
-            // a) 庫存檢查 (O2: 使用定義的預設庫存)
-            const availableRooms = VIRTUAL_INVENTORY[dateKey] ? VIRTUAL_INVENTORY[dateKey][roomType] : DEFAULT_ROOM_INVENTORY; 
-            
-            if (roomCount > availableRooms) {
-                // 庫存不足，回傳錯誤訊息和 OOS 標記
-                return { 
-                    success: false, 
-                    errorMessage: `抱歉，您選擇的 **${roomType}** 在 **${currentDate.format('YYYY/MM/DD')}** 僅剩 **${availableRooms} 間**。`,
-                    oos: true // Out Of Stock 標記
-                };
-            }
-
-            // b) 動態價格計算
-            let baseRate = ROOM_RATES[roomType];
-            let priceMultiplier = 1;
-            
-            // 判斷是否為週末 (週五=5, 週六=6)
-            if (dayOfWeek === 5 || dayOfWeek === 6) {
-                priceMultiplier = WEEKEND_MULTIPLIER;
-            }
-
-            const nightlyRoomPrice = baseRate * priceMultiplier;
-            totalRoomPrice += nightlyRoomPrice * roomCount;
-
-            // 移至下一晚
-            currentDate = currentDate.add(1, 'day');
-        }
-        
-        // --- 3. 計算附加費用 ---
-        const totalChildFee = (childCount || 0) * CHILD_FEE_PER_NIGHT * nights;
-        
-        // 房費總價 (不含折扣，不含兒童加價)
-        data.totalRoomPrice = Math.round(totalRoomPrice).toFixed(0);
-        data.childCost = Math.round(totalChildFee).toFixed(0);
-
-        // 原始總價 (房費 + 兒童加價)
-        let total = totalRoomPrice + totalChildFee;
-        data.totalPrice = Math.round(total).toFixed(0);
-
-        // 4. 應用會員折扣
-        let discountedPrice = total;
-        let isMemberDiscount = !!VIRTUAL_MEMBERS[memberAccount];
-        
-        if (isMemberDiscount) {
-            const memberInfo = VIRTUAL_MEMBERS[memberAccount];
-            const discountRate = memberInfo.discount || 0.9; 
-            discountedPrice *= discountRate;
-            data.discountRate = ((1 - discountRate) * 100).toFixed(0);
-            data.memberLevel = memberInfo.level;
-            data.newTotalPrice = Math.round(discountedPrice).toFixed(0); 
-        } else {
-            data.discountRate = '0';
-            data.memberLevel = '無';
-            data.newTotalPrice = data.totalPrice; // 沒有折扣時，新總價等於原價
-        }
-        
-        // 5. 最終價格 (Final Price)
-        const finalPrice = Math.round(discountedPrice);
-        data.finalPrice = finalPrice.toFixed(0); 
-
-        return { success: true, totalPrice: finalPrice };
-    }
-}
 
 // 替換 Prompt 中的變數
 function interpolatePrompt(text, data) {
@@ -176,7 +54,7 @@ function interpolatePrompt(text, data) {
 }
 
 // ---------------------------------------------
-// 6. Gemini 回應生成器 (ResponseGenerator) - 暫時保留
+// 3. Gemini 回應生成器 (ResponseGenerator) - 暫時保留
 // ---------------------------------------------
 
 class ResponseGenerator {
@@ -252,7 +130,7 @@ class ResponseGenerator {
 
 
 // ---------------------------------------------
-// 5. 規則引擎 (RuleEngine) - 暫時保留
+// 4. 規則引擎 (RuleEngine) - 暫時保留
 // ---------------------------------------------
 
 class RuleEngine {
@@ -356,7 +234,7 @@ class RuleEngine {
 
     /** 規則 2: 訂房流程規則 (核心邏輯 P:98, P:95) */
     static async bookingFlowRule(intents, session, message) {
-        const flow = flowLoader.getFlow();
+        const flow = BookingFlowController.getFlow(); // 使用導入的 BookingFlowController
         const isAffirm = intents.includes('affirm');
         const isDeny = intents.includes('deny');
         const data = session.collectedData;
@@ -409,8 +287,6 @@ class RuleEngine {
                 console.log(`🔄 恢復流程到: ${currentStateKey}`);
                 // 繼續執行後續的 P:95 流程推進邏輯 (不再直接 return)
             } else if (isDeny) {
-                // 在暫停狀態下選擇取消流程
-                // sessionManager.getSession(session.id); // 不用重置整個 session，只需要結束流程
                  return {
                     shouldProcess: true,
                     priority: 99,
@@ -453,7 +329,7 @@ class RuleEngine {
         // C. 流程特殊邏輯處理 (在狀態轉移時觸發)
         if (nextStateKey === 'final_summary_and_payment') {
             // 進入最終總結狀態前，執行價格/庫存檢查
-            const priceResult = BookingFlowController.calculatePrice(data);
+            const priceResult = BookingFlowController.calculatePrice(data); // 呼叫導入的模組方法
 
             if (!priceResult.success) {
                 // 庫存不足 (OOS) 或其他錯誤
@@ -545,7 +421,7 @@ class RuleEngine {
 
 
 // ---------------------------------------------
-// 7. API ENDPOINT 和伺服器啟動
+// 5. API ENDPOINT 和伺服器啟動
 // ---------------------------------------------
 
 app.get('/', (req, res) => {
