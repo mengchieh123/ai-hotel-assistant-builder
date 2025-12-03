@@ -24,8 +24,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
 const MODEL_NAME = "gemini-2.5-flash";
-const API_VERSION = "v1";
-// 確保 apiKey 存在
+const API_VERSION = "v1"; // 由於您遇到 systemInstruction 錯誤，我們將強制使用 V1 兼容模式
 const apiUrl = apiKey ? `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?key=${apiKey}` : null;
 
 const MAX_RETRIES = 2;
@@ -590,7 +589,7 @@ class RuleEngine {
 
             let geminiResponse = '';
             // 只有在流程中允許自由問答時才呼叫 Gemini (O4: 簡化邏輯)
-            if (!result.skipGeminiCall) {
+            if (!result.allowGeminiCall) { // 這裡使用 allowGeminiCall 而不是 skipGeminiCall 確保邏輯清晰
                 geminiResponse = await ResponseGenerator.getGeminiResponse(session, userMessage);
             }
 
@@ -656,7 +655,7 @@ class RuleEngine {
                 priority: 100,
                 response: `🚨 **緊急通知**：請立即撥打 119 或飯店櫃檯 (分機 9)。請提供您的房號及確切情況，我們將在最短時間內提供協助！`,
                 nextStep: 'end_conversation',
-                skipGeminiCall: true
+                allowGeminiCall: false
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -728,7 +727,7 @@ class RuleEngine {
                     ]
                 },
                 nextStep: 'paused_waiting_for_resume',
-                skipGeminiCall: false // 允許交給 Gemini 進行問答，之後流程恢復
+                allowGeminiCall: true // 允許交給 Gemini 進行問答，之後流程恢復
             };
         }
 
@@ -776,7 +775,7 @@ class RuleEngine {
                     response: errorPrompt,
                     nextStep: nextStateKey, 
                     richCard: null,
-                    skipGeminiCall: true
+                    allowGeminiCall: false // 錯誤修正不需要 AI
                 };
             }
             
@@ -803,7 +802,7 @@ class RuleEngine {
             const nextState = flow.states[nextStateKey];
             
             // 如果是最終確認，prompt 已在 C 步驟被替換
-            const responsePrompt = nextState.prompt ? interpolatePrompt(nextState.prompt, data) : nextState.fallback;
+            const responsePrompt = nextState.prompt ? interpolatePrompt(nextState.prompt, data) : currentState.fallback;
 
             return {
                 shouldProcess: true,
@@ -811,8 +810,8 @@ class RuleEngine {
                 response: responsePrompt,
                 nextStep: nextStateKey,
                 richCard: nextState.richCard || null,
-                // 如果轉移到 handle_general_inquiry 或 paused_waiting_for_resume，才允許呼叫 Gemini
-                skipGeminiCall: nextStateKey !== 'handle_general_inquiry' && nextStateKey !== 'paused_waiting_for_resume' 
+                // 只有在明確允許閒聊時才呼叫 Gemini (handle_general_inquiry/paused_waiting_for_resume)
+                allowGeminiCall: nextState.allow_gemini_call === true 
             };
         }
 
@@ -830,7 +829,7 @@ class RuleEngine {
             response: responsePrompt,
             nextStep: currentStateKey,
             richCard: currentState.richCard || null,
-            skipGeminiCall: true
+            allowGeminiCall: false // 流程等待實體時，通常不需要 AI 閒聊
         };
     }
     
@@ -843,7 +842,7 @@ class RuleEngine {
                 priority: 1, 
                 response: '我正在思考...', 
                 nextStep: session.currentStep,
-                skipGeminiCall: false // 呼叫 Gemini API
+                allowGeminiCall: true // 呼叫 Gemini API
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -862,36 +861,48 @@ class ResponseGenerator {
     static async getGeminiResponse(session, userMessage) {
         if (!apiUrl) return "Gemini API Key 未設定，無法提供 AI 自由問答。";
 
-        // 建立給 Gemini 的對話歷史
-        const contents = session.conversationHistory.map(item => ({
-            role: item.role,
+        // 1. 建立給 Gemini 的對話歷史 (確保角色轉換為 V1 兼容的 user/model)
+        let contents = session.conversationHistory.map(item => ({
+            role: item.role === 'model' ? 'model' : 'user', 
             parts: [{ text: item.message }]
         }));
 
-        // 移除最後一筆 model 回應 (如果有的話)
+        // 2. 移除最後一筆 model 回應 (如果有的話)，以保持正確的 user/model 交替
         if (contents.length > 0 && contents[contents.length - 1].role === 'model') {
              contents.pop();
         }
+        
+        // 3. 準備系統指令內容 (不再使用 systemInstruction 變量)
+        const systemPrompt = CHAT_INSTRUCTIONS + (session.pausedState ? `\n當前訂房流程已暫停在步驟：**${session.pausedState}**。請提醒用戶，可以回復『繼續』來恢復流程。` : '');
 
-        // 設置系統指令 (System Instruction)
-        const systemInstruction = CHAT_INSTRUCTIONS + (session.pausedState ? `\n當前訂房流程已暫停在步驟：**${session.pausedState}**。請提醒用戶，可以回復『繼續』來恢復流程。` : '');
+        // 4. ⭐️ 關鍵修正：將系統指令注入為**最後一則用戶訊息**的一部分
+        if (contents.length > 0) {
+            // 取得最後一則訊息 (肯定是 user 的訊息，因為上面移除了 model 的)
+            const lastUserMessage = contents[contents.length - 1].parts[0].text;
 
-        // ----------------------------------------------------
-        // 🎯 最終修正：根據 REST API V1 結構，將配置參數平鋪
-        // ----------------------------------------------------
+            // 將系統指令與用戶訊息結合 (這取代了 systemInstruction 參數)
+            contents[contents.length - 1].parts[0].text = 
+                `請扮演以下角色，並根據以下對話歷史及最新訊息生成回應：\n\n**角色指令**：${systemPrompt}\n\n**用戶訊息**：${lastUserMessage}`;
+        } else {
+             // 如果連對話歷史都沒有，則直接使用用戶的訊息（不應該發生，但作為防禦性程式碼）
+             contents.push({
+                 role: 'user',
+                 parts: [{ text: `**角色指令**：${systemPrompt}\n\n**用戶訊息**：${userMessage}` }]
+             });
+        }
+        
+        // 5. 創建 payload (移除 systemInstruction 頂層參數)
         const payload = {
             contents: contents,
             
-            // 🌟 修正：將 systemInstruction 直接放在頂層 (REST V1/V2 平鋪格式)
-            systemInstruction: systemInstruction, 
+            // 確保 systemInstruction 頂層參數不存在
+            // systemInstruction: systemInstruction, // ⬅️ 已移除
 
-            // 🌟 修正：將 generationConfig 直接放在頂層
             generationConfig: { 
                 temperature: 0.5,
                 topP: 0.9,
             }
         };
-        // ----------------------------------------------------
 
         // 帶有重試機制 (Retry Mechanism) 的 API 呼叫
         for (let i = 0; i < MAX_RETRIES; i++) {
@@ -915,7 +926,7 @@ class ResponseGenerator {
                     console.error(`❌ Gemini API 回應錯誤 (Status: ${response.status})：`, JSON.stringify(responseBody, null, 2));
                     // 如果是 400 錯誤，這通常是請求結構問題，不需要重試
                     if (response.status === 400) {
-                        return "API 請求格式錯誤，請檢查伺服器日誌。";
+                        return `API 請求格式錯誤，請檢查伺服器日誌。錯誤訊息：${responseBody.error?.message}`;
                     }
                 }
             } catch (error) {
