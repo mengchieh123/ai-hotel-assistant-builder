@@ -26,9 +26,17 @@ const {
 // 常數定義
 const MEAL_PRICE_PER_PERSON_PER_NIGHT = 150; // 早餐單價
 const SERVICE_FEE_RATE = 0.1; // 10% 服務費
+const PET_FEE_PER_PET_PER_NIGHT = 300; // 🐶 寵物加價單價 (新增)
+
+// 模擬優惠代碼列表 (新增)
+const VIRTUAL_PROMO_CODES = {
+    'SUMMER20': 0.80, // 8折
+    'WEEKDAY10': 0.90, // 9折
+    'SAVE500': { type: 'fixed', value: 500 } // 固定減免 500
+};
 
 // 實例化 FlowConfigLoader，以便獲取流程配置
-const flowLoader = new FlowConfigLoader('dialogue_flow.json'); 
+const flowLoader = new FlowConfigLoader('dialogue_flow.json');
 
 class BookingFlowController {
     static getFlow() {
@@ -42,40 +50,42 @@ class BookingFlowController {
      * @returns {object} { success: boolean, errorMessage?: string, totalPrice?: number, oos?: boolean }
      */
     static calculatePrice(data) {
-        const { 
-            roomType, 
-            checkInDate, 
-            nights = 1, 
-            adultCount = 1, 
-            childCount = 0, 
+        const {
+            roomType,
+            checkInDate,
+            nights = 1,
+            adultCount = 1,
+            childCount = 0,
             roomCount = 1,
             memberAccount,
-            needsMeal = true, // 假設流程會提供
-            transferFee = 0 // 應在 rule_engine 中計算並寫入 data
+            promoCode, // 🎁 新增：優惠代碼
+            petCount = 0, // 🐶 新增：寵物數量
+            needsMeal = true,
+            transferFee = 0
         } = data;
-        
+
         // --- 1. 數據完整性檢查 ---
         if (!roomType || !ROOM_RATES[roomType] || !checkInDate || nights <= 0 || roomCount <= 0 || adultCount <= 0) {
             return { success: false, errorMessage: "價格計算所需的數據不完整或無效 (請檢查房型、日期、晚數、房間數、大人數)。" };
         }
-        
+
         let currentDate = dayjs(checkInDate, 'YYYY/MM/DD');
         let totalRoomPrice = 0;
-        
-        // --- 2. 逐晚檢查庫存與動態計算房價 ---
+
+        // --- 2. 逐晚檢查庫存與動態計算房價 (保持不變) ---
         for (let i = 0; i < nights; i++) {
-            const dateKey = currentDate.format('YYYY-MM-DD'); 
+            const dateKey = currentDate.format('YYYY-MM-DD');
             const dayOfWeek = currentDate.day(); // 0 (Sun) - 6 (Sat)
-            
+
             // a) 庫存檢查
-            const availableRooms = VIRTUAL_INVENTORY[dateKey] 
+            const availableRooms = VIRTUAL_INVENTORY[dateKey]
                 ? VIRTUAL_INVENTORY[dateKey][roomType] || DEFAULT_ROOM_INVENTORY
-                : DEFAULT_ROOM_INVENTORY; 
-            
+                : DEFAULT_ROOM_INVENTORY;
+
             if (roomCount > availableRooms) {
                 // 庫存不足，回傳錯誤訊息和 OOS 標記
-                return { 
-                    success: false, 
+                return {
+                    success: false,
                     errorMessage: `抱歉，您選擇的 **${roomType}** 在 **${currentDate.format('YYYY/MM/DD')}** 僅剩 **${availableRooms} 間**。`,
                     oos: true // Out Of Stock 標記
                 };
@@ -83,71 +93,94 @@ class BookingFlowController {
 
             // b) 動態價格計算
             let baseRate = ROOM_RATES[roomType];
-            let priceMultiplier = 1;
+            let priceMultiplier = (dayOfWeek === 5 || dayOfWeek === 6) ? WEEKEND_MULTIPLIER : 1;
             
-            // 判斷是否為週末 (週五=5, 週六=6)
-            if (dayOfWeek === 5 || dayOfWeek === 6) {
-                priceMultiplier = WEEKEND_MULTIPLIER;
-            }
-
             const nightlyRoomPrice = baseRate * priceMultiplier;
             totalRoomPrice += nightlyRoomPrice * roomCount;
 
             // 移至下一晚
             currentDate = currentDate.add(1, 'day');
         }
-        
+
         // --- 3. 計算附加費用 ---
-        
+
         // a) 兒童加價
         const totalChildFee = (childCount || 0) * CHILD_FEE_PER_NIGHT * nights;
         data.childCost = Math.round(totalChildFee).toFixed(0);
 
-        // b) 餐飲費計算
+        // b) 寵物加價 (新增)
+        const totalPetFee = (petCount || 0) * PET_FEE_PER_PET_PER_NIGHT * nights;
+        data.petFee = Math.round(totalPetFee).toFixed(0);
+        
+        // c) 餐飲費計算
         const guests = adultCount + childCount;
         let mealPrice = 0;
         if (needsMeal) {
+            // 注意：這裡假設兒童也需付早餐費，若有更複雜政策需在 config 內設定。
             mealPrice = MEAL_PRICE_PER_PERSON_PER_NIGHT * guests * nights;
         }
         data.mealPrice = Math.round(mealPrice).toFixed(0);
 
-        // 房費小計 (房費 + 兒童加價 + 餐飲費)
-        let subtotalBeforeService = totalRoomPrice + totalChildFee + mealPrice;
+        // 房費小計 (房費 + 兒童加價 + 寵物加價 + 餐飲費)
+        let subtotalBeforeService = totalRoomPrice + totalChildFee + totalPetFee + mealPrice;
         data.totalPrice = Math.round(subtotalBeforeService).toFixed(0); // 這裡儲存小計
 
-        // c) 服務費計算 (基於房費小計)
+        // d) 服務費計算 (基於房費小計)
         const serviceFee = subtotalBeforeService * SERVICE_FEE_RATE;
         data.serviceFee = Math.round(serviceFee).toFixed(0);
-        
-        // d) 接送機費 (已經由 RuleEngine 設置，這裡只需要確保格式正確)
+
+        // e) 接送機費
         data.transferFee = Math.round(transferFee).toFixed(0);
 
         // 總價 (含服務費、接送機費)
         let total = subtotalBeforeService + serviceFee + transferFee;
-        
-        // --- 4. 應用會員折扣 ---
+
+        // --- 4. 應用折扣 ---
         let discountedPrice = total;
-        let isMemberDiscount = !!VIRTUAL_MEMBERS[memberAccount];
+        let discountApplied = false;
         
-        if (isMemberDiscount) {
+        // a) 應用優惠代碼折扣 (新增邏輯)
+        if (promoCode && VIRTUAL_PROMO_CODES[promoCode.toUpperCase()]) {
+            const promo = VIRTUAL_PROMO_CODES[promoCode.toUpperCase()];
+
+            if (typeof promo === 'number') { // 百分比折扣 (例如 0.80)
+                discountedPrice *= promo;
+                data.promoDiscountRate = ((1 - promo) * 100).toFixed(0);
+                data.promoDiscountType = '百分比折扣';
+            } else if (promo.type === 'fixed') { // 固定金額減免
+                discountedPrice -= promo.value;
+                data.promoDiscountValue = promo.value;
+                data.promoDiscountType = '固定減免';
+            }
+            discountApplied = true;
+            data.appliedPromoCode = promoCode.toUpperCase();
+        } else {
+            data.appliedPromoCode = '';
+        }
+
+        // b) 應用會員折扣 (只有在未應用優惠代碼時才考慮會員折扣，避免雙重折扣)
+        let isMemberDiscount = !!VIRTUAL_MEMBERS[memberAccount];
+
+        if (isMemberDiscount && !discountApplied) {
             const memberInfo = VIRTUAL_MEMBERS[memberAccount];
-            const discountRate = memberInfo.discount || 0.9; 
+            const memberDiscountRate = memberInfo.discount || 0.9;
             
             // 折扣應用在總價上
-            discountedPrice *= discountRate;
-            
-            data.discountRate = ((1 - discountRate) * 100).toFixed(0);
+            discountedPrice *= memberDiscountRate;
+
+            data.discountRate = ((1 - memberDiscountRate) * 100).toFixed(0);
             data.memberLevel = memberInfo.level;
-            data.newTotalPrice = Math.round(discountedPrice).toFixed(0); 
+            data.newTotalPrice = Math.round(discountedPrice).toFixed(0);
         } else {
+            // 如果應用了優惠代碼，會員折扣就不再適用 (或沒有會員/優惠碼)
             data.discountRate = '0';
-            data.memberLevel = '無';
-            data.newTotalPrice = Math.round(total).toFixed(0); // 沒有折扣時，新總價等於原總價
+            data.memberLevel = isMemberDiscount ? VIRTUAL_MEMBERS[memberAccount].level : '無';
+            data.newTotalPrice = Math.round(discountedPrice).toFixed(0);
         }
-        
+
         // 5. 最終價格 (Final Price)
-        const finalPrice = Math.round(discountedPrice);
-        data.finalPrice = finalPrice.toFixed(0); 
+        const finalPrice = Math.round(discountedPrice < 0 ? 0 : discountedPrice); // 確保最終價格不為負數
+        data.finalPrice = finalPrice.toFixed(0);
 
         return { success: true, totalPrice: finalPrice };
     }
@@ -159,6 +192,7 @@ class BookingFlowController {
     static submitBooking(data) {
         // 實際應用中，這裡會呼叫 API
         const orderId = 'AIBK' + Date.now().toString().slice(-6);
+        // 可以將新的折扣和費用包含在確認訊息中
         const paymentMessage = `我們已成功收到您的訂房請求，訂單編號 **${orderId}** 資訊已發送至您的聯絡信箱/電話，並包含付款連結。`;
         return { id: orderId, paymentMessage: paymentMessage };
     }
