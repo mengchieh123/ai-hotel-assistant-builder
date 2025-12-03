@@ -149,7 +149,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ sessionId: currentSessionId, message }),
+                    body: JSON.stringify({ sessionId: currentSessionId, userMessage:message }),
                 });
                 
                 const data = await response.json();
