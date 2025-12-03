@@ -1,8 +1,10 @@
+// rule_engine.js
+
 // 導入所有 RuleEngine 依賴的模組
-const sessionManager = require('./session_manager');
-const SmartIntentClassifier = require('./intent_classifier');
-// const BookingFlowController = require('./booking_controller'); // 替換為 Mock 版本
-const GeminiGenerator = require('./gemini_generator');
+const sessionManager = require('./session_manager'); 
+const SmartIntentClassifier = require('./intent_classifier'); 
+const BookingFlowController = require('./booking_controller'); // 使用修正後的版本
+const GeminiGenerator = require('./gemini_generator'); 
 const { FlowConfigLoader } = require('./flow_loader');
 
 // 實用函數：替換 Prompt 中的變數
@@ -16,63 +18,6 @@ function interpolatePrompt(text, data) {
     }
     return result;
 }
-
-// ======================================================================
-// 【MOCK】 模擬 BookingFlowController，用於價格計算和資料處理
-// 請在實際環境中替換為您真實的 booking_controller.js
-// ======================================================================
-class MockBookingController {
-    static getFlow() {
-        // 假設 FlowConfigLoader 能獲取流程配置
-        return FlowConfigLoader.load('booking_flow');
-    }
-
-    static calculatePrice(data) {
-        // 確保基本數據存在
-        const roomCount = data.roomCount || 1;
-        const nights = data.nights || 1;
-        const adultCount = data.adultCount || 1;
-        const childCount = data.childCount || 0;
-
-        // 1. 房費計算 (假設 Deluxe Room 3200 NTD/晚)
-        const roomBasePrice = 3200;
-        const totalPrice = roomBasePrice * roomCount * nights;
-
-        // 2. 餐飲費計算 (假設每人早餐 150 NTD/餐)
-        const guests = adultCount + childCount;
-        const mealBasePrice = 150;
-        // 假設默認包含早餐
-        const mealPrice = mealBasePrice * guests * nights; 
-        data.mealPrice = mealPrice;
-
-        // 3. 服務費/稅金 (10%)
-        const subtotal = totalPrice + mealPrice;
-        const serviceFee = Math.round(subtotal * 0.1); 
-        data.serviceFee = serviceFee;
-
-        // 4. 接送機費用
-        const transferFee = data.transferFee || 0; // 應在流程中設定
-        
-        // 5. 會員折扣 (假設 9折)
-        let discountRate = data.memberAccount ? 0.9 : 1.0;
-        let finalPrice = (subtotal + serviceFee + transferFee) * discountRate;
-
-        data.totalPrice = totalPrice; // 房費總價
-        data.transferFee = transferFee;
-        data.finalPrice = Math.round(finalPrice); // 最終價格
-
-        return { success: true, data: data };
-    }
-
-    static submitBooking(data) {
-        // 模擬訂房 API 呼叫
-        const orderId = 'AIBK' + Date.now().toString().slice(-6);
-        const paymentMessage = `我們已透過系統預留您的房間，訂單編號 **${orderId}** 已發送至您的聯絡信箱。`;
-        return { id: orderId, paymentMessage: paymentMessage };
-    }
-}
-const BookingFlowController = MockBookingController;
-// ======================================================================
 
 class RuleEngine {
     /**
@@ -117,7 +62,7 @@ class RuleEngine {
                 }
             }
             
-            // 處理流程結束重設
+            // 處理流程結束重設 (endFlow 標記)
             if (result.endFlow) {
                 // 清除所有實體和狀態，準備開始新的對話
                 sessionManager.clearEntities(sessionId); 
@@ -136,7 +81,7 @@ class RuleEngine {
             };
         }
 
-        // Fallback (應極少觸發)
+        // Fallback (應極少觸發，因為 generalRule 已處理所有未匹配項)
         return {
             reply: "抱歉，系統無法處理您的請求，請重新開始。",
             nextStateKey: 'init',
@@ -173,7 +118,7 @@ class RuleEngine {
                 priority: 100,
                 response: `🚨 **緊急通知**：請立即撥打 119 或飯店櫃檯 (分機 9)。請提供您的房號及確切情況，我們將在最短時間內提供協助！`,
                 nextStep: 'end_conversation', 
-                endFlow: true, // 結束流程
+                endFlow: true,
                 allowGeminiCall: false
             };
         }
@@ -187,16 +132,18 @@ class RuleEngine {
         let summary = `🗓️ 日期/房型：**${data.roomType || 'N/A'}** (${data.roomCount || 1} 間)
 入住：**${data.checkInDate || 'N/A'}**，共 **${data.nights || 'N/A'} 晚**
 👨‍👩‍👧‍👦 人數：**${data.adultCount || 'N/A'} 大 ${data.childCount || 0} 小**
-${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會員：非會員'}
+${isMember ? `👤 會員：**${data.memberAccount}** (${data.memberLevel})` : '👤 會員：非會員'}
 💳 付款方式：**${data.paymentMethod || 'N/A'}**
 聯絡人：**${data.contactName || 'N/A'}** (${data.contactDetail || 'N/A'})
 
 ---
 💰 **費用明細**
-房費總計：NT$ ${data.totalPrice || 'N/A'}
+房費小計：NT$ ${data.totalPrice || 'N/A'} (含週末加價)
+兒童加價：NT$ ${data.childCost || 0}
 餐飲加購：NT$ ${data.mealPrice || 0}
 接送機費：NT$ ${data.transferFee || 0}
 服務費 (10%)：NT$ ${data.serviceFee || 0}
+${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(data.newTotalPrice - data.finalPrice).toFixed(0)}` : ''}
 **最終總計：NT$ ${data.finalPrice || 'N/A'}** (已含稅及服務費)
 
 ---
@@ -223,7 +170,6 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
                 currentStateKey !== 'paused_waiting_for_resume' &&
                 !isAffirm) { 
                 
-                console.log(`⚠️ 偵測到介紹/查詢意圖。暫停流程，轉交給 AI 處理。`);
                 session.pausedState = currentStateKey; 
 
                 return {
@@ -251,7 +197,6 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
                 session.pausedState = null;
                 session.currentStep = currentStateKey;
                 currentState = flow.states[currentStateKey]; 
-                console.log(`🔄 恢復流程到: ${currentStateKey}`);
             } else if (isDeny) {
                 return {
                     shouldProcess: true,
@@ -280,11 +225,9 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
         // 【接送機邏輯】處理 ask_transfer_service 狀態的特殊轉移
         if (currentStateKey === 'ask_transfer_service') {
             if (intents.includes('affirm') || intents.includes('request_transfer')) {
-                // 需要接送機
                 session.collectedData.needsTransfer = true;
                 nextStateKey = 'collect_transfer_details';
             } else if (intents.includes('deny') || message.toLowerCase().includes('不需要')) {
-                // 不需要接送機
                 session.collectedData.needsTransfer = false;
                 session.collectedData.transferFee = 0; // 設置費用為 0
                 nextStateKey = 'ask_payment_method';
@@ -307,7 +250,7 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
 
         // C.1. 價格計算 (在轉移到 ask_contact_info 之前)
         if (nextStateKey === 'ask_contact_info') {
-             // 根據收集到的 transferType 設定費用
+             // 根據 collectedData 中的 transferType 設定費用
              if (data.transferType === 'roundTrip') {
                   data.transferFee = 1800;
              } else if (data.transferType === 'oneWay') {
@@ -316,6 +259,7 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
                   data.transferFee = 0;
              }
              
+             // 觸發 BookingFlowController 的價格計算
              const priceResult = BookingFlowController.calculatePrice(data); 
 
              if (!priceResult.success) {
@@ -334,7 +278,7 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
                      allowGeminiCall: false 
                  };
              }
-             // 價格計算成功，更新 Session Data
+             // 價格計算成功，更新 Session Data (包含所有費用細項)
              Object.assign(data, priceResult.data);
         }
 
@@ -361,14 +305,13 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
             } else if (isCorrection) {
                 // 【回退修改】清除所有實體並回到流程起點
                 sessionManager.clearEntities(sessionId); 
-                const nextState = flow.states['show_room_types'];
                 
                 return {
                     shouldProcess: true,
                     priority: 96,
                     response: "好的，請告訴我您想修改的內容，我們將從選擇房型開始。",
                     nextStep: 'show_room_types',
-                    richCard: nextState.richCard || null,
+                    richCard: flow.states['show_room_types'].richCard || null,
                     allowGeminiCall: false
                 };
             }
@@ -378,7 +321,6 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
         if (nextStateKey === 'confirm_booking') {
             const summary = this.generateSummary(data);
             const nextState = flow.states[nextStateKey];
-            // 假設流程配置中 'confirm_booking' 的 prompt 包含 [SUMMARY] 標籤
             const finalPrompt = nextState.prompt.replace('[SUMMARY]', summary);
             
             return {
@@ -437,7 +379,7 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (享折扣)` : '👤 會�
     
     /** 規則 3: 一般詢問與閒聊 (最低優先級 P:1) */
     static generalRule(intents, session, message) {
-        // 無論意圖分類如何，只要當前狀態是 'init' 或已經是閒聊狀態，就處理
+        // 條件：只要當前狀態是 'init' 或已經是閒聊狀態，就處理
         if (session.currentStep === 'handle_general_inquiry' || session.currentStep === 'init') {
             
             return { 
