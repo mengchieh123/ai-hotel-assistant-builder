@@ -878,14 +878,15 @@ class ResponseGenerator {
         // 設置系統指令 (System Instruction)
         const systemInstruction = CHAT_INSTRUCTIONS + (session.pausedState ? `\n當前訂房流程已暫停在步驟：**${session.pausedState}**。請提醒用戶，可以回復『繼續』來恢復流程。` : '');
 
-        const payload = {
-            contents: contents,
-            config: {
-                systemInstruction: systemInstruction,
-                temperature: 0.5,
-                topP: 0.9,
-            }
-        };
+  
+        const payload = {
+            contents: contents,
+            systemInstruction: systemInstruction, // ❗ 獨立出來作為頂層參數
+            generationConfig: { // ❗ 將 'config' 改為 'generationConfig'
+                temperature: 0.5,
+                topP: 0.9,
+            }
+        };
 
         // 帶有重試機制 (Retry Mechanism) 的 API 呼叫
 for (let i = 0; i < MAX_RETRIES; i++) { // <-- 補齊迴圈條件
