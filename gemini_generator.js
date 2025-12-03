@@ -1,10 +1,10 @@
 // 導入依賴
 const config = require('./config');
-const fetch = global.fetch || require('node-fetch'); // 確保 Node.js 環境支援 fetch
+const fetch = global.fetch || require('node-fetch');
 
 // 從配置中解構 Gemini 相關常數
 const {
-    CHAT_INSTRUCTIONS,
+    CHAT_INSTRUCTIONS, // 雖然導入了，但暫時不使用
     apiUrl,
     MAX_RETRIES,
     INITIAL_BACKOFF_MS
@@ -24,29 +24,25 @@ class GeminiGenerator {
         while (retries < MAX_RETRIES) {
             try {
                 // 1. 組裝歷史記錄 (Gemini API 格式)
-                // 歷史記錄來自 sessionManager
                 const contents = session.conversationHistory
-                    .filter(item => item.role === 'user' || item.role === 'model') // 只保留用戶和模型的回覆
+                    .filter(item => item.role === 'user' || item.role === 'model')
                     .map(item => ({
                         role: item.role,
                         parts: [{ text: item.message }]
                     }));
                 
-                // 2. 確定當前發送給 AI 的內容 (將當前用戶訊息追加到歷史記錄末尾)
+                // 2. 確定當前發送給 AI 的內容
                 const currentContents = contents.concat([{
                     role: 'user',
                     parts: [{ text: userMessage }]
                 }]);
 
-                // 3. 準備 Payload (已修正 systemInstruction 位置)
+                // 3. 準備 Payload (最簡潔版本)
                 const payload = {
                     contents: currentContents,
-                    // [修正] 移除頂層的 systemInstruction
-                    generationConfig: { // 使用 generationConfig
+                    generationConfig: {
                         temperature: 0.5,
                         maxOutputTokens: 2048,
-                        // [修正] 將 systemInstruction 移入 generationConfig 內（應為最兼容的舊版格式）
-                        systemInstruction: CHAT_INSTRUCTIONS,
                     },
                 };
 
