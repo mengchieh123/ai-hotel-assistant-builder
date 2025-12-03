@@ -823,19 +823,21 @@ class ResponseGenerator {
             }
         });
         
-        const options = {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                contents: contents,
-                config: {
-                    temperature: 0.2, 
-                    maxOutputTokens: 1024
-                }
-            })
-        };
+      const options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: contents,
+                // VVV 修正：將 'config' 替換為 'generationConfig' VVV
+                generationConfig: {
+                    temperature: 0.2, 
+                    maxOutputTokens: 1024
+                }
+                // ^^^ 修正結束 ^^^
+            })
+        };
 
         console.log(`📡 正在呼叫 Gemini API... (Session: ${session.sessionId})`);
         
