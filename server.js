@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const dayjs = require('dayjs');
+
 const app = express();
 
 // Day.js 插件導入
@@ -44,7 +45,7 @@ const DEFAULT_ROOM_INVENTORY = 10; // 預設庫存數
 
 // 虛擬庫存表：以 YYYY-MM-DD 為 Key
 const VIRTUAL_INVENTORY = {
-    // 假設 12/24, 12/25 房型庫存狀況
+    // 假設 12/24, 12/25 房型庫存狀況 (當前年份是 2025)
     '2025-12-24': {
         '標準雙人房': 5,
         '豪華客房': 2,
@@ -94,13 +95,17 @@ class FlowConfigLoader {
 
     loadConfig() {
         try {
+            // 由於沒有提供 dialogue_flow.json 檔案內容，這裡直接使用 getDefaultConfig 作為唯一的配置來源
+            // 如果您有外部檔案，請取消註釋以下程式碼
+            /*
             if (fs.existsSync(this.filePath)) {
                 const data = fs.readFileSync(this.filePath, 'utf8');
                 console.log(`🛠️ 成功載入外部配置：${this.filePath}`);
                 return JSON.parse(data);
             }
+            */
             
-            console.warn(`⚠️ 配置檔案不存在，使用預設配置: ${this.filePath}`);
+            console.warn(`⚠️ 配置檔案不存在或未啟用外部載入，使用預設配置: ${this.filePath}`);
             return this.getDefaultConfig();
         } catch (error) {
             console.error(`❌ 載入配置失敗，將使用預設配置: ${error.message}`);
@@ -108,7 +113,7 @@ class FlowConfigLoader {
         }
     }
 
-    // 這裡保留一個與您提供的 JSON 相似的簡化預設配置，以防 JSON 檔案讀取失敗
+    // 預設配置
     getDefaultConfig() {
         return {
             "name": "FallbackBookingFlow",
@@ -207,7 +212,6 @@ class FlowConfigLoader {
 
 const flowLoader = new FlowConfigLoader('dialogue_flow.json');
 
-// SessionManager 修正了 P3：移除了 currentSessionId
 const sessionManager = new (class SessionManager {
     constructor() {
         this.sessions = new Map();
@@ -289,7 +293,7 @@ class SmartIntentClassifier {
         
         // --- I. 核心意圖和狀態檢查 ---
         
-        // 核心訂房意圖 (Booking) - 修正 2 (P5): 專注於動作
+        // 核心訂房意圖 (Booking)
         if (/(訂房|預訂|入住|幫我訂|想要訂|預約房間|我要訂房|book|訂幾晚)/.test(lowerMessage)) { 
             intents.add('booking');
         }
@@ -305,7 +309,7 @@ class SmartIntentClassifier {
         // 會員意圖
         if (lowerMessage.includes('我要登入會員')) intents.add('member_login');
 
-        // ⭐️ 新增/強化：查詢/介紹意圖 (Inquiry) - 修正 2, 3 (P6)
+        // ⭐️ 查詢/介紹意圖 (Inquiry)
         if (/(介紹|說明|什麼樣|怎麼樣|細節|環境|特色|如何|查詢|是什麼)/.test(lowerMessage)) {
              intents.add('inquiry');
         }
@@ -370,7 +374,7 @@ class SmartIntentClassifier {
             const day = parseInt(dateMatch[2], 10);
             let checkYear = now.year();
 
-            // 跨年處理：如果月份在當前月份之前，則設為下一年
+            // 跨年處理：如果月份在當前月份之前，則設為下一年 (例如 12月，但現在是 1月，則視為當年 12 月)
             if (month < now.month() + 1) {
                 checkYear = now.year() + 1;
             } else if (month === now.month() + 1 && day < now.date()) {
@@ -428,7 +432,7 @@ class SmartIntentClassifier {
         const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
         if (nameMatch) {
             let extractedName = nameMatch[1] || nameMatch[2];
-            if (extractedName && extractedName.length >= 2 && !/(訂房|本人|我是)/.test(extractedName)) {
+            if (extractedName && extractedName.length >= 2 && !/(訂房|本人|我是|查詢|價格|預訂|訂房助理)/.test(extractedName)) {
                 data.name = extractedName.trim();
             }
         }
@@ -440,7 +444,6 @@ class SmartIntentClassifier {
         // 5. 會員帳號/手機號碼
         const memberMatch = message.match(/(\d{8,12})|([A-Za-z0-9]{5,10})/);
         if (memberMatch) {
-            // 避免將電話號碼誤判為會員帳號，這裡只在明確要求輸入時使用
             data.memberAccount = memberMatch[0];
         }
 
@@ -470,8 +473,6 @@ class BookingFlowController {
 
     /**
      * 【動態價格計算和庫存檢查】
-     * @param {object} data - 儲存收集到的數據和價格計算結果
-     * @returns {{success: boolean, totalPrice: number | null, errorMessage: string | null, oos: boolean | undefined}}
      */
     static calculatePrice(data) {
         const { 
@@ -603,7 +604,7 @@ class RuleEngine {
             }
 
             let geminiResponse = '';
-            // ⭐️ 修正 1 (P4): 只有在明確允許 AI 呼叫時才呼叫 Gemini
+            // 只有在明確允許 AI 呼叫時才呼叫 Gemini
             if (result.allowGeminiCall) { 
                 geminiResponse = await ResponseGenerator.getGeminiResponse(session, userMessage);
             }
@@ -679,13 +680,11 @@ class RuleEngine {
     /** 規則 2: 訂房流程規則 (核心邏輯 P:98, P:95) */
     static async bookingFlowRule(intents, session, message) {
         const flow = flowLoader.getFlow();
-        const hasBookingIntent = intents.includes('booking');
         const isAffirm = intents.includes('affirm');
         const isDeny = intents.includes('deny');
         const data = session.collectedData;
         let currentStateKey = session.currentStep;
         
-        // ⭐️ 修正 8 (A3): 確保定義 currentState 物件
         let currentState = flow.states[currentStateKey];
 
         // ----------------------------------------------------
@@ -696,7 +695,7 @@ class RuleEngine {
             if (currentStateKey && 
                 currentStateKey !== 'init' && 
                 currentStateKey !== 'paused_waiting_for_resume' &&
-                !intents.includes('affirm')) { // 除非用戶明確說"確認/繼續"
+                !isAffirm) { // 除非用戶明確說"確認/繼續"
                 
                 console.log(`⚠️ 偵測到介紹/查詢意圖。暫停流程，轉交給 AI 處理。`);
                 session.pausedState = currentStateKey; // 儲存當前狀態
@@ -728,11 +727,10 @@ class RuleEngine {
                 session.pausedState = null;
                 session.currentStep = currentStateKey;
                 
-                // ⭐️ 修正 8 (A3): 恢復後更新 currentState 物件
                 currentState = flow.states[currentStateKey]; 
 
                 console.log(`🔄 恢復流程到: ${currentStateKey}`);
-                // 繼續執行後續的 P:95 流程推進邏輯
+                // 繼續執行後續的 P:95 流程推進邏輯 (不再直接 return)
             } else if (isDeny) {
                  // 在暫停狀態下選擇取消流程
                  sessionManager.getSession(session.id); // 重置 session
@@ -742,16 +740,13 @@ class RuleEngine {
                     response: `好的，訂房流程已取消。期待您的下次光臨。`,
                     nextStep: 'end_conversation',
                     allowGeminiCall: false
-                 };
+                   };
             } else {
                 // 如果用戶在暫停狀態，但沒有回復「繼續」，讓它走 AI 自由問答 (P: 1)
                 return { shouldProcess: false, priority: 0 }; 
             }
         }
         
-        // ⭐️ 修正 4 (P7): 移除原有的 P:99 流程暫停邏輯。
-        // 當前狀態不是暫停 (P:98)，也不是純閒聊 (P:1)，則進入 P:95 流程推進。
-
         // ----------------------------------------------------
         // 3. 流程內部轉移與邏輯處理 (P:95)
         // ----------------------------------------------------
@@ -837,7 +832,7 @@ class RuleEngine {
             };
         }
 
-        // 5. 流程結束後的閒聊處理
+        // 5. 流程結束後的閒聊處理 (交給 generalRule 處理，這裡直接跳過)
         if (currentState.end) {
              return { shouldProcess: false, priority: 0 };
         }
@@ -883,117 +878,117 @@ class ResponseGenerator {
     static async getGeminiResponse(session, userMessage) {
         if (!apiUrl) return "Gemini API Key 未設定，無法提供 AI 自由問答。";
 
-        // 1. 建立給 Gemini 的對話歷史 (確保角色轉換為 V1 兼容的 user/model)
-        let contents = session.conversationHistory.map(item => ({
-            role: item.role === 'model' ? 'model' : 'user', 
-            parts: [{ text: item.message }]
-        }));
+        let retries = 0;
 
-        // 2. V1 兼容性處理: 將系統指令注入到第一個用戶訊息中
-        if (contents.length > 0 && contents[0].role === 'user') {
-            const systemMessage = CHAT_INSTRUCTIONS + "\n\n**用戶訊息：**" + contents[0].parts[0].text;
-            contents[0].parts[0].text = systemMessage;
-        }
-
-        // 3. 建立請求 Payload
-        const payload = {
-            contents: contents,
-            config: {
-                temperature: 0.5,
-                maxOutputTokens: 2048,
-            }
-        };
-
-        // 4. 執行 API 請求 (帶有重試機制)
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        while (retries < MAX_RETRIES) {
             try {
+                // 1. 組裝歷史記錄 (Gemini API 格式)
+                const contents = session.conversationHistory
+                    .filter(item => item.role === 'user' || item.role === 'model') // 只保留用戶和模型的回覆
+                    .map(item => ({
+                        role: item.role === 'user' ? 'user' : 'model',
+                        parts: [{ text: item.message }]
+                    }));
+                
+                // 2. 確保傳入用戶當前的訊息
+                contents.push({
+                    role: 'user',
+                    parts: [{ text: userMessage }]
+                });
+
+                // 3. 組裝 API Payload
+                const payload = {
+                    contents: contents,
+                    config: {
+                        systemInstruction: CHAT_INSTRUCTIONS, // 使用全域設定的指示
+                        temperature: 0.5,
+                        maxOutputTokens: 500,
+                    },
+                };
+
+                // 4. 呼叫 Gemini API
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(payload),
+                    timeout: 10000 // 10 秒超時
                 });
 
+                const data = await response.json();
+
                 if (!response.ok) {
-                    const errorBody = await response.text();
-                    console.error(`Gemini API 錯誤 (狀態碼 ${response.status})：${errorBody}`);
-                    throw new Error(`Gemini API 錯誤，狀態碼：${response.status}`);
+                    console.error(`Gemini API Error (${response.status}):`, data);
+                    throw new Error(`Gemini API returned status ${response.status}`);
                 }
 
-                const json = await response.json();
-                
-                // 檢查是否有回應內容
-                if (json.candidates && json.candidates[0] && json.candidates[0].content) {
-                    return json.candidates[0].content.parts[0].text.trim();
-                } else if (json.promptFeedback && json.promptFeedback.blockReason) {
-                    // 內容安全或輸入被阻擋
-                    return `抱歉，您的輸入違反了安全規範，無法提供回應。`;
+                // 5. 解析回應文本
+                const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!reply) {
+                    console.error('Gemini response missing text part:', data);
+                    throw new Error('Gemini response was invalid or empty.');
                 }
+                
+                // 成功，返回結果
+                return reply.trim();
 
             } catch (error) {
-                console.error(`嘗試呼叫 Gemini API 失敗 (第 ${attempt + 1} 次)：`, error.message);
-                if (attempt < MAX_RETRIES - 1) {
-                    await new Promise(resolve => setTimeout(resolve, INITIAL_BACKOFF_MS * (2 ** attempt))); // 指數退避
+                retries++;
+                console.error(`Gemini API 請求失敗 (第 ${retries} 次):`, error.message);
+                if (retries < MAX_RETRIES) {
+                    // 退避重試
+                    const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries - 1);
+                    await new Promise(resolve => setTimeout(resolve, backoffTime));
                 } else {
-                    return `抱歉，AI 服務目前無法連線，請稍後再試。`;
+                    // 達到最大重試次數
+                    return "抱歉，AI 服務目前無法回應您的問題。請稍後再試或回覆『繼續』以恢復訂房流程。";
                 }
             }
         }
-        return `抱歉，AI 服務在多次嘗試後仍無法連線。`;
+        // Fallback
+        return "抱歉，AI 服務發生未知錯誤。";
     }
 }
 
+
 // ---------------------------------------------
-// 7. API 路由與服務啟動
+// 7. API 路由
 // ---------------------------------------------
 
-/**
- * 根路徑 - 提供服務狀態檢查
- */
-app.get('/', (req, res) => {
-    const status = {
-        status: "ok",
-        message: "AI Hotel Assistant Service is live!",
-        flowName: flowLoader.getFlow().name,
-        geminiConfig: {
-            model: MODEL_NAME,
-            version: API_VERSION,
-            apiKeySet: !!apiKey
-        },
-        currentTimestamp: new Date().toISOString()
-    };
-    res.json(status);
-});
-
-/**
- * 主要聊天路由
- */
 app.post('/api/chat', async (req, res) => {
-    const { sessionId, message } = req.body;
-
+    // 💡 修正點：從 req.body 解構出 'message'，與前端 (index.html) 的 JSON key 一致
+    const { sessionId, message } = req.body; 
+    
+    // 💡 修正點：檢查 'message'
     if (!sessionId || !message) {
         return res.status(400).json({ error: "Missing sessionId or message." });
     }
 
     try {
+        // 💡 修正點：傳遞給 RuleEngine 時，將 message 傳遞給 userMessage 鍵名，
+        // 以匹配 RuleEngine.processRules 的內部定義，但解決了 400 錯誤。
         const result = await RuleEngine.processRules({ sessionId, userMessage: message });
-        res.json(result);
 
-    } catch (error) {
-        console.error("❌ 處理請求時發生系統錯誤：", error);
-        res.status(500).json({ 
-            reply: "抱歉，系統內部發生錯誤，請檢查伺服器日誌。",
-            nextStateKey: 'end_conversation',
-            data: sessionManager.getSession(sessionId).collectedData,
+        res.json({
+            reply: result.reply,
+            sessionId: sessionId,
+            richCard: result.richCard || null,
+            data: result.data
         });
+    } catch (error) {
+        console.error('Chat API Error:', error);
+        res.status(500).json({ error: "Internal Server Error during chat processing." });
     }
 });
 
-/**
- * 啟動伺服器
- */
+app.get('/', (req, res) => {
+    // 確保這裡指向您的前端檔案
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 啟動伺服器
 app.listen(PORT, HOST, () => {
-    console.log(`\n=============================================================`);
-    console.log(`🚀 Your service is live at http://${HOST}:${PORT}`);
-    console.log(`🤖 Gemini Model: ${MODEL_NAME} (V${API_VERSION})`);
-    console.log(`=============================================================\n`);
+    console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+    if (!apiKey) {
+        console.warn('⚠️ WARN: GEMINI_API_KEY 未設定，AI 閒聊功能將會失效。');
+    }
 });
