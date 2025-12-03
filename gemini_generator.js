@@ -38,13 +38,15 @@ class GeminiGenerator {
                     parts: [{ text: userMessage }]
                 }]);
 
-                // 3. 準備 Payload (已修正)
+                // 3. 準備 Payload (已修正 systemInstruction 位置)
                 const payload = {
                     contents: currentContents,
-                    systemInstruction: CHAT_INSTRUCTIONS, // 提到頂層
+                    // [修正] 移除頂層的 systemInstruction
                     generationConfig: { // 使用 generationConfig
                         temperature: 0.5,
                         maxOutputTokens: 2048,
+                        // [修正] 將 systemInstruction 移入 generationConfig 內（應為最兼容的舊版格式）
+                        systemInstruction: CHAT_INSTRUCTIONS,
                     },
                 };
 
