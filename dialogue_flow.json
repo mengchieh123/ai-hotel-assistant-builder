@@ -79,26 +79,27 @@
     },
     
     "check_availability_and_price": {
-      "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。請問您是否為會員？",
+      "prompt": "【即時報價】\n您選擇的 {roomType}，入住 {checkInDate} 共 {nights} 晚，費用總計：NT$ **{finalPrice}** (已包含兒童加價 NT$ {childCost})。\n\n請問您是 **海灣麗景酒店會員** 嗎？\n\n**房價明細**：\n- 房間總價 (不含兒童/折扣)：NT$ {totalPriceNoChild}\n- 兒童加價：NT$ {childCost}",
       "richCard": {
         "type": "button_list",
-        "title": "會員獨享八折優惠：",
+        "title": "選擇下一步：",
         "buttons": [
           {
-            "text": "我是會員，我要登入",
-            "value": "我是會員，我要登入會員"
+            "text": "🙋‍♂️ 我是會員，我要登入",
+            "value": "我要登入會員"
           },
           {
-            "text": "我不是會員",
+            "text": "🔠 我不是會員，直接訂房",
             "value": "我不是會員"
           }
         ]
       },
       "intents": {
         "member_login": "login_member_account",
-        "deny": "confirm_member_and_meal"
+        "deny": "confirm_member_and_meal", 
+        "affirm": "confirm_member_and_meal" 
       },
-      "fallback": "請回答您是否是會員，以便為您計算折扣。"
+      "fallback": "請告訴我您是否是海灣麗景酒店的會員？"
     },
     
     "login_member_account": {
@@ -181,6 +182,10 @@
     
     "confirm_booking": {
       "prompt": "【最終確認】您訂購了 {roomCount} 間 {roomType}，共 {adultCount} 大 {childCount} 小，總價：NT$ {finalPrice} ({paymentMethod})。請問是否確認訂房？",
+      "entities": [
+        "name", 
+        "email"
+      ],
       "intents": {
         "affirm": "booking_complete",
         "deny": "end_conversation"
@@ -189,7 +194,7 @@
     },
     
     "booking_complete": {
-      "prompt": "🎉 訂房完成！\n\n感謝 {name} 先生/女士。您的訂單編號是 {orderId}，最終價格 NT$ {finalPrice}。\n\n{paymentMessage}",
+      "prompt": "🎉 訂房完成！\n\n感謝 {name} 先生/女士 (Email: {email})。您的訂單編號是 **{orderId}**，最終價格 NT$ {finalPrice}。\n\n**付款方式**: {paymentMethod}\n{paymentMessage}",
       "end": true
     },
     
@@ -204,8 +209,8 @@
     },
 
     "paused_waiting_for_resume": {
-        "prompt": "流程已暫停，請回覆『繼續』或點擊按鈕恢復訂房。",
-        "allow_gemini_call": true
+      "prompt": "流程已暫停，請回覆『繼續』或點擊按鈕恢復訂房。",
+      "allow_gemini_call": true
     }
   }
 }
