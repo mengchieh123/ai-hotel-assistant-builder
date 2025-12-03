@@ -30,6 +30,40 @@ const apiUrl = `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?
 const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
 
+// --- 虛擬資料庫 (優化項目 1, 2, 3 的數據準備) ---
+const ROOM_RATES = {
+    '標準雙人房': 2200,
+    '豪華客房': 3200,
+    '行政套房': 4800,
+    '家庭四人房': 4500,
+};
+
+const WEEKEND_MULTIPLIER = 1.2; // 週末（週五、週六）加價 20%
+const CHILD_FEE_PER_NIGHT = 500; // 兒童加價 NT$500/晚 (用於動態計算，覆蓋舊的 300)
+
+// 虛擬庫存表：以 YYYY-MM-DD 為 Key
+const VIRTUAL_INVENTORY = {
+    // 假設 12/24, 12/25 房型庫存狀況
+    '2025-12-24': {
+        '標準雙人房': 5,
+        '豪華客房': 2,
+        '行政套房': 1,
+        '家庭四人房': 3,
+    },
+    '2025-12-25': {
+        '標準雙人房': 4,
+        '豪華客房': 3,
+        '行政套房': 0, // 故意設為 0 來測試庫存不足
+        '家庭四人房': 2,
+    },
+    // ... 更多日期數據
+};
+
+// 虛擬會員數據
+const VIRTUAL_MEMBERS = {
+    '123456789': { isMember: true, level: 'Gold', discount: 0.8 }
+};
+
 // ---------------------------------------------
 // 1. EXPRESS 中間件與靜態檔案
 // ---------------------------------------------
@@ -402,74 +436,99 @@ class BookingFlowController {
     }
 
     /**
-     * 計算價格並將所有價格變數存入 data 物件中。
+     * 【新的動態價格計算和庫存檢查】
      * @param {object} data - 儲存收集到的數據和價格計算結果
      * @param {boolean} isMemberDiscount - 是否應用會員折扣
-     * @returns {number} 最終價格 (finalPrice)
+     * @returns {{success: boolean, totalPrice: number | null, errorMessage: string | null, oos: boolean | undefined}}
      */
     static calculatePrice(data, isMemberDiscount = false) {
-        const { roomType = '豪華客房', nights = 1, childCount = 0, adultCount = 1, roomCount = 1 } = data;
-        const hasBreakfast = data.hasBreakfast || false; // 從 data 中獲取早餐狀態
-        
-        // 基礎價格 Map
-        const ROOM_PRICES = {
-            '標準雙人房': 2200,
-            '豪華客房': 3200,
-            '行政套房': 4800,
-            '家庭四人房': 4500,
-            'default': 3200
-        };
+        const { roomType, checkInDate, nights, adultCount, childCount, roomCount } = data;
 
-        let basePrice = ROOM_PRICES['default'];
-        for (const key in ROOM_PRICES) {
-            if (roomType.includes(key) && key !== 'default') {
-                basePrice = ROOM_PRICES[key];
-                break;
-            }
+        // --- 1. 數據完整性檢查 ---
+        if (!roomType || !checkInDate || !nights || !roomCount || !adultCount) {
+            return { success: false, errorMessage: "價格計算所需的數據不完整。" };
         }
-
-        const roomCountVal = roomCount || 1;
-        const nightsVal = nights || 1;
+        if (nights <= 0 || roomCount <= 0) {
+             return { success: false, errorMessage: "晚數與房間數必須大於零。" };
+        }
         
-        // 1. 房費總價 (不含兒童和折扣)
-        let totalPriceNoChild = basePrice * nightsVal * roomCountVal;
-        data.totalPriceNoChild = totalPriceNoChild.toFixed(0); 
+        let currentDate = dayjs(checkInDate, 'YYYY/MM/DD');
+        let totalRoomPrice = 0;
+        
+        // --- 2. 逐晚檢查庫存與動態計算房價 (核心優化) ---
+        for (let i = 0; i < nights; i++) {
+            const dateKey = currentDate.format('YYYY-MM-DD'); 
+            const dayOfWeek = currentDate.day(); // 0 (Sun) - 6 (Sat)
+            
+            // a) 庫存檢查
+            // 假設未定義日期庫存為 10
+            const availableRooms = VIRTUAL_INVENTORY[dateKey] ? VIRTUAL_INVENTORY[dateKey][roomType] : 10; 
+            
+            if (roomCount > availableRooms) {
+                // 庫存不足，回傳錯誤訊息和 OOS 標記
+                return { 
+                    success: false, 
+                    errorMessage: `抱歉，您選擇的 **${roomType}** 在 **${dateKey}** 僅剩 **${availableRooms} 間**。請減少房間數或選擇其他房型/日期。`,
+                    oos: true // Out Of Stock 標記
+                };
+            }
 
-        // 2. 兒童加價
-        const CHILD_DAILY_FEE = 300;
-        const childCost = (childCount || 0) * CHILD_DAILY_FEE * nightsVal;
-        data.childCost = childCost.toFixed(0);
+            // b) 動態價格計算
+            let baseRate = ROOM_RATES[roomType] || ROOM_RATES['豪華客房']; // 使用頂部定義的 ROOM_RATES
+            let priceMultiplier = 1;
+            
+            // 判斷是否為週末 (週五=5, 週六=6)
+            if (dayOfWeek === 5 || dayOfWeek === 6) {
+                priceMultiplier = WEEKEND_MULTIPLIER; // 使用頂部定義的 WEEKEND_MULTIPLIER
+            }
 
-        // 3. 原始總價 (房費 + 兒童加價)
-        let total = totalPriceNoChild + childCost;
-        data.totalPrice = total.toFixed(0);
+            const nightlyRoomPrice = baseRate * priceMultiplier;
+            
+            // 計算該晚的總房價 (房間數 * 房價)
+            totalRoomPrice += nightlyRoomPrice * roomCount;
 
-        // 4. 應用會員折扣 (在早餐計算前應用)
+            // 移至下一晚
+            currentDate = currentDate.add(1, 'day');
+        }
+        
+        // --- 3. 計算附加費用 ---
+        const totalChildFee = (childCount || 0) * CHILD_FEE_PER_NIGHT * nights;
+        
+        // 房費總價 (不含折扣，不含早餐)
+        data.totalPriceNoChild = Math.round(totalRoomPrice).toFixed(0);
+        data.childCost = Math.round(totalChildFee).toFixed(0);
+
+        // 原始總價 (房費 + 兒童加價)
+        let total = totalRoomPrice + totalChildFee;
+        data.totalPrice = Math.round(total).toFixed(0);
+
+        // 4. 應用會員折扣
         let discountedPrice = total;
         if (isMemberDiscount) {
-            // Gold 等級 8 折優惠
-            discountedPrice *= 0.8; 
-            data.newTotalPrice = Math.round(discountedPrice).toFixed(0); // 應用會員折扣後的價格
+            const discountRate = VIRTUAL_MEMBERS[data.memberAccount]?.discount || 0.9; // 預設 9折
+            discountedPrice *= discountRate;
+            data.discountRate = (1 - discountRate) * 100;
+            data.newTotalPrice = Math.round(discountedPrice).toFixed(0); 
         } else {
-            data.newTotalPrice = data.totalPrice; // 如果沒折扣，newTotalPrice 等於原價
+            data.newTotalPrice = data.totalPrice; // 沒有折扣時，新總價等於原價
         }
         
         // 5. 計算早餐費
         data.breakfastCost = 0;
-        if (hasBreakfast) {
+        if (data.hasBreakfast) {
             const BREAKFAST_FEE = 150;
             const totalGuests = (adultCount || 0) + (childCount || 0);
-            const breakfastCost = totalGuests * BREAKFAST_FEE * nightsVal;
-            data.breakfastCost = breakfastCost.toFixed(0);
+            const breakfastCost = totalGuests * BREAKFAST_FEE * nights;
+            data.breakfastCost = Math.round(breakfastCost).toFixed(0);
             
-            discountedPrice += breakfastCost; // 早餐費加在折扣後的價格上
+            discountedPrice += breakfastCost; 
         }
 
         // 6. 最終價格 (Final Price)
         const finalPrice = Math.round(discountedPrice);
-        data.finalPrice = finalPrice.toFixed(0); // 格式化為整數並存儲
-        
-        return finalPrice;
+        data.finalPrice = finalPrice.toFixed(0); 
+
+        return { success: true, totalPrice: finalPrice };
     }
 }
 
@@ -633,11 +692,28 @@ class RuleEngine {
             
             // --- 狀態間的特殊邏輯處理 ---
             
-            // A. check_availability_and_price 狀態：計算價格
-            if (nextStateKey === 'check_availability_and_price') {
-                 // 初始計算原價，並將所有價格變數存入 data
-                 BookingFlowController.calculatePrice(data, false); 
-            }
+            // A. check_availability_and_price 狀態：動態計算價格和庫存檢查 (優化項目 1, 2)
+if (currentStateKey === 'ask_guest_count' && allEntitiesCollected) {
+    // 進入 check_availability_and_price 狀態，先進行價格計算和庫存檢查
+    const priceResult = BookingFlowController.calculatePrice(data, data.memberAccount ? true : false);
+    
+    if (!priceResult.success) {
+        // 庫存不足 (OOS) 或其他錯誤
+        const fallbackPrompt = priceResult.oos ? priceResult.errorMessage : currentState.fallback;
+
+        return {
+            shouldProcess: true,
+            priority: 95,
+            response: fallbackPrompt + " 請修正人數、晚數或選擇其他日期/房型。",
+            nextStep: 'collect_room_and_dates', // 回到收集房型和日期的步驟
+            updateSession: true,
+            skipGeminiCall: true
+        };
+    }
+    
+    // 價格計算成功，轉到下一狀態 (check_availability_and_price)
+    nextStateKey = currentState.next_state; 
+}
             
             // B. login_member_account 狀態：檢查會員帳號是否收到
             if (session.bookingState === 'login_member_account' && nextStateKey === 'apply_member_discount') {
