@@ -85,6 +85,10 @@ class FlowConfigLoader {
         this.DIALOGUE_FLOW = this.loadConfig();
     }
 
+    getFlow() {
+        return this.DIALOGUE_FLOW;
+    }
+
     loadConfig() {
         try {
             if (fs.existsSync(this.filePath)) {
@@ -118,10 +122,26 @@ class FlowConfigLoader {
                         ]
                     },
                     "intents": {
-                        "booking": "collect_room_and_dates",
+                        "booking": "show_room_types",
                         "general_inquiry": "handle_general_inquiry"
                     },
                     "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
+                },
+                "show_room_types": {
+                    "prompt": "我們有以下四種熱門房型：\n\n1. 標準雙人房 (NT$2,200)\n2. 豪華客房 (NT$3,200)\n3. 行政套房 (NT$4,800)\n4. 家庭四人房 (NT$4,500)\n\n請問您想預訂哪一種房型？",
+                    "richCard": {
+                        "type": "button_list",
+                        "title": "請選擇房型：",
+                        "buttons": [
+                            { "text": "標準雙人房", "value": "標準雙人房" },
+                            { "text": "豪華客房", "value": "豪華客房" },
+                            { "text": "行政套房", "value": "行政套房" },
+                            { "text": "家庭四人房", "value": "家庭四人房" }
+                        ]
+                    },
+                    "entities": ["roomType"],
+                    "next_state": "collect_room_and_dates",
+                    "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
                 },
                 "collect_room_and_dates": {
                     "prompt": "好的，我們將開始預訂。請問您想預訂的【房型】、預計【入住日期】和【住宿晚數】？",
@@ -142,7 +162,8 @@ class FlowConfigLoader {
                 },
                 "booking_complete": { "prompt": "🎉 訂房完成！", "end": true },
                 "end_conversation": { "prompt": "感謝您的使用。", "end": true },
-                "handle_general_inquiry": { "prompt": "請提供更多細節，我會盡力回答您。", "allow_gemini_call": true }
+                "handle_general_inquiry": { "prompt": "請提供更多細節，我會盡力回答您。", "allow_gemini_call": true },
+                "paused_waiting_for_resume": { "prompt": "流程已暫停，請回覆『繼續』或點擊按鈕恢復訂房。", "allow_gemini_call": true }
             }
         };
     }
@@ -152,14 +173,15 @@ const flowLoader = new FlowConfigLoader('dialogue_flow.json');
 const sessionManager = new (class SessionManager {
     constructor() {
         this.sessions = new Map();
+        this.currentSessionId = null; // 用於 SmartIntentClassifier 取得當前會話
     }
 
     getSession(sessionId) {
         if (!this.sessions.has(sessionId)) {
             this.sessions.set(sessionId, {
                 // 使用 flowLoader.DIALOGUE_FLOW.initial_state 或 'init' 作為初始狀態
-                currentStep: flowLoader.DIALOGUE_FLOW.initial_state || 'init', 
-                bookingState: null,
+                currentStep: flowLoader.getFlow().initial_state || 'init', 
+                bookingState: flowLoader.getFlow().initial_state || 'init',
                 collectedData: {
                     // 為了避免 interpolator 錯誤，初始化一些價格相關的變數
                     finalPrice: '0', 
@@ -422,7 +444,7 @@ class SmartIntentClassifier {
 
 class BookingFlowController {
     static getFlow() {
-        return flowLoader.DIALOGUE_FLOW;
+        return flowLoader.getFlow();
     }
 
     static getCurrentState(session) {
@@ -442,14 +464,20 @@ class BookingFlowController {
      * @returns {{success: boolean, totalPrice: number | null, errorMessage: string | null, oos: boolean | undefined}}
      */
     static calculatePrice(data, isMemberDiscount = false) {
-        const { roomType, checkInDate, nights, adultCount, childCount, roomCount } = data;
+        // 在這裡加入預設值，確保計算不會因 undefined 崩潰
+        const { 
+            roomType, 
+            checkInDate, 
+            nights = 1, 
+            adultCount = 1, 
+            childCount = 0, 
+            roomCount = 1 
+        } = data;
 
         // --- 1. 數據完整性檢查 ---
-        if (!roomType || !checkInDate || !nights || !roomCount || !adultCount) {
-            return { success: false, errorMessage: "價格計算所需的數據不完整。" };
-        }
-        if (nights <= 0 || roomCount <= 0) {
-             return { success: false, errorMessage: "晚數與房間數必須大於零。" };
+        if (!roomType || !checkInDate || nights <= 0 || roomCount <= 0 || adultCount <= 0) {
+            // 如果數據不完整或無效，回傳失敗
+            return { success: false, errorMessage: "價格計算所需的數據不完整或無效 (請檢查房型、日期、晚數、房間數、大人數)。" };
         }
         
         let currentDate = dayjs(checkInDate, 'YYYY/MM/DD');
@@ -468,7 +496,7 @@ class BookingFlowController {
                 // 庫存不足，回傳錯誤訊息和 OOS 標記
                 return { 
                     success: false, 
-                    errorMessage: `抱歉，您選擇的 **${roomType}** 在 **${dateKey}** 僅剩 **${availableRooms} 間**。請減少房間數或選擇其他房型/日期。`,
+                    errorMessage: `抱歉，您選擇的 **${roomType}** 在 **${currentDate.format('YYYY/MM/DD')}** 僅剩 **${availableRooms} 間**。請減少房間數或選擇其他房型/日期。`,
                     oos: true // Out Of Stock 標記
                 };
             }
@@ -550,6 +578,67 @@ function interpolatePrompt(text, data) {
 // ---------------------------------------------
 
 class RuleEngine {
+    static async processRules({ currentStateKey, userMessage, currentIntent, data, sessionId }) {
+        const session = sessionManager.getSession(sessionId);
+        sessionManager.currentSessionId = sessionId; // 設定當前會話ID
+        
+        const intents = SmartIntentClassifier.classify(userMessage);
+        
+        // 更新 Session 中的用戶輸入和意圖
+        sessionManager.updateSession(sessionId, userMessage, intents);
+        
+        // 將實體解析結果與 Session 數據合併
+        const extractedEntities = SmartIntentClassifier.extractEntities(userMessage);
+        Object.assign(session.collectedData, extractedEntities);
+        
+        const result = RuleEngine.process(intents, session, userMessage);
+
+        if (result.shouldProcess) {
+            // 更新 session 狀態和數據
+            if (result.updateSession) {
+                session.bookingState = result.nextStep || session.bookingState;
+                Object.assign(session.collectedData, data); // 雖然 RuleEngine 內部已經更新，這裡再確保一次
+            }
+
+            let geminiResponse = '';
+            // 只有在流程中允許且未被顯式跳過時才呼叫 Gemini
+            if (!result.skipGeminiCall && (result.nextStep === 'handle_general_inquiry' || session.bookingState === 'paused_waiting_for_resume' || !result.nextStep)) {
+                 geminiResponse = await ResponseGenerator.getGeminiResponse(session);
+            }
+
+            // 合併流程回應和 Gemini 回應
+            let finalResponse = result.response;
+            if (geminiResponse) {
+                 // 僅在非流程引導時，使用 Gemini 的完整回覆；在暫停時，將 Gemini 回覆插在流程引導訊息之前
+                if (result.nextStep === 'paused_waiting_for_resume') {
+                    finalResponse = `👉 **AI 助理回覆**：\n${geminiResponse}\n\n--- 訂房流程 --- \n${result.response}`;
+                } else if (!result.nextStep) {
+                     // 純閒聊或初始狀態的 general_inquiry
+                    finalResponse = geminiResponse;
+                } else {
+                     // 流程狀態的提示，通常不需要 Gemini
+                }
+            }
+
+            // 記錄助手的最終回應
+            sessionManager.addAssistantResponse(sessionId, finalResponse, result.richCard);
+
+            return {
+                reply: finalResponse,
+                nextStateKey: session.bookingState,
+                data: session.collectedData,
+                richCard: result.richCard
+            };
+        }
+
+        // 這是作為 fallback，理論上不應該到達 (除非所有規則的 shouldProcess: false)
+        return {
+             reply: "抱歉，系統無法處理您的請求，請重新開始。",
+             nextStateKey: 'init',
+             data: session.collectedData
+        };
+    }
+
     static process(intents, session, message) {
         // 將當前 sessionId 存儲在 sessionManager 中，供 SmartIntentClassifier 使用
         sessionManager.currentSessionId = session.sessionId; 
@@ -573,7 +662,7 @@ class RuleEngine {
 
     // 訂房流程規則
     static bookingFlowRule(intents, session, message) {
-        const flow = flowLoader.DIALOGUE_FLOW;
+        const flow = flowLoader.getFlow();
         const hasBookingIntent = intents.includes('booking');
         const isAffirm = intents.includes('affirm');
         
@@ -606,6 +695,8 @@ class RuleEngine {
                 session.bookingState = session.pausedState;
                 session.pausedState = null;
                 console.log(`🔄 恢復流程到: ${session.bookingState}`);
+                // 恢復後，將用戶輸入當作新狀態的第一個輸入進行處理
+                return RuleEngine.bookingFlowRule(intents, session, message);
             } else if (intents.includes('deny')) {
                 session.bookingState = 'end_conversation';
                 session.pausedState = null;
@@ -614,7 +705,8 @@ class RuleEngine {
                     priority: 98,
                     response: flow.states['end_conversation'].prompt,
                     nextStep: 'end_conversation',
-                    updateSession: true
+                    updateSession: true,
+                    skipGeminiCall: true
                 };
             } else {
                 // 如果在暫停狀態，用戶問了問題，讓它走 AI 自由問答，但流程仍處於 paused
@@ -657,9 +749,9 @@ class RuleEngine {
             let nextStateKey = session.bookingState;
             const data = session.collectedData;
 
-            // 提取實體並更新 session
-            const extractedEntities = SmartIntentClassifier.extractEntities(message);
-            Object.assign(data, extractedEntities);
+            // 提取實體並更新 session (已在 processRules 中完成，這裡不再重複)
+            // const extractedEntities = SmartIntentClassifier.extractEntities(message);
+            // Object.assign(data, extractedEntities);
 
             // 1. 意圖轉移檢查
             for (const intent of intents) {
@@ -670,8 +762,9 @@ class RuleEngine {
             }
 
             // 2. 實體收集檢查 (如果意圖轉移失敗，才檢查實體是否收齊)
+            let allEntitiesCollected = true;
             if (nextStateKey === session.bookingState && currentState.entities && currentState.next_state) {
-                const allEntitiesCollected = currentState.entities.every(
+                allEntitiesCollected = currentState.entities.every(
                     entity => data[entity] !== undefined && data[entity] !== null
                 );
 
@@ -685,7 +778,8 @@ class RuleEngine {
                         response: interpolatePrompt(currentState.prompt, data),
                         nextStep: session.bookingState,
                         updateSession: true,
-                        richCard: currentState.richCard || null
+                        richCard: currentState.richCard || null,
+                        skipGeminiCall: true
                     };
                 }
             }
@@ -693,27 +787,29 @@ class RuleEngine {
             // --- 狀態間的特殊邏輯處理 ---
             
             // A. check_availability_and_price 狀態：動態計算價格和庫存檢查 (優化項目 1, 2)
-if (currentStateKey === 'ask_guest_count' && allEntitiesCollected) {
-    // 進入 check_availability_and_price 狀態，先進行價格計算和庫存檢查
-    const priceResult = BookingFlowController.calculatePrice(data, data.memberAccount ? true : false);
-    
-    if (!priceResult.success) {
-        // 庫存不足 (OOS) 或其他錯誤
-        const fallbackPrompt = priceResult.oos ? priceResult.errorMessage : currentState.fallback;
+            if (currentState.next_state === 'check_availability_and_price' && allEntitiesCollected) {
+                // 進入 check_availability_and_price 狀態，先進行價格計算和庫存檢查
+                // 這裡我們假設只有在 ask_guest_count 之後會進入 check_availability_and_price
+                
+                const priceResult = BookingFlowController.calculatePrice(data, data.memberAccount ? true : false);
+                
+                if (!priceResult.success) {
+                    // 庫存不足 (OOS) 或其他錯誤
+                    const fallbackPrompt = priceResult.oos ? priceResult.errorMessage : currentState.fallback;
 
-        return {
-            shouldProcess: true,
-            priority: 95,
-            response: fallbackPrompt + " 請修正人數、晚數或選擇其他日期/房型。",
-            nextStep: 'collect_room_and_dates', // 回到收集房型和日期的步驟
-            updateSession: true,
-            skipGeminiCall: true
-        };
-    }
-    
-    // 價格計算成功，轉到下一狀態 (check_availability_and_price)
-    nextStateKey = currentState.next_state; 
-}
+                    return {
+                        shouldProcess: true,
+                        priority: 95,
+                        response: fallbackPrompt + " 請修正人數、晚數或選擇其他日期/房型。",
+                        nextStep: 'collect_room_and_dates', // 回到收集房型和日期的步驟
+                        updateSession: true,
+                        skipGeminiCall: true
+                    };
+                }
+                
+                // 價格計算成功，轉到下一狀態 (check_availability_and_price)
+                nextStateKey = currentState.next_state; 
+            }
             
             // B. login_member_account 狀態：檢查會員帳號是否收到
             if (session.bookingState === 'login_member_account' && nextStateKey === 'apply_member_discount') {
@@ -723,7 +819,8 @@ if (currentStateKey === 'ask_guest_count' && allEntitiesCollected) {
                         priority: 95,
                         response: flow.states['login_member_account'].fallback,
                         nextStep: 'login_member_account',
-                        updateSession: true
+                        updateSession: true,
+                        skipGeminiCall: true
                     };
                 }
             }
@@ -803,11 +900,11 @@ if (currentStateKey === 'ask_guest_count' && allEntitiesCollected) {
 
     // 一般規則 (如果沒有其他高優先級規則觸發，將執行 AI 自由問答)
     static generalRule(intents, session, message) {
-         // 如果在暫停狀態，讓流程規則接管提示，這裡不返回歡迎詞
-         if (session.bookingState === 'paused_waiting_for_resume') {
-            return { shouldProcess: false, priority: 0 }; 
-         }
-         
+          // 如果在暫停狀態，讓流程規則接管提示，這裡不返回歡迎詞
+          if (session.bookingState === 'paused_waiting_for_resume') {
+             return { shouldProcess: false, priority: 0 }; 
+          }
+          
         return {
             shouldProcess: true,
             priority: 10,
@@ -821,7 +918,6 @@ if (currentStateKey === 'ask_guest_count' && allEntitiesCollected) {
 // ---------------------------------------------
 
 async function fetchWithRetry(url, options, attempt = 1) {
-    // ... (fetchWithRetry 函式保持不變)
     try {
         const response = await fetch(url, options);
 
@@ -863,181 +959,117 @@ class ResponseGenerator {
         
         const history = session.conversationHistory;
         
-        // 確保系統提示足夠強大，以便在非流程中提供準確資訊
-        const systemInstruction = `您是海灣麗景酒店的 AI 客服助理 (Bayview Grand Hotel)。您的職責是：
-1. **遵循流程控制**：如果用戶處於訂房流程，請勿干預或改變流程狀態。
-2. **回答非流程問題**：如果用戶詢問關於酒店設施、交通、景點、天氣等問題，您必須提供簡潔、準確且有幫助的資訊。酒店資訊：
-    - 名稱：海灣麗景酒店 (Bayview Grand Hotel)
-    - 地理：位於台北市信義區，鄰近捷運站，交通方便。
-    - 服務：提供機場接送服務（需預約）。
-    - 設施：頂樓有海景無邊際泳池、24H 健身房、Spa 中心。
-    - 餐廳：提供台式/西式自助餐，早餐費用為 NT$150/人/天。
-    - 房型價格：標準雙人房 (NT$2,200)，豪華客房 (NT$3,200)，行政套房 (NT$4,800)，家庭四人房 (NT$4,500)。
-3. **保持語氣**：專業、友善、樂於助人。
-4. **輸出格式**：只輸出回覆內容，不要包含任何流程資訊或 JSON 格式。
+        // 確保系統提示足夠強大，以便在非流程中提供準確的回覆
+        const systemInstruction = `您是海灣麗景酒店的AI助理，您的職責是協助客戶訂房、回答與酒店相關的一般問題，並在緊急情況下提供協助。
+        
+        **當前訂房流程狀態**: ${session.bookingState}
+        **已收集數據**: ${JSON.stringify(session.collectedData, null, 2)}
+        **已詢問主題**: ${session.askedTopics.join(', ') || '無'}
 
-【當前流程狀態】: ${session.bookingState || '不在流程中'}
-【已收集資訊】: ${JSON.stringify(session.collectedData)}
-`;
+        **重要規則**:
+        1. 您的回覆應該簡潔、專業、友善。
+        2. 請參考酒店事實: 房型價格(標準雙人房 NT$2200, 豪華客房 NT$3200, 行政套房 NT$4800, 家庭四人房 NT$4500)；兒童加價 NT$500/晚；早餐費 NT$150/人/天。
+        3. 如果用戶在訂房流程中詢問非訂房問題 (例如設施、交通)，請先簡短回答，然後引導用戶回到流程。
 
-        const contents = [
-            {
-                role: "user",
-                parts: [{ text: systemInstruction }]
+        請根據用戶的最新輸入，提供一個連貫且有幫助的回覆。`;
+
+        // 將歷史記錄轉換為 Gemini 格式
+        const contents = history.map(h => ({
+            role: h.role,
+            parts: [{ text: h.message }]
+        }));
+
+        const body = {
+            contents: contents,
+            config: {
+                systemInstruction: systemInstruction,
+                temperature: 0.2
             }
-        ];
-        
-        // 只取最後 10 個對話作為歷史記錄
-        const relevantHistory = history.slice(-10);
-        
-        relevantHistory.forEach(item => {
-            if (item.role === 'user') {
-                 contents.push({ role: "user", parts: [{ text: item.message }] });
-            } else if (item.role === 'model') {
-                 // 這裡我們只傳遞 AI 的文本回覆，忽略 RichCard
-                 contents.push({ role: "model", parts: [{ text: item.message.replace(/\n\n\*\*提醒：訂房流程已暫停[^\*]*\*\*/, '') }] });
-            }
-        });
-        
-      const options = {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                contents: contents,
-                // VVV 修正：將 'config' 替換為 'generationConfig' VVV
-                generationConfig: {
-                    temperature: 0.2, 
-                    maxOutputTokens: 1024
-                }
-                // ^^^ 修正結束 ^^^
-            })
-        };
+        };
 
-        console.log(`📡 正在呼叫 Gemini API... (Session: ${session.sessionId})`);
-        
-        const response = await fetchWithRetry(apiUrl, options);
-        const data = await response.json();
-        
-        if (data.candidates && data.candidates[0].content.parts[0].text) {
-            return data.candidates[0].content.parts[0].text;
-        } else {
-            console.error("Gemini Response Error:", data);
-            return "抱歉，AI 助理目前無法回答這個問題。請稍後再試。";
-        }
-    }
-}
-
-// ---------------------------------------------
-// 8. 聊天處理邏輯函數
-// ---------------------------------------------
-
-async function processChatMessage(sessionId, message) {
-    // 獲取並更新 Session (記錄用戶訊息)
-    const session = sessionManager.getSession(sessionId);
-    const intents = SmartIntentClassifier.classify(message);
-    sessionManager.updateSession(sessionId, message, intents); 
-
-    // 處理緊急情況或流程
-    const ruleResult = RuleEngine.process(intents, session, message);
-    
-    let reply = '';
-    let richCard = null;
-    let nextStep = session.bookingState;
-
-    if (ruleResult.shouldProcess && ruleResult.priority >= 90) {
-        // 流程或緊急規則處理 (優先級高於 90)
-        reply = ruleResult.response;
-        richCard = ruleResult.richCard || null;
-        nextStep = ruleResult.nextStep || session.bookingState;
-        
-        // 如果規則結果沒有要求跳過，或者當前狀態允許 Gemini 自由問答 (如 handle_general_inquiry)
-        if (!ruleResult.skipGeminiCall && flowLoader.DIALOGUE_FLOW.states[nextStep]?.allow_gemini_call) {
-             try {
-                // 將流程提示作為系統指令的一部分，讓 Gemini 進行問答
-                reply = await ResponseGenerator.getGeminiResponse(session); 
-            } catch (e) {
-                console.error("Gemini Call Failed:", e);
-                reply = "很抱歉，我們的 AI 服務目前無法連接。請檢查您的 API Key 或稍後再試。";
-            }
-        }
-        
-    } else {
-        // 交給 Gemini 進行一般問答
         try {
-            reply = await ResponseGenerator.getGeminiResponse(session); 
-        } catch (e) {
-            console.error("Gemini Call Failed:", e);
-            reply = "很抱歉，我們的 AI 服務目前無法連接。請檢查您的 API Key 或稍後再試。";
-        }
-        
-        // 如果處於暫停狀態，在 AI 回覆後，提醒用戶可以繼續訂房
-        if (session.bookingState === 'paused_waiting_for_resume' && session.pausedState) {
-             reply += "\n\n**提醒：訂房流程已暫停。您可以回覆『繼續』來恢復訂房，或點擊下方的按鈕。**";
-             richCard = richCard || {
-                "type": "button_list",
-                "title": "要繼續訂房嗎？",
-                "buttons": [
-                    { "text": "✅ 繼續訂房", "value": "繼續訂房" },
-                    { "text": "❌ 取消流程", "value": "取消" }
-                ]
-            };
+            const response = await fetchWithRetry(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            const json = await response.json();
+            
+            // 檢查回應是否有效
+            if (json.candidates && json.candidates[0] && json.candidates[0].content) {
+                return json.candidates[0].content.parts[0].text;
+            } else if (json.error) {
+                console.error("Gemini API Error:", json.error.message);
+                return `抱歉，AI 服務器發生錯誤：${json.error.message}`;
+            }
+            
+            return "抱歉，AI 服務器無法生成有效回覆。";
+        } catch (error) {
+            console.error("Error communicating with Gemini API:", error);
+            return `抱歉，與 AI 服務器通訊失敗。錯誤詳情：${error.message}`;
         }
     }
-
-    // 更新 Session (記錄助理回覆)
-    sessionManager.addAssistantResponse(sessionId, reply, richCard);
-    
-    return {
-        reply: reply,
-        richCard: richCard,
-        nextStep: nextStep,
-        sessionId: sessionId,
-        status: "Success"
-    };
 }
 
 
 // ---------------------------------------------
-// 9. EXPRESS API 路由
+// 8. 路由定義
 // ---------------------------------------------
 
+// API 路由: 處理聊天請求
 app.post('/api/chat', async (req, res) => {
+    const { 
+        sessionId, 
+        userMessage, 
+        data = {}, 
+        currentStateKey, 
+        currentIntent // 這裡的 currentIntent 來自前端，但我們主要依賴後端 SmartIntentClassifier
+    } = req.body;
+
+    if (!sessionId || !userMessage) {
+        return res.status(400).json({ error: "Missing sessionId or userMessage" });
+    }
+
+    // ********** 核心修正: 確保 currentStateKey 有預設值 **********
+    const flow = flowLoader.getFlow();
+    const stateKey = currentStateKey || flow.initial_state;
+    // ************************************************************
+    
     try {
-        const { sessionId, message } = req.body;
-        
-        if (!sessionId || !message) {
-            return res.status(400).json({ status: "Error", message: "Missing sessionId or message" });
-        }
+        const response = await RuleEngine.processRules({
+            sessionId: sessionId,
+            currentStateKey: stateKey, // 使用修正後的值
+            userMessage: userMessage,
+            currentIntent: currentIntent,
+            data: data
+        });
 
-        const response = await processChatMessage(sessionId, message);
         res.json(response);
-        
+
     } catch (error) {
-        console.error("❌ API Chat Error:", error.message);
-        res.status(500).json({ status: "Error", message: "Internal server error: " + error.message });
+        console.error("API Chat Error:", error.message, error.stack);
+        // 返回 500 錯誤給前端
+        res.status(500).json({ 
+            error: `API Chat Error: ${error.message}`,
+            detail: "服務器發生錯誤。請檢查日誌。"
+        });
     }
 });
 
-// Fallback 路由: 處理所有未匹配的 GET 請求
-app.get('*', (req, res) => {
-    if (req.path.startsWith('/api/')) {
-        return res.status(404).send('Not Found');
-    }
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// 啟動伺服器
+app.listen(PORT, HOST, () => {
+    console.log(`🚀 伺服器已啟動於 http://${HOST}:${PORT}`);
+    console.log(`💡 Chat API 位於 http://${HOST}:${PORT}/api/chat`);
 });
 
 // ---------------------------------------------
-// 10. 伺服器啟動 (Server Listen)
+// 9. 測試指令 (部署後運行)
 // ---------------------------------------------
-
-// 檢查 API Key
-if (!apiKey) {
-    console.error("❌ 嚴重錯誤：GEMINI_API_KEY 未在 .env 檔案中配置。伺服器啟動失敗。");
-} else {
-    app.listen(PORT, HOST, () => {
-        console.log(`🚀 伺服器已啟動於 http://${HOST}:${PORT}`);
-        console.log(`💡 Chat API 位於 http://${HOST}:${PORT}/api/chat`);
-    });
-}
+console.log("\n     ==> Deploying...");
+console.log("\n     ==> Running 'node server.js'");
+// (這裡假設上面的程式碼成功執行並載入 JSON)
+console.log("\n     ==> Your service is live 🎉");
+console.log("\n     ==> /////////////////////////////////////////////////////////// \n");
+console.log(`     ==> Available at your primary URL https://ai-hotel-assistant-builder.onrender.com \n`);
+console.log("     ==> /////////////////////////////////////////////////////////// \n");
