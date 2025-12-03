@@ -145,12 +145,14 @@
             
             const currentSessionId = sessionId || 'initial_session_id';
 
-            try {
-                const response = await fetch(API_ENDPOINT, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId: currentSessionId, message: message })
-                });
+           // public/index.js (修改後的)
+        const response = await fetch('/api/chat', { // <-- 這裡已修正為 /api/chat
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ sessionId, message }),
+        });
 
                 const data = await response.json();
 
