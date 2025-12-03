@@ -3,15 +3,22 @@
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager'); 
 const SmartIntentClassifier = require('./intent_classifier'); 
-const BookingFlowController = require('./booking_controller'); // 使用修正後的版本
+// 假設您有一個外部的 booking_controller.js 包含價格計算邏輯
+const BookingFlowController = require('./booking_controller'); 
 const GeminiGenerator = require('./gemini_generator'); 
 const { FlowConfigLoader } = require('./flow_loader');
+
+// 修正：FlowConfigLoader 應當被實例化，並在 BookingFlowController 中使用
+// 由於這裡無法訪問 BookingFlowController 內部，我們在這裡創建實例以供 RuleEngine 內的邏輯使用。
+// 如果 BookingFlowController 已經在自己的檔案裡實例化，這裡只需要確保 RuleEngine 邏輯調用正確。
+// 為了解決先前遇到的 FlowConfigLoader 靜態方法問題，我們假設 BookingFlowController.getFlow() 是可用的。
 
 // 實用函數：替換 Prompt 中的變數
 function interpolatePrompt(text, data) {
     if (!text) return '';
     let result = text;
     for (const key in data) {
+        // 確保替換的值是字串，即使是 undefined/null 也要替換成空字串
         const value = data[key] === undefined || data[key] === null ? '' : data[key];
         result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
         result = result.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
@@ -57,7 +64,7 @@ class RuleEngine {
                     // 暫停模式下，將 Gemini 回覆插在流程引導訊息之前
                     finalResponse = `👉 **AI 助理回覆**：\n${geminiResponse}\n\n---\n**訂房流程引導**：\n${result.response}`;
                 } else if (session.currentStep === 'handle_general_inquiry' || intents.includes('general_inquiry')) {
-                    // 純閒聊
+                    // 純閒聊或 AI 處理的通用查詢
                     finalResponse = geminiResponse;
                 }
             }
@@ -81,7 +88,7 @@ class RuleEngine {
             };
         }
 
-        // Fallback (應極少觸發，因為 generalRule 已處理所有未匹配項)
+        // Fallback (應極少觸發，因為 generalRule 應捕獲所有未處理的輸入)
         return {
             reply: "抱歉，系統無法處理您的請求，請重新開始。",
             nextStateKey: 'init',
@@ -107,6 +114,7 @@ class RuleEngine {
             }
         }
 
+        // 如果所有規則都返回 shouldProcess: false，最終回到應用層的 Fallback
         return { shouldProcess: false, priority: 0 };
     }
 
@@ -143,7 +151,7 @@ ${isMember ? `👤 會員：**${data.memberAccount}** (${data.memberLevel})` : '
 餐飲加購：NT$ ${data.mealPrice || 0}
 接送機費：NT$ ${data.transferFee || 0}
 服務費 (10%)：NT$ ${data.serviceFee || 0}
-${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(data.newTotalPrice - data.finalPrice).toFixed(0)}` : ''}
+${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(data.totalPrice - data.newTotalPrice).toFixed(0)}` : ''}
 **最終總計：NT$ ${data.finalPrice || 'N/A'}** (已含稅及服務費)
 
 ---
@@ -154,7 +162,8 @@ ${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(da
 
     /** 規則 2: 訂房流程規則 (核心邏輯 P:98, P:95) */
     static async bookingFlowRule(intents, session, message) {
-        const flow = BookingFlowController.getFlow();
+        // 確保 BookingFlowController.getFlow() 在 RuleEngine.processRules 之前已經被修正
+        const flow = BookingFlowController.getFlow(); 
         const isAffirm = intents.includes('affirm') || message.toLowerCase().includes('確認');
         const isCorrection = intents.includes('correction') || intents.includes('modify') || message.toLowerCase().includes('修改');
         const isDeny = intents.includes('deny');
@@ -224,10 +233,10 @@ ${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(da
         
         // 【接送機邏輯】處理 ask_transfer_service 狀態的特殊轉移
         if (currentStateKey === 'ask_transfer_service') {
-            if (intents.includes('affirm') || intents.includes('request_transfer')) {
+            if (intents.includes('affirm') || intents.includes('request_transfer') || message.toLowerCase().includes('要') || message.toLowerCase().includes('需要')) {
                 session.collectedData.needsTransfer = true;
                 nextStateKey = 'collect_transfer_details';
-            } else if (intents.includes('deny') || message.toLowerCase().includes('不需要')) {
+            } else if (intents.includes('deny') || message.toLowerCase().includes('不要') || message.toLowerCase().includes('不需要')) {
                 session.collectedData.needsTransfer = false;
                 session.collectedData.transferFee = 0; // 設置費用為 0
                 nextStateKey = 'ask_payment_method';
@@ -237,6 +246,7 @@ ${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(da
         // B. 實體收集檢查
         let allEntitiesCollected = true;
         if (currentState.entities && currentState.next_state) {
+            // 檢查當前狀態所需的所有實體是否都已收集
             allEntitiesCollected = currentState.entities.every(
                 entity => data[entity] !== undefined && data[entity] !== null
             );
@@ -337,11 +347,12 @@ ${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(da
         if (nextStateKey !== currentStateKey || (nextStateKey === currentStateKey && allEntitiesCollected === false)) {
             const nextState = flow.states[nextStateKey];
             
-            // 如果在 init 狀態下，流程沒有轉移，應該讓它跳到 generalRule
+            // 如果在 init 狀態下，流程沒有轉移，應該讓它跳到 generalRule (P:0)
             if (nextStateKey === currentStateKey && nextStateKey === 'init') {
                  return { shouldProcess: false, priority: 0 };
             }
             
+            // 處理 fallback 提示
             const responsePrompt = nextState.prompt ? interpolatePrompt(nextState.prompt, data) : currentState.fallback;
 
             return {
@@ -354,12 +365,12 @@ ${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(da
             };
         }
 
-        // 5. 流程結束後的處理
+        // 5. 流程結束後的處理 (防止無限循環，雖然 endFlow 應已處理)
         if (currentState.end) {
             return { shouldProcess: false, priority: 0 };
         }
 
-        // 6. 流程內，但訊息無法驅動流程 (fallback)
+        // 6. 流程內，但訊息無法驅動流程 (fallback 到當前狀態，例如用戶沒有提供所需的實體)
         if (currentStateKey !== 'init' && !allEntitiesCollected) {
             const responsePrompt = currentState.fallback ? interpolatePrompt(currentState.fallback, data) : currentState.prompt;
             
@@ -369,7 +380,7 @@ ${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(da
                 response: responsePrompt,
                 nextStep: currentStateKey,
                 richCard: currentState.richCard || null,
-                allowGeminiCall: false
+                allowGeminiCall: false // 在流程中收集實體時，不應該啟動閒聊 AI
             };
         }
 
@@ -379,18 +390,17 @@ ${data.discountRate !== '0' ? `會員折扣 (${data.discountRate}%)：-NT$ ${(da
     
     /** 規則 3: 一般詢問與閒聊 (最低優先級 P:1) */
     static generalRule(intents, session, message) {
-        // 條件：只要當前狀態是 'init' 或已經是閒聊狀態，就處理
-        if (session.currentStep === 'handle_general_inquiry' || session.currentStep === 'init') {
-            
-            return { 
-                shouldProcess: true, 
-                priority: 1, 
-                response: '我正在為您查詢相關資訊...', 
-                nextStep: 'handle_general_inquiry',
-                allowGeminiCall: true 
-            };
-        }
-        return { shouldProcess: false, priority: 0 };
+        // 捕獲所有未被更高優先級規則（緊急、流程）處理的輸入
+        // 確保任何時候都能觸發 AI 處理閒聊和特殊要求（如嬰兒床）
+        
+        return { 
+            shouldProcess: true, 
+            priority: 1, 
+            response: '我正在為您查詢或處理您的要求...', 
+            nextStep: 'handle_general_inquiry',
+            allowGeminiCall: true 
+        };
+        // 這裡不需要額外的 if 判斷，因為它是最低優先級，如果其他規則都返回 false，它就會被觸發
     }
 }
 
