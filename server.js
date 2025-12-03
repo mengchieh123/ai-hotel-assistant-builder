@@ -888,105 +888,97 @@ class ResponseGenerator {
         };
 
         // 帶有重試機制 (Retry Mechanism) 的 API 呼叫
-        for (let i = 0; i < MAX_RETRIES; i++) {
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+for (let i = 0; i < MAX_RETRIES; i++) { // <-- 補齊迴圈條件
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
-                }
-
-                const json = await response.json();
-                
-                // 檢查是否有有效的文字回覆
-                const reply = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-                if (reply) {
-                    return reply;
-                } else if (json.candidates?.[0]?.finishReason === 'SAFETY') {
-                    return "抱歉，您的訊息內容觸發了安全過濾器，無法回答。";
-                }
-                
-                // 如果沒有回覆但也沒有錯誤，可能是 API 結構改變或空回覆
-                throw new Error("Gemini API 返回了無效的回覆結構。");
-
-            } catch (error) {
-                console.error(`❌ Gemini API 呼叫失敗 (嘗試 ${i + 1}/${MAX_RETRIES}):`, error.message);
-                if (i < MAX_RETRIES - 1) {
-                    const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, i) + Math.random() * 1000;
-                    await new Promise(resolve => setTimeout(resolve, backoffTime));
-                } else {
-                    return "抱歉，AI 服務目前無法回應，請稍後再試。";
-                }
-            }
+        if (response.ok) {
+            const json = await response.json();
+            return json.candidates?.[0]?.content?.parts?.[0]?.text || "抱歉，AI 助理未能理解您的問題。";
         }
-        return "抱歉，AI 服務目前無法回應，請稍後再試。";
+
+        // 處理 API 錯誤 (例如 429 Rate Limit)
+        const errorText = await response.text();
+        console.error(`❌ Gemini API 回應錯誤 (Status: ${response.status})：${errorText}`);
+
+        if (response.status === 429 && i < MAX_RETRIES - 1) {
+            // Rate Limit 或其他可重試錯誤，等待並重試
+            const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, i);
+            console.log(`等待 ${backoffTime}ms 後重試...`);
+            await new Promise(resolve => setTimeout(resolve, backoffTime));
+            continue;
+        }
+        
+        return `⚠️ 由於 API 錯誤 (${response.status})，無法提供 AI 自由問答。`;
+
+    } catch (error) {
+        console.error("❌ 呼叫 Gemini API 失敗:", error.message);
+        if (i < MAX_RETRIES - 1) {
+            const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, i);
+            console.log(`等待 ${backoffTime}ms 後重試...`);
+            await new Promise(resolve => setTimeout(resolve, backoffTime));
+            continue;
+        }
+        return "⚠️ 網路連線錯誤，無法提供 AI 自由問答。";
     }
 }
+return "⚠️ 由於多次嘗試失敗，AI 助理暫時無法回應。"; // 達到最大重試次數
+
+// 結束 getGeminiResponse 函數
+} 
+} // 結束 ResponseGenerator 類別
 
 // ---------------------------------------------
-// 7. 路由 (Routes)
+// 7. EXPRESS 路由 (API Endpoints)
 // ---------------------------------------------
 
-// 處理所有的 GET 請求，返回靜態檔案
-app.get('*', (req, res) => {
-    // 讓 Express 靜態服務去處理
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+app.get('/api/health', (req, res) => {
+    res.status(200).send({ status: 'ok', api: 'ai-hotel-assistant-builder' });
 });
 
-/**
- * 核心聊天 API 端點
- * POST /api/chat
- * Request Body: { sessionId: string, userMessage: string }
- */
 app.post('/api/chat', async (req, res) => {
-    const { sessionId, userMessage } = req.body;
+    // 檢查是否有 session 和 user message (這是您 log 看到的錯誤訊息來源)
+    const { sessionId, userMessage } = req.body; 
 
-    // 關鍵修正：解決 400 Bad Request 問題
     if (!sessionId || !userMessage) {
-        // 這是您遇到的錯誤訊息的英文對應
-        return res.status(400).json({ error: 'Missing sessionId or userMessage. 請確認請求主體格式是否正確。' });
+        // 這是您在 Render Log 裡會看到的錯誤訊息
+        console.warn('⚠️ Missing sessionId or userMessage in request body.');
+        return res.status(400).json({ 
+            error: 'Missing sessionId or userMessage. 請確認請求主體格式是否正確。' 
+        });
     }
 
     try {
         const result = await RuleEngine.processRules({ sessionId, userMessage });
-        
-        // 檢查流程是否已結束
-        const session = sessionManager.getSession(sessionId);
-        const flowState = flowLoader.getFlow().states[session.currentStep];
-        
-        res.json({
+
+        // 成功的回應
+        res.status(200).json({
             reply: result.reply,
-            richCard: result.richCard,
-            collectedData: result.data,
             nextState: result.nextStateKey,
-            endOfConversation: !!flowState.end // 標記流程是否結束
+            data: result.data,
+            richCard: result.richCard || null
         });
 
     } catch (error) {
         console.error("❌ 處理聊天請求時發生未預期的錯誤:", error);
         res.status(500).json({ 
-            error: '伺服器內部錯誤，請檢查日誌。',
-            details: error.message
+            error: '發生未預期的伺服器錯誤，請稍後再試。' 
         });
     }
 });
 
+
 // ---------------------------------------------
-// 8. 伺服器啟動 (Start Server)
+// 8. 啟動伺服器
 // ---------------------------------------------
+
 app.listen(PORT, HOST, () => {
-    console.log(`
-     ==> Your service is live 🎉
-     ==> /////////////////////////////////////////////////////////// 
-     ==> Available at your primary URL https://ai-hotel-assistant-builder.onrender.com 
-     ==> /////////////////////////////////////////////////////////// 
-🚀 伺服器已啟動於 http://${HOST}:${PORT}
-💡 Chat API 位於 /api/chat
-    `);
+    console.log(`✅ 伺服器已啟動: http://${HOST}:${PORT}`);
+    if (!apiKey) {
+        console.warn("⚠️ GEMINI_API_KEY 未設定，將無法使用 AI 自由問答功能。");
+    }
 });
