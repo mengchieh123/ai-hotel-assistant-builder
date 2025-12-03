@@ -141,15 +141,16 @@
             
             const currentSessionId = sessionId || 'initial_session_id';
 
-            try { // <-- try 區塊開始
+            try { 
                 
                 // API 呼叫：已修正為 /api/chat
-                const response = await fetch('/api/chat', { 
+                const response = await fetch('/api/chat', { 
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ sessionId: currentSessionId, Message:message }),
+                    // 💥 修正點: 將 Message 改為小寫的 message
+                    body: JSON.stringify({ sessionId: currentSessionId, message: message }), 
                 });
                 
                 const data = await response.json();
@@ -162,7 +163,7 @@
                     appendMessage('assistant', `發生錯誤: ${errorMessage}。請稍後再試。`);
                 }
 
-            } catch (error) { // <-- try 區塊結束, catch 區塊開始
+            } catch (error) { 
                 console.error('API Request Failed:', error);
                 appendMessage('assistant', `抱歉，伺服器連接失敗，請檢查網路或聯繫管理員。`);
             } finally {
