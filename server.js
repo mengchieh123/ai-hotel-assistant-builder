@@ -24,7 +24,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const apiKey = process.env.GEMINI_API_KEY;
 const API_BASE = "https://generativelanguage.googleapis.com";
 const MODEL_NAME = "gemini-2.5-flash";
-const API_VERSION = "v1"; // 由於您遇到 systemInstruction 錯誤，我們將強制使用 V1 兼容模式
+const API_VERSION = "v1"; 
 const apiUrl = apiKey ? `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generateContent?key=${apiKey}` : null;
 
 const MAX_RETRIES = 2;
@@ -286,11 +286,16 @@ class SmartIntentClassifier {
     static classify(message) {
         const lowerMessage = message.toLowerCase();
         const intents = new Set();
-
-        // 核心訂房意圖
-        if (/(訂房|預訂|入住|房間|房型|幫我訂|想要訂|預約房間|我要訂房|book|幾間|訂幾晚)/.test(lowerMessage) ||
-            /(豪華客房|標準雙人房|行政套房|家庭四人房|.*月.*日|.*天)/.test(lowerMessage)) {
+        
+        // --- I. 核心意圖和狀態檢查 ---
+        
+        // 核心訂房意圖 (Booking) - 修正 2 (P5): 專注於動作
+        if (/(訂房|預訂|入住|幫我訂|想要訂|預約房間|我要訂房|book|訂幾晚)/.test(lowerMessage)) { 
             intents.add('booking');
+        }
+        // 日期如果包含在內，也視為強烈訂房意圖
+        if (this.containsDatePatterns(lowerMessage)) { 
+             intents.add('booking');
         }
 
         // 確認/拒絕意圖
@@ -300,10 +305,20 @@ class SmartIntentClassifier {
         // 會員意圖
         if (lowerMessage.includes('我要登入會員')) intents.add('member_login');
 
-        // 資訊意圖
+        // ⭐️ 新增/強化：查詢/介紹意圖 (Inquiry) - 修正 2, 3 (P6)
+        if (/(介紹|說明|什麼樣|怎麼樣|細節|環境|特色|如何|查詢|是什麼)/.test(lowerMessage)) {
+             intents.add('inquiry');
+        }
+        
+        // 房型關鍵字
+        if (/(豪華客房|標準雙人房|行政套房|家庭四人房)/.test(lowerMessage)) {
+            intents.add('roomType_keyword'); // 作為標記，用於 P:98 規則
+        }
+        
+        // 資訊意圖 (Pricing)
         if (/(價格|價錢|多少錢|房價|費用|收費|促銷|優惠)/.test(lowerMessage)) intents.add('pricing');
 
-        // 非訂房意圖（會觸發流程暫停）
+        // 非訂房意圖（會觸發流程暫停/轉向 AI 處理）
         const nonBookingIntentsMap = {
             'transfer': /(接送|機場|高鐵|交通)/,
             'restaurant': /(餐廳|用餐|午餐|晚餐|美食|吃)/,
@@ -588,8 +603,8 @@ class RuleEngine {
             }
 
             let geminiResponse = '';
-            // 只有在流程中允許自由問答時才呼叫 Gemini (O4: 簡化邏輯)
-            if (!result.allowGeminiCall) { // 這裡使用 allowGeminiCall 而不是 skipGeminiCall 確保邏輯清晰
+            // ⭐️ 修正 1 (P4): 只有在明確允許 AI 呼叫時才呼叫 Gemini
+            if (result.allowGeminiCall) { 
                 geminiResponse = await ResponseGenerator.getGeminiResponse(session, userMessage);
             }
 
@@ -627,10 +642,10 @@ class RuleEngine {
     // 執行規則集
     static async process(intents, session, message) {
         
-        // 規則優先級：緊急 > 流程恢復 > 流程控制 > 閒聊
+        // 規則優先級：緊急 > 流程控制 > 閒聊
         const rules = [
             this.emergencyRule,
-            this.bookingFlowRule, // 這是主要的流程控制規則
+            this.bookingFlowRule, // 這是主要的流程控制規則，包含 P:98 (查詢暫停) 和 P:95 (流程推進)
             this.generalRule
         ];
 
@@ -646,7 +661,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    /** 規則 1: 緊急事件處理 (最高優先級) */
+    /** 規則 1: 緊急事件處理 (最高優先級 P:100) */
     static emergencyRule(intents, session, message) {
         if (intents.includes('emergency')) {
             session.currentStep = 'end_conversation'; // 結束流程
@@ -661,7 +676,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    /** 規則 2: 訂房流程規則 (核心邏輯) */
+    /** 規則 2: 訂房流程規則 (核心邏輯 P:98, P:95) */
     static async bookingFlowRule(intents, session, message) {
         const flow = flowLoader.getFlow();
         const hasBookingIntent = intents.includes('booking');
@@ -669,69 +684,77 @@ class RuleEngine {
         const isDeny = intents.includes('deny');
         const data = session.collectedData;
         let currentStateKey = session.currentStep;
-
-        // 非訂房意圖 (用於流程暫停)
-        const nonBookingIntents = [
-            'transfer', 'restaurant', 'attractions', 'shopping',
-            'facilities', 'weather', 'modification'
-        ];
-        const isSwitchingTopic = intents.some(intent => nonBookingIntents.includes(intent));
-
-        // 1. 流程重置或初始狀態
-        if (currentStateKey === 'booking_complete' || currentStateKey === 'end_conversation' || currentStateKey === 'init') {
-            if (hasBookingIntent) {
-                 // 如果用戶在結束後重新開始訂房
-                session.currentStep = flow.initial_state || 'init';
-                session.collectedData = {}; // 清空數據
-            } else if (currentStateKey !== 'init') {
-                return { shouldProcess: false, priority: 0 }; // 閒聊，交給 Gemini
-            }
-        }
-        currentStateKey = session.currentStep;
+        
+        // ⭐️ 修正 8 (A3): 確保定義 currentState 物件
         let currentState = flow.states[currentStateKey];
 
+        // ----------------------------------------------------
+        // 1. 查詢/介紹優先級處理 (P:98)
+        // ----------------------------------------------------
+        // 只要有查詢、價格或房型關鍵字，且**不在**閒聊或結束狀態，就觸發暫停
+        if (intents.includes('inquiry') || intents.includes('pricing') || intents.includes('roomType_keyword')) {
+            if (currentStateKey && 
+                currentStateKey !== 'init' && 
+                currentStateKey !== 'paused_waiting_for_resume' &&
+                !intents.includes('affirm')) { // 除非用戶明確說"確認/繼續"
+                
+                console.log(`⚠️ 偵測到介紹/查詢意圖。暫停流程，轉交給 AI 處理。`);
+                session.pausedState = currentStateKey; // 儲存當前狀態
+
+                return {
+                    shouldProcess: true,
+                    priority: 98, // 介於流程暫停 99 和流程推進 95 之間
+                    response: `好的，我將為您查詢相關資訊。\n\n**查詢完成後，請回覆『繼續』以恢復訂房流程。**`,
+                    richCard: {
+                        "type": "button_list",
+                        "title": "要繼續訂房嗎？",
+                        "buttons": [
+                            { "text": "✅ 繼續訂房", "value": "繼續訂房" },
+                            { "text": "❌ 取消流程", "value": "取消" }
+                        ]
+                    },
+                    nextStep: 'paused_waiting_for_resume',
+                    allowGeminiCall: true // 必須允許 AI 介入
+                };
+            }
+        }
+
+        // ----------------------------------------------------
         // 2. 流程恢復處理 (用戶回復 "繼續" 或 "確認")
+        // ----------------------------------------------------
         if (currentStateKey === 'paused_waiting_for_resume' && session.pausedState) {
             if (isAffirm) {
                 currentStateKey = session.pausedState; // 恢復到暫停前的狀態
                 session.pausedState = null;
                 session.currentStep = currentStateKey;
+                
+                // ⭐️ 修正 8 (A3): 恢復後更新 currentState 物件
+                currentState = flow.states[currentStateKey]; 
+
                 console.log(`🔄 恢復流程到: ${currentStateKey}`);
-                // 重新處理用戶的"繼續"或後續輸入
-                currentState = flow.states[currentStateKey];
+                // 繼續執行後續的 P:95 流程推進邏輯
+            } else if (isDeny) {
+                 // 在暫停狀態下選擇取消流程
+                 sessionManager.getSession(session.id); // 重置 session
+                 return {
+                    shouldProcess: true,
+                    priority: 99,
+                    response: `好的，訂房流程已取消。期待您的下次光臨。`,
+                    nextStep: 'end_conversation',
+                    allowGeminiCall: false
+                 };
             } else {
-                // 如果用戶在暫停狀態，讓它走 AI 自由問答
+                // 如果用戶在暫停狀態，但沒有回復「繼續」，讓它走 AI 自由問答 (P: 1)
                 return { shouldProcess: false, priority: 0 }; 
             }
         }
+        
+        // ⭐️ 修正 4 (P7): 移除原有的 P:99 流程暫停邏輯。
+        // 當前狀態不是暫停 (P:98)，也不是純閒聊 (P:1)，則進入 P:95 流程推進。
 
-        // 3. 流程暫停邏輯 (非 init 狀態下切換主題)
-        if (currentStateKey && 
-            currentStateKey !== 'init' && 
-            currentStateKey !== 'paused_waiting_for_resume' && 
-            (isSwitchingTopic || intents.includes('general_inquiry'))) {
-
-            console.log(`⚠️ 用戶在流程中 (State: ${currentStateKey}) 詢問了不相關的主題。暫停流程。`);
-            session.pausedState = currentStateKey; // 儲存當前狀態
-            
-            return {
-                shouldProcess: true,
-                priority: 99,
-                response: `好的，我暫時將訂房流程放在一邊。請告訴我您想知道的資訊。\n\n**當您準備好繼續時，請回覆『繼續』或點擊按鈕。**`,
-                richCard: {
-                    "type": "button_list",
-                    "title": "要繼續訂房嗎？",
-                    "buttons": [
-                        { "text": "✅ 繼續訂房", "value": "繼續訂房" },
-                        { "text": "❌ 取消流程", "value": "取消" }
-                    ]
-                },
-                nextStep: 'paused_waiting_for_resume',
-                allowGeminiCall: true // 允許交給 Gemini 進行問答，之後流程恢復
-            };
-        }
-
-        // 4. 流程內部轉移與邏輯處理
+        // ----------------------------------------------------
+        // 3. 流程內部轉移與邏輯處理 (P:95)
+        // ----------------------------------------------------
         let nextStateKey = currentStateKey;
 
         // A. 意圖轉移檢查
@@ -771,7 +794,7 @@ class RuleEngine {
                 
                 return {
                     shouldProcess: true,
-                    priority: 97,
+                    priority: 97, // 比 P:95 略高，確保錯誤優先處理
                     response: errorPrompt,
                     nextStep: nextStateKey, 
                     richCard: null,
@@ -796,12 +819,11 @@ class RuleEngine {
             flow.states['final_summary_and_payment'].prompt = confirmPrompt;
         }
 
-        // 5. 輸出回應
+        // 4. 輸出回應 (P:95)
         if (nextStateKey !== currentStateKey || (nextStateKey === currentStateKey && allEntitiesCollected === false)) {
             // 狀態發生轉移 或 實體未收齊且需要回應
             const nextState = flow.states[nextStateKey];
             
-            // 如果是最終確認，prompt 已在 C 步驟被替換
             const responsePrompt = nextState.prompt ? interpolatePrompt(nextState.prompt, data) : currentState.fallback;
 
             return {
@@ -815,12 +837,12 @@ class RuleEngine {
             };
         }
 
-        // 流程結束後的閒聊處理
+        // 5. 流程結束後的閒聊處理
         if (currentState.end) {
              return { shouldProcess: false, priority: 0 };
         }
 
-        // 流程內，但訊息無法驅動流程 (例如：重複回答)，進入閒聊或使用 fallback
+        // 6. 流程內，但訊息無法驅動流程 (例如：重複回答)，使用 fallback
         const responsePrompt = currentState.fallback ? interpolatePrompt(currentState.fallback, data) : currentState.prompt;
         
         return {
@@ -833,15 +855,15 @@ class RuleEngine {
         };
     }
     
-    /** 規則 3: 一般詢問與閒聊 (最低優先級) */
+    /** 規則 3: 一般詢問與閒聊 (最低優先級 P:1) */
     static generalRule(intents, session, message) {
-         // 如果沒有任何流程規則被觸發，則交給 Gemini 處理
+        // 如果沒有任何流程規則被觸發，且用戶是閒聊，則交給 Gemini 處理
         if (intents.includes('general_inquiry') || session.currentStep === 'handle_general_inquiry') {
             return { 
                 shouldProcess: true, 
                 priority: 1, 
                 response: '我正在思考...', 
-                nextStep: session.currentStep,
+                nextStep: 'handle_general_inquiry',
                 allowGeminiCall: true // 呼叫 Gemini API
             };
         }
@@ -867,119 +889,111 @@ class ResponseGenerator {
             parts: [{ text: item.message }]
         }));
 
-        // 2. 移除最後一筆 model 回應 (如果有的話)，以保持正確的 user/model 交替
-        if (contents.length > 0 && contents[contents.length - 1].role === 'model') {
-             contents.pop();
+        // 2. V1 兼容性處理: 將系統指令注入到第一個用戶訊息中
+        if (contents.length > 0 && contents[0].role === 'user') {
+            const systemMessage = CHAT_INSTRUCTIONS + "\n\n**用戶訊息：**" + contents[0].parts[0].text;
+            contents[0].parts[0].text = systemMessage;
         }
-        
-        // 3. 準備系統指令內容 (不再使用 systemInstruction 變量)
-        const systemPrompt = CHAT_INSTRUCTIONS + (session.pausedState ? `\n當前訂房流程已暫停在步驟：**${session.pausedState}**。請提醒用戶，可以回復『繼續』來恢復流程。` : '');
 
-        // 4. ⭐️ 關鍵修正：將系統指令注入為**最後一則用戶訊息**的一部分
-        if (contents.length > 0) {
-            // 取得最後一則訊息 (肯定是 user 的訊息，因為上面移除了 model 的)
-            const lastUserMessage = contents[contents.length - 1].parts[0].text;
-
-            // 將系統指令與用戶訊息結合 (這取代了 systemInstruction 參數)
-            contents[contents.length - 1].parts[0].text = 
-                `請扮演以下角色，並根據以下對話歷史及最新訊息生成回應：\n\n**角色指令**：${systemPrompt}\n\n**用戶訊息**：${lastUserMessage}`;
-        } else {
-             // 如果連對話歷史都沒有，則直接使用用戶的訊息（不應該發生，但作為防禦性程式碼）
-             contents.push({
-                 role: 'user',
-                 parts: [{ text: `**角色指令**：${systemPrompt}\n\n**用戶訊息**：${userMessage}` }]
-             });
-        }
-        
-        // 5. 創建 payload (移除 systemInstruction 頂層參數)
+        // 3. 建立請求 Payload
         const payload = {
             contents: contents,
-            
-            // 確保 systemInstruction 頂層參數不存在
-            // systemInstruction: systemInstruction, // ⬅️ 已移除
-
-            generationConfig: { 
+            config: {
                 temperature: 0.5,
-                topP: 0.9,
+                maxOutputTokens: 2048,
             }
         };
 
-        // 帶有重試機制 (Retry Mechanism) 的 API 呼叫
-        for (let i = 0; i < MAX_RETRIES; i++) {
+        // 4. 執行 API 請求 (帶有重試機制)
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 const response = await fetch(apiUrl, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(payload),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
 
-                const responseBody = await response.json();
-
-                if (response.ok) {
-                    // 成功獲得回應
-                    const text = responseBody.candidates?.[0]?.content?.parts?.[0]?.text;
-                    return text || "AI 助理無法生成回應。";
-                } else {
-                    // 處理 API 返回的錯誤 (4xx, 5xx)
-                    console.error(`❌ Gemini API 回應錯誤 (Status: ${response.status})：`, JSON.stringify(responseBody, null, 2));
-                    // 如果是 400 錯誤，這通常是請求結構問題，不需要重試
-                    if (response.status === 400) {
-                        return `API 請求格式錯誤，請檢查伺服器日誌。錯誤訊息：${responseBody.error?.message}`;
-                    }
+                if (!response.ok) {
+                    const errorBody = await response.text();
+                    console.error(`Gemini API 錯誤 (狀態碼 ${response.status})：${errorBody}`);
+                    throw new Error(`Gemini API 錯誤，狀態碼：${response.status}`);
                 }
-            } catch (error) {
-                console.error(`❌ Gemini API 呼叫發生錯誤 (第 ${i + 1} 次嘗試): ${error.message}`);
-            }
 
-            // 退避等待 (Backoff Wait)
-            if (i < MAX_RETRIES - 1) {
-                await new Promise(resolve => setTimeout(resolve, INITIAL_BACKOFF_MS * Math.pow(2, i)));
+                const json = await response.json();
+                
+                // 檢查是否有回應內容
+                if (json.candidates && json.candidates[0] && json.candidates[0].content) {
+                    return json.candidates[0].content.parts[0].text.trim();
+                } else if (json.promptFeedback && json.promptFeedback.blockReason) {
+                    // 內容安全或輸入被阻擋
+                    return `抱歉，您的輸入違反了安全規範，無法提供回應。`;
+                }
+
+            } catch (error) {
+                console.error(`嘗試呼叫 Gemini API 失敗 (第 ${attempt + 1} 次)：`, error.message);
+                if (attempt < MAX_RETRIES - 1) {
+                    await new Promise(resolve => setTimeout(resolve, INITIAL_BACKOFF_MS * (2 ** attempt))); // 指數退避
+                } else {
+                    return `抱歉，AI 服務目前無法連線，請稍後再試。`;
+                }
             }
         }
-
-        return "由於多次嘗試失敗，AI 助理目前無法生成回應。";
+        return `抱歉，AI 服務在多次嘗試後仍無法連線。`;
     }
 }
 
 // ---------------------------------------------
-// 7. API 路由
+// 7. API 路由與服務啟動
 // ---------------------------------------------
 
 /**
- * 處理來自前端的聊天訊息
+ * 根路徑 - 提供服務狀態檢查
+ */
+app.get('/', (req, res) => {
+    const status = {
+        status: "ok",
+        message: "AI Hotel Assistant Service is live!",
+        flowName: flowLoader.getFlow().name,
+        geminiConfig: {
+            model: MODEL_NAME,
+            version: API_VERSION,
+            apiKeySet: !!apiKey
+        },
+        currentTimestamp: new Date().toISOString()
+    };
+    res.json(status);
+});
+
+/**
+ * 主要聊天路由
  */
 app.post('/api/chat', async (req, res) => {
-    const { sessionId, userMessage, initial_connection_message } = req.body;
+    const { sessionId, message } = req.body;
 
-    if (!sessionId || (!userMessage && !initial_connection_message)) {
-        console.warn('⚠️ Missing sessionId or userMessage in request body.');
-        return res.status(400).json({ error: 'Missing required parameters: sessionId and userMessage.' });
+    if (!sessionId || !message) {
+        return res.status(400).json({ error: "Missing sessionId or message." });
     }
 
-    // 處理初始連接訊息 (若存在)
-    const messageToProcess = initial_connection_message || userMessage;
-
     try {
-        const response = await RuleEngine.processRules({ sessionId, userMessage: messageToProcess });
-        res.json(response);
+        const result = await RuleEngine.processRules({ sessionId, userMessage: message });
+        res.json(result);
+
     } catch (error) {
-        console.error('❌ 處理請求時發生錯誤:', error.message);
-        res.status(500).json({ error: 'Internal server error while processing request.' });
+        console.error("❌ 處理請求時發生系統錯誤：", error);
+        res.status(500).json({ 
+            reply: "抱歉，系統內部發生錯誤，請檢查伺服器日誌。",
+            nextStateKey: 'end_conversation',
+            data: sessionManager.getSession(sessionId).collectedData,
+        });
     }
 });
 
-// ---------------------------------------------
-// 8. 伺服器啟動
-// ---------------------------------------------
-
-// 確保 API Key 存在
-if (!apiKey) {
-    console.error("❌ 嚴重錯誤：未設置 GEMINI_API_KEY 環境變數。AI 功能將無法使用。");
-}
-
+/**
+ * 啟動伺服器
+ */
 app.listen(PORT, HOST, () => {
-    console.log(`✅ 伺服器已啟動: http://${HOST}:${PORT}`);
-    console.log(`\n     ==> Your service is live 🎉\n`);
+    console.log(`\n=============================================================`);
+    console.log(`🚀 Your service is live at http://${HOST}:${PORT}`);
+    console.log(`🤖 Gemini Model: ${MODEL_NAME} (V${API_VERSION})`);
+    console.log(`=============================================================\n`);
 });
