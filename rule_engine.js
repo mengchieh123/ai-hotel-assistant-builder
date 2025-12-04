@@ -158,14 +158,13 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         let currentState = flow.states[currentStateKey];
 
         // =========================================================================
-        // 【P:103 房間數量硬性上限檢查】 (新增)
-        // 目的：在進入日期收集狀態前，就排除大於 5 間房的預訂，並強制回退到收集房型。
+        // 【P:103 房間數量硬性上限檢查】 (極高優先級)
+        // 目的：在流程開始處就排除大於 5 間房的預訂。
         // -------------------------------------------------------------------------
         const MAX_ROOM_LIMIT = 5;
         if (
-            data.roomType && // 必須有房型
-            data.roomCount > MAX_ROOM_LIMIT && // 檢查是否超過硬性上限
-            currentStateKey !== 'collect_room_and_dates' // 避免無限循環
+            data.roomType && // 條件 1：必須有房型
+            data.roomCount > MAX_ROOM_LIMIT // 條件 2：房間數 > 5 (不再檢查當前狀態)
         ) {
             // 清除房數和日期，要求用戶重新輸入
             data.roomCount = null;
@@ -310,7 +309,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
                 return {
                     shouldProcess: true,
-                    // ⚠️ 修正點二：提高 OOS 錯誤處理優先級
+                    // ⚠️ OOS 錯誤處理優先級
                     priority: 102,
                     response: errorPrompt,
                     nextStep: nextStateKey,
@@ -361,7 +360,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
             return {
                 shouldProcess: true,
-                // ⚠️ 修正點三：提高轉移到 confirm_booking 的優先級
+                // 轉移到 confirm_booking 的優先級
                 priority: 101,
                 response: finalPrompt,
                 nextStep: nextStateKey,
@@ -382,7 +381,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
             return {
                 shouldProcess: true,
-                // ⚠️ 修正點四：提高所有流程轉移和提示的優先級
+                // 所有流程轉移和提示的優先級
                 priority: 101,
                 response: responsePrompt,
                 nextStep: nextStateKey,
@@ -402,7 +401,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
             return {
                 shouldProcess: true,
-                // ⚠️ 修正點五：提高流程內 Fallback 的優先級
+                // 流程內 Fallback 的優先級
                 priority: 101,
                 response: responsePrompt,
                 nextStep: currentStateKey,
