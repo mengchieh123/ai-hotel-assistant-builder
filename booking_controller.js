@@ -68,17 +68,25 @@ class BookingFlowController {
             transferFee = 0
         } = data;
 
-        // --- 1. 數據完整性檢查 ---
-        
-        // ⭐️ 關鍵檢查點：確認房型與價格是否存在於 ROOM_RATES 中
-        if (!roomType || !ROOM_RATES[roomType]) {
+        // ⭐️ 關鍵檢查點 1：確認 ROOM_RATES 是否已載入
+        if (Object.keys(ROOM_RATES).length === 0) {
             return { 
                 success: false, 
-                errorMessage: `警告：無法找到房型 [${roomType}] 的價格，請檢查 config.js。`,
+                errorMessage: "系統警告：未載入任何房價數據 (ROOM_RATES 為空)，請檢查 config.js 檔案。",
                 oos: true // 觸發 rule_engine 中的 OOS 錯誤處理邏輯 (P:102)
             };
         }
-
+        
+        // ⭐️ 關鍵檢查點 2：確認房型與房價是否存在
+        if (!roomType || !ROOM_RATES[roomType]) {
+            return { 
+                success: false, 
+                errorMessage: `警告：無法找到房型 [${roomType}] 的價格，請檢查 config.js 或房型名稱。`,
+                oos: true
+            };
+        }
+        
+        // --- 1. 數據完整性檢查 (不含房型/房價，已在上一步檢查) ---
         if (!checkInDate || nights <= 0 || roomCount <= 0 || adultCount <= 0) {
             return { success: false, errorMessage: "價格計算所需的數據不完整或無效 (請檢查日期、晚數、房間數、大人數)。" };
         }
