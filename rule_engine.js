@@ -1,4 +1,3 @@
-
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier');
@@ -362,6 +361,12 @@ class RuleEngine {
                 let nextState = flow.states[nextStateKey];
                 
                 while (currentIterationKey && nextState && nextState.entities) {
+                    
+                    // 【修正 3.2：防禦性檢查 next_state 是否存在，避免設定為 undefined】
+                    if (!nextState.next_state) {
+                        console.log(`💡 流程停止：狀態 ${currentIterationKey} 沒有定義 next_state，流程停止推進。`);
+                        break;
+                    }
                     
                     // --- 【修正：強制停止檢查】 ---
                     if (FORCED_BREAK_STATES.includes(currentIterationKey)) {
