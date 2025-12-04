@@ -12,26 +12,25 @@ class SessionManager {
     /** 獲取或初始化會話 */
     getSession(sessionId) {
         if (!this.sessions.has(sessionId)) {
-            // 從 flowConfig 獲取初始狀態
             const initialState = flowLoader.getFlow().initial_state || 'init';
             
             this.sessions.set(sessionId, {
                 currentStep: initialState, 
                 collectedData: {
-                    // 初始化核心數據結構
+                    // 初始化核心數據結構，新增 serviceFee 和 transferFee 以支援價格明細
                     finalPrice: '0', 
                     totalPrice: '0',
                     totalPriceNoChild: '0',
                     childCost: '0',
                     discountRate: '0',
-                    serviceFee: '0', // 建議新增，用於價格明細
-                    transferFee: '0', // 建議新增，用於價格明細
+                    serviceFee: '0',      // 新增：服務費
+                    transferFee: '0',     // 新增：接送費
                     paymentMethod: '未選擇'
                 }, 
                 conversationHistory: [],
                 lastActive: new Date().getTime(),
                 pausedState: null,
-                executedHandlers: {} // 追蹤 RuleEngine 內 Handler 的執行狀態
+                executedHandlers: {} // 🏆 新增：追蹤 RuleEngine 內 Handler 的執行狀態
             });
         }
         // 確保每次獲取會話時更新活動時間
@@ -68,10 +67,10 @@ class SessionManager {
             timestamp: new Date().toISOString()
         });
     }
+    
+    // --- 【新增：流程重置和清除核心實體的方法】 ---
 
-    // --- 【修正：實現 RuleEngine 所需的 resetSession】 ---
-
-    /** 🏆 完整重置會話：用於訂單提交完成或流程強制結束時 */
+    /** 🏆 新增：完整重置會話（解決 RuleEngine 的 TypeError） */
     resetSession(sessionId) {
         if (this.sessions.has(sessionId)) {
             const session = this.sessions.get(sessionId);
@@ -91,30 +90,31 @@ class SessionManager {
                 paymentMethod: '未選擇'
             }; 
             session.pausedState = null;
-            session.executedHandlers = {};
-            // 清理歷史記錄 (可選，但建議保留少數歷史記錄以供除錯)
+            session.executedHandlers = {}; // 清除 Handler 追蹤
             session.conversationHistory = []; 
         }
     }
     
-    /** 清除預訂核心實體：用於空房或價格檢查失敗，要求重新輸入基本資訊時 */
+    /** 🏆 新增：清除預訂核心實體（用於價格檢查失敗時重訂） */
     clearBookingEssentials(sessionId) {
         if (this.sessions.has(sessionId)) {
-            const data = this.sessions.get(sessionId).collectedData;
+            const session = this.sessions.get(sessionId);
+            const data = session.collectedData;
             
-            // 只需要清除流程中斷時需要重新收集的核心實體
+            // 清除流程中斷時需要重新收集的核心實體
             delete data.roomType;
             delete data.checkInDate;
             delete data.nights;
             delete data.roomCount;
+            
             // 清除計算出的價格
             data.finalPrice = '0';
             data.totalPrice = '0';
             data.serviceFee = '0';
             data.transferFee = '0';
-
-            // 重置 Handler 追蹤 (確保價格計算會再次執行)
-            this.sessions.get(sessionId).executedHandlers = {}; 
+            
+            // 重置 Handler 追蹤，確保價格計算會再次執行
+            session.executedHandlers = {}; 
 
             console.log(`⚠️ 已清除會話 ${sessionId} 的核心預訂數據。`);
         }
