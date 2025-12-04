@@ -13,13 +13,18 @@ dayjs.extend(customParseFormat);
 dayjs.extend(weekday);
 dayjs.extend(isSameOrAfter);
 
-// 從配置中解構常數 (這裡設定一個安全的預設值，以防止 config.js 缺失)
-// 確保 DEFAULT_ROOM_INVENTORY 即使未定義，也有個預設值 (例如 5)
+// 從配置中解構常數
 const {
-    ROOM_RATES = {},
+    ROOM_RATES = {
+        // ========== ⚠️ 新增虛擬房價數據 START ⚠️ ==========
+        '豪華客房': 3000,
+        '行政套房': 6000,
+        '海景雙人房': 4500
+        // ========== ⚠️ 新增虛擬房價數據 END ⚠️ ==========
+    },
     WEEKEND_MULTIPLIER = 1.2,
     CHILD_FEE_PER_NIGHT = 500,
-    DEFAULT_ROOM_INVENTORY = 5, // ⬅️ 這裡確保了 DEFAULT_ROOM_INVENTORY 的安全預設值
+    DEFAULT_ROOM_INVENTORY = 5, 
     VIRTUAL_INVENTORY = {},
     VIRTUAL_MEMBERS = {}
 } = config;
@@ -66,7 +71,8 @@ class BookingFlowController {
 
         // --- 1. 數據完整性檢查 ---
         if (!roomType || !ROOM_RATES[roomType] || !checkInDate || nights <= 0 || roomCount <= 0 || adultCount <= 0) {
-            return { success: false, errorMessage: "價格計算所需的數據不完整或無效 (請檢查房型、日期、晚數、房間數、大人數)。" };
+            // 房價缺失導致無法計算，返回錯誤
+            return { success: false, errorMessage: "價格計算所需的數據不完整或無效 (請檢查房型、日期、晚數、房間數、大人數，或確認該房型有定價)。" };
         }
 
         let currentDate = dayjs(checkInDate, 'YYYY/MM/DD');
@@ -77,10 +83,10 @@ class BookingFlowController {
             const dateKey = currentDate.format('YYYY-MM-DD');
             const dayOfWeek = currentDate.day(); // 0 (Sun) - 6 (Sat)
 
-            // a) 庫存檢查 (修正後的邏輯)
+            // a) 庫存檢查
             const availableRooms = VIRTUAL_INVENTORY[dateKey]
                 ? VIRTUAL_INVENTORY[dateKey][roomType] || DEFAULT_ROOM_INVENTORY
-                : DEFAULT_ROOM_INVENTORY; // ⬅️ 修正：直接使用 DEFAULT_ROOM_INVENTORY (已經在開頭確保為 5)
+                : DEFAULT_ROOM_INVENTORY; 
 
             if (roomCount > availableRooms) {
                 // 庫存不足，回傳錯誤訊息和 OOS 標記
