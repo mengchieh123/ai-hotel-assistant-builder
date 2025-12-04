@@ -53,7 +53,7 @@ class RuleEngine {
             }
 
             let finalResponse = result.response;
-            
+            
             // 針對不同狀態處理 AI 回應的組合方式
             if (geminiResponse) {
                 if (session.currentStep === 'paused_waiting_for_resume') {
@@ -92,10 +92,10 @@ class RuleEngine {
 
         // 規則優先級：緊急 > 查詢覆蓋 > 流程控制 > 閒聊
         const rules = [
-            this.emergencyRule, 
-            this.generalInquiryOverrideRule, // 👈 擴展修正 P:104
-            this.bookingFlowRule, 
-            this.generalRule 
+            this.emergencyRule, 
+            this.generalInquiryOverrideRule, // 👈 P:104
+            this.bookingFlowRule, 
+            this.generalRule 
         ];
 
         for (const rule of rules) {
@@ -125,27 +125,27 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    /** 規則 1.5: 通用查詢覆蓋規則 (極高優先級 P:104) 
-     * 修正：擴大意圖涵蓋範圍，解決分類器誤判 general_inquiry 的問題。
-     */
+    /** 規則 1.5: 通用查詢覆蓋規則 (極高優先級 P:104) 
+     * 涵蓋所有可能被誤判為「非流程」的通用查詢意圖，但排除攜帶實體的訂房請求。
+     */
     static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
         // 涵蓋所有可能被誤判為「非流程」的通用查詢意圖
-        const isGeneralQueryIntent = 
-            intents.includes('general_inquiry') || 
-            intents.includes('inquiry') || // 包含 inquiry (您的 Log 顯示此意圖常出現)
-            intents.includes('pricing') || 
-            intents.includes('facilities') || 
-            intents.includes('weather');    
+        const isGeneralQueryIntent = 
+            intents.includes('general_inquiry') || 
+            intents.includes('inquiry') || 
+            intents.includes('pricing') || 
+            intents.includes('facilities') || 
+            intents.includes('weather');    
 
         // 只有當【是查詢意圖】且【沒有新的訂房實體】時，才執行覆蓋
         const hasNoBookingEntities = Object.keys(extractedEntities).length === 0;
-        
+        
         if (isGeneralQueryIntent && hasNoBookingEntities) {
             return {
                 shouldProcess: true,
-                priority: 104, 
-                response: "好的，我將為您查詢。", 
-                nextStep: 'handle_general_inquiry', 
+                priority: 104, 
+                response: "好的，我將為您查詢。", 
+                nextStep: 'handle_general_inquiry', 
                 allowGeminiCall: true
             };
         }
@@ -190,19 +190,19 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         let currentStateKey = session.currentStep;
 
         let currentState = flow.states[currentStateKey];
-        
+        
         // =========================================================================
         // 【P:103 房間數量硬性上限檢查】
         const MAX_ROOM_LIMIT = 5;
         if (
-            data.roomType && 
-            data.roomCount > MAX_ROOM_LIMIT 
+            data.roomType && 
+            data.roomCount > MAX_ROOM_LIMIT 
         ) {
             data.roomCount = null;
             data.nights = null;
             data.checkInDate = null;
 
-            const nextStateKey = 'show_room_types'; 
+            const nextStateKey = 'show_room_types'; 
 
             return {
                 shouldProcess: true,
@@ -217,7 +217,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
         // 1. 查詢/介紹優先級處理 (P:98) - 流程暫停邏輯
         const hasNewEntities = Object.keys(extractedEntities).length > 0;
-        
+        
         // 這裡僅處理明確的房型/價格查詢，而非一般閒聊 (general_inquiry)
         if (intents.includes('inquiry') || intents.includes('pricing') || intents.includes('roomType_keyword')) {
             if (currentStateKey &&
@@ -266,13 +266,26 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 return { shouldProcess: false, priority: 0 };
             }
         }
-        
+        
         // 處理完恢復邏輯後，確保currentState是最新的
         currentState = flow.states[currentStateKey];
 
 
         // 3. 流程內部轉移與邏輯處理
         let nextStateKey = currentStateKey;
+
+        // =========================================================================
+        // 🚨 關鍵修正：處理 INIT 狀態的邏輯 (P:101 啟動點)
+        if (currentStateKey === 'init') {
+            if (intents.includes('booking')) {
+                nextStateKey = 'show_room_types'; // ✅ 強制轉移到起始狀態
+            } else {
+                // 如果是 init 狀態，但不是 booking 意圖，讓 control 流到 P:104 或 P:1
+                return { shouldProcess: false, priority: 0 }; 
+            }
+        }
+        // =========================================================================
+
 
         // A. 意圖轉移檢查
         for (const intent of intents) {
@@ -289,7 +302,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 nextStateKey = 'collect_transfer_details';
             } else if (intents.includes('deny') || message.toLowerCase().includes('不要') || message.toLowerCase().includes('不需要')) {
                 session.collectedData.needsTransfer = false;
-                data.transferFee = 0; 
+                data.transferFee = 0; 
                 nextStateKey = 'ask_payment_method';
             }
         }
@@ -338,7 +351,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                     ? priceResult.errorMessage + " **請修正房數、晚數或選擇其他日期/房型。**"
                     : priceResult.errorMessage || "抱歉，計算價格或檢查庫存時發生錯誤。";
 
-                nextStateKey = 'show_room_types'; 
+                nextStateKey = 'show_room_types'; 
 
                 return {
                     shouldProcess: true,
@@ -350,7 +363,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 };
             }
         }
-        
+        
         // C.2. 處理 confirm_booking 狀態的確認/修改邏輯
         if (currentStateKey === 'confirm_booking') {
             if (isAffirm) {
