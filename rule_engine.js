@@ -33,6 +33,7 @@ class RuleEngine {
 
         // 【優化】先提取實體，供後續 P:98 規則判斷是否為「新實體輸入」
         const extractedEntities = SmartIntentClassifier.extractEntities(userMessage);
+        // 將提取的實體合併到 Session 資料中
         Object.assign(session.collectedData, extractedEntities);
 
         // 更新 Session 中的用戶輸入和意圖
@@ -277,10 +278,11 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         // =========================================================================
         // 🚨 關鍵修正：處理 INIT 狀態的邏輯 (P:101 啟動點)
         if (currentStateKey === 'init') {
-            if (intents.includes('booking')) {
+            // 修正：只要有 booking 意圖 或 帶有日期/晚數實體，就啟動流程
+            if (intents.includes('booking') || data.checkInDate || data.nights) {
                 nextStateKey = 'show_room_types'; // ✅ 強制轉移到起始狀態
             } else {
-                // 如果是 init 狀態，但不是 booking 意圖，讓 control 流到 P:104 或 P:1
+                // 如果是 init 狀態，但不是訂房意圖且沒有實體，讓 control 流到 P:104 或 P:1
                 return { shouldProcess: false, priority: 0 }; 
             }
         }
@@ -417,6 +419,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         if (nextStateKey !== currentStateKey || (nextStateKey === currentStateKey && allEntitiesCollected === false)) {
             const nextState = flow.states[nextStateKey];
 
+            // 這段原本就是跳過 init 狀態的輸出，讓 control 流到 P:1
             if (nextStateKey === currentStateKey && nextStateKey === 'init') {
                 return { shouldProcess: false, priority: 0 };
             }
