@@ -27,7 +27,7 @@ class RuleEngine {
         const session = sessionManager.getSession(sessionId);
         const intents = SmartIntentClassifier.classify(userMessage);
 
-        // 🚨 【調試點：檢查意圖分類結果】
+        // 🚨 【調試點：檢查意圖分類結果】(保留調試 Log，幫助追蹤)
         console.log(`🔍 Intent Classifier Output: ${JSON.stringify(intents)}`);
         // 🚨 【調試點結束】
 
@@ -92,10 +92,10 @@ class RuleEngine {
 
         // 規則優先級：緊急 > 查詢覆蓋 > 流程控制 > 閒聊
         const rules = [
-            this.emergencyRule, // P:105
-            this.generalInquiryOverrideRule, // P:104
-            this.bookingFlowRule, // P:95-P:103
-            this.generalRule // P:1
+            this.emergencyRule, 
+            this.generalInquiryOverrideRule, // 👈 擴展修正 P:104
+            this.bookingFlowRule, 
+            this.generalRule 
         ];
 
         for (const rule of rules) {
@@ -125,19 +125,27 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    /** 規則 1.5: 通用查詢覆蓋規則 (極高優先級 P:104) */
+    /** 規則 1.5: 通用查詢覆蓋規則 (極高優先級 P:104) 
+     * 修正：擴大意圖涵蓋範圍，解決分類器誤判 general_inquiry 的問題。
+     */
     static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
-        // 目的：只要是明確的 general_inquiry 意圖，就跳脫訂房流程，直接讓 AI 助理回答。
-        const hasGeneralInquiry = intents.includes('general_inquiry');
-        // 檢查是否有訂房流程關鍵實體（防止用戶說「我想問豪華客房的早餐」變成純查詢）
-        const hasNoBookingEntities = Object.keys(extractedEntities).length === 0;
+        // 涵蓋所有可能被誤判為「非流程」的通用查詢意圖
+        const isGeneralQueryIntent = 
+            intents.includes('general_inquiry') || 
+            intents.includes('inquiry') || // 包含 inquiry (您的 Log 顯示此意圖常出現)
+            intents.includes('pricing') || 
+            intents.includes('facilities') || 
+            intents.includes('weather');    
 
-        if (hasGeneralInquiry && hasNoBookingEntities) {
+        // 只有當【是查詢意圖】且【沒有新的訂房實體】時，才執行覆蓋
+        const hasNoBookingEntities = Object.keys(extractedEntities).length === 0;
+        
+        if (isGeneralQueryIntent && hasNoBookingEntities) {
             return {
                 shouldProcess: true,
-                priority: 104, // 優先級高於訂房流程和 OOS 檢查
-                response: "好的，我將為您查詢。", // 這個 Prompt 會被後處理中的 Gemini Response 覆蓋
-                nextStep: 'handle_general_inquiry', // 導向讓 AI 助理接管的狀態
+                priority: 104, 
+                response: "好的，我將為您查詢。", 
+                nextStep: 'handle_general_inquiry', 
                 allowGeminiCall: true
             };
         }
@@ -208,10 +216,9 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         // =========================================================================
 
         // 1. 查詢/介紹優先級處理 (P:98) - 流程暫停邏輯
-        // 僅針對 inquiry/pricing/roomType_keyword 且【沒有新的訂房實體】時才觸發暫停
         const hasNewEntities = Object.keys(extractedEntities).length > 0;
         
-        // ⚠️ 修正：這裡不再包含 general_inquiry 意圖
+        // 這裡僅處理明確的房型/價格查詢，而非一般閒聊 (general_inquiry)
         if (intents.includes('inquiry') || intents.includes('pricing') || intents.includes('roomType_keyword')) {
             if (currentStateKey &&
                 currentStateKey !== 'init' &&
