@@ -1,7 +1,7 @@
 // server.js (最終版本 - 極度精簡)
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors'); 
+const cors = require('cors'); 
 const path = require('path');
 
 const PORT = process.env.PORT || 10000;
@@ -43,8 +43,8 @@ app.post('/api/chat', async (req, res) => {
     }
 
     try {
-        // 將所有流程處理交給 RuleEngine 模組
-        const result = await RuleEngine.processRules({ sessionId, userMessage: message });
+        // 【關鍵修正】：直接傳遞兩個參數 sessionId 和 message
+        const result = await RuleEngine.processRules(sessionId, message);
         res.json(result);
     } catch (error) {
         console.error('API 處理錯誤:', error);
