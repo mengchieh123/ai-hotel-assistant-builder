@@ -26,9 +26,11 @@ const {
 // 常數定義
 const MEAL_PRICE_PER_PERSON_PER_NIGHT = 150; // 早餐單價
 const SERVICE_FEE_RATE = 0.1; // 10% 服務費
-const PET_FEE_PER_PET_PER_NIGHT = 300; // 🐶 寵物加價單價 (新增)
+const PET_FEE_PER_PET_PER_NIGHT = 300; // 🐶 寵物加價單價
+const VIRTUAL_PAYMENT_BASE_URL = 'https://secure.payment.gateway.com/pay'; // 虛擬金流服務基礎URL (新增)
 
-// 模擬優惠代碼列表 (新增)
+
+// 模擬優惠代碼列表
 const VIRTUAL_PROMO_CODES = {
     'SUMMER20': 0.80, // 8折
     'WEEKDAY10': 0.90, // 9折
@@ -58,8 +60,8 @@ class BookingFlowController {
             childCount = 0,
             roomCount = 1,
             memberAccount,
-            promoCode, // 🎁 新增：優惠代碼
-            petCount = 0, // 🐶 新增：寵物數量
+            promoCode,
+            petCount = 0,
             needsMeal = true,
             transferFee = 0
         } = data;
@@ -72,7 +74,7 @@ class BookingFlowController {
         let currentDate = dayjs(checkInDate, 'YYYY/MM/DD');
         let totalRoomPrice = 0;
 
-        // --- 2. 逐晚檢查庫存與動態計算房價 (保持不變) ---
+        // --- 2. 逐晚檢查庫存與動態計算房價 ---
         for (let i = 0; i < nights; i++) {
             const dateKey = currentDate.format('YYYY-MM-DD');
             const dayOfWeek = currentDate.day(); // 0 (Sun) - 6 (Sat)
@@ -108,7 +110,7 @@ class BookingFlowController {
         const totalChildFee = (childCount || 0) * CHILD_FEE_PER_NIGHT * nights;
         data.childCost = Math.round(totalChildFee).toFixed(0);
 
-        // b) 寵物加價 (新增)
+        // b) 寵物加價
         const totalPetFee = (petCount || 0) * PET_FEE_PER_PET_PER_NIGHT * nights;
         data.petFee = Math.round(totalPetFee).toFixed(0);
         
@@ -116,14 +118,13 @@ class BookingFlowController {
         const guests = adultCount + childCount;
         let mealPrice = 0;
         if (needsMeal) {
-            // 注意：這裡假設兒童也需付早餐費，若有更複雜政策需在 config 內設定。
             mealPrice = MEAL_PRICE_PER_PERSON_PER_NIGHT * guests * nights;
         }
         data.mealPrice = Math.round(mealPrice).toFixed(0);
 
         // 房費小計 (房費 + 兒童加價 + 寵物加價 + 餐飲費)
         let subtotalBeforeService = totalRoomPrice + totalChildFee + totalPetFee + mealPrice;
-        data.totalPrice = Math.round(subtotalBeforeService).toFixed(0); // 這裡儲存小計
+        data.totalPrice = Math.round(subtotalBeforeService).toFixed(0);
 
         // d) 服務費計算 (基於房費小計)
         const serviceFee = subtotalBeforeService * SERVICE_FEE_RATE;
@@ -139,11 +140,11 @@ class BookingFlowController {
         let discountedPrice = total;
         let discountApplied = false;
         
-        // a) 應用優惠代碼折扣 (新增邏輯)
+        // a) 應用優惠代碼折扣
         if (promoCode && VIRTUAL_PROMO_CODES[promoCode.toUpperCase()]) {
             const promo = VIRTUAL_PROMO_CODES[promoCode.toUpperCase()];
 
-            if (typeof promo === 'number') { // 百分比折扣 (例如 0.80)
+            if (typeof promo === 'number') { // 百分比折扣
                 discountedPrice *= promo;
                 data.promoDiscountRate = ((1 - promo) * 100).toFixed(0);
                 data.promoDiscountType = '百分比折扣';
@@ -165,35 +166,45 @@ class BookingFlowController {
             const memberInfo = VIRTUAL_MEMBERS[memberAccount];
             const memberDiscountRate = memberInfo.discount || 0.9;
             
-            // 折扣應用在總價上
             discountedPrice *= memberDiscountRate;
 
             data.discountRate = ((1 - memberDiscountRate) * 100).toFixed(0);
             data.memberLevel = memberInfo.level;
             data.newTotalPrice = Math.round(discountedPrice).toFixed(0);
         } else {
-            // 如果應用了優惠代碼，會員折扣就不再適用 (或沒有會員/優惠碼)
             data.discountRate = '0';
             data.memberLevel = isMemberDiscount ? VIRTUAL_MEMBERS[memberAccount].level : '無';
             data.newTotalPrice = Math.round(discountedPrice).toFixed(0);
         }
 
         // 5. 最終價格 (Final Price)
-        const finalPrice = Math.round(discountedPrice < 0 ? 0 : discountedPrice); // 確保最終價格不為負數
+        const finalPrice = Math.round(discountedPrice < 0 ? 0 : discountedPrice);
         data.finalPrice = finalPrice.toFixed(0);
 
         return { success: true, totalPrice: finalPrice };
     }
 
     /**
-     * 【模擬訂單提交】
-     * 模擬將訂單數據送出到後端系統。
+     * 【模擬訂單提交，包含金流連結生成】
+     * 模擬將訂單數據送出到後端系統，並根據付款方式生成回應。
      */
     static submitBooking(data) {
-        // 實際應用中，這裡會呼叫 API
+        // 實際應用中，這裡會呼叫後端 API
         const orderId = 'AIBK' + Date.now().toString().slice(-6);
-        // 可以將新的折扣和費用包含在確認訊息中
-        const paymentMessage = `我們已成功收到您的訂房請求，訂單編號 **${orderId}** 資訊已發送至您的聯絡信箱/電話，並包含付款連結。`;
+        
+        let paymentMessage;
+        
+        if (data.paymentMethod === '線上付款') {
+            // 模擬生成 Payment URL
+            const finalPrice = data.finalPrice;
+            const virtualPaymentURL = `${VIRTUAL_PAYMENT_BASE_URL}?orderId=${orderId}&amount=${finalPrice}`;
+
+            paymentMessage = `您的訂單編號是 **${orderId}**，最終金額 NT$ ${finalPrice}。\n\n**[點擊此處完成線上付款](${virtualPaymentURL})**\n\n請注意：連結將在 30 分鐘內有效。`;
+
+        } else { // 現場結帳
+            paymentMessage = `您的訂單編號是 **${orderId}**，我們已為您保留房間。請在入住時告知訂單編號 **${orderId}** 並完成現場結帳。`;
+        }
+
         return { id: orderId, paymentMessage: paymentMessage };
     }
 }
