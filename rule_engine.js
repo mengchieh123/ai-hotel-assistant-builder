@@ -1,10 +1,10 @@
 // rule_engine.js
 
 // 導入所有 RuleEngine 依賴的模組
-const sessionManager = require('./session_manager'); 
-const SmartIntentClassifier = require('./intent_classifier'); 
-const BookingFlowController = require('./booking_controller'); 
-const GeminiGenerator = require('./gemini_generator'); 
+const sessionManager = require('./session_manager');
+const SmartIntentClassifier = require('./intent_classifier');
+const BookingFlowController = require('./booking_controller');
+const GeminiGenerator = require('./gemini_generator');
 
 // 實用函數：替換 Prompt 中的變數
 function interpolatePrompt(text, data) {
@@ -26,17 +26,17 @@ class RuleEngine {
     static async processRules({ sessionId, userMessage }) {
         const session = sessionManager.getSession(sessionId);
         const intents = SmartIntentClassifier.classify(userMessage);
-        
+
         // 【優化】先提取實體，供後續 P:98 規則判斷是否為「新實體輸入」
         const extractedEntities = SmartIntentClassifier.extractEntities(userMessage);
         Object.assign(session.collectedData, extractedEntities);
-        
+
         // 更新 Session 中的用戶輸入和意圖
         sessionManager.updateSession(sessionId, userMessage, intents);
-        
+
         // 執行規則
         // 將 extractedEntities 傳遞給 process，用於 bookingFlowRule 的 P:98 檢查
-        const result = await RuleEngine.process(intents, session, userMessage, extractedEntities); 
+        const result = await RuleEngine.process(intents, session, userMessage, extractedEntities);
 
         // 執行結果後處理 (其餘部分保持不變)
         if (result.shouldProcess) {
@@ -45,8 +45,8 @@ class RuleEngine {
             }
 
             let geminiResponse = '';
-            if (result.allowGeminiCall) { 
-                geminiResponse = await GeminiGenerator.getResponse(session, userMessage); 
+            if (result.allowGeminiCall) {
+                geminiResponse = await GeminiGenerator.getResponse(session, userMessage);
             }
 
             let finalResponse = result.response;
@@ -57,9 +57,9 @@ class RuleEngine {
                     finalResponse = geminiResponse;
                 }
             }
-            
+
             if (result.endFlow) {
-                sessionManager.clearEntities(sessionId); 
+                sessionManager.clearEntities(sessionId);
                 session.currentStep = 'init';
             }
 
@@ -82,7 +82,7 @@ class RuleEngine {
 
     // 執行規則集
     static async process(intents, session, message, extractedEntities) {
-        
+
         // 規則優先級：緊急 > 流程控制 > 閒聊
         const rules = [
             this.emergencyRule,
@@ -92,7 +92,7 @@ class RuleEngine {
 
         for (const rule of rules) {
             // 傳遞 extractedEntities
-            const result = await rule.call(this, intents, session, message, extractedEntities); 
+            const result = await rule.call(this, intents, session, message, extractedEntities);
             if (result.shouldProcess) {
                 console.log(`🎯 規則觸發: ${rule.name || 'Anonymous Rule'} (P: ${result.priority})`);
                 return result;
@@ -105,23 +105,23 @@ class RuleEngine {
     /** 規則 1: 緊急事件處理 (最高優先級 P:100) */
     static emergencyRule(intents, session, message) {
         if (intents.includes('emergency')) {
-            return { 
-                shouldProcess: true, 
+            return {
+                shouldProcess: true,
                 priority: 100,
                 response: `🚨 **緊急通知**：請立即撥打 119 或飯店櫃檯 (分機 9)。請提供您的房號及確切情況，我們將在最短時間內提供協助！`,
-                nextStep: 'end_conversation', 
+                nextStep: 'end_conversation',
                 endFlow: true,
                 allowGeminiCall: false
             };
         }
         return { shouldProcess: false, priority: 0 };
     }
-    
+
     /** 輔助函數：生成訂單摘要 (強化版) */
     static generateSummary(data) {
         // ... (保持不變) ...
         const isMember = data.memberAccount ? true : false;
-        
+
         let summary = `🗓️ 日期/房型：**${data.roomType || 'N/A'}** (${data.roomCount || 1} 間)
 入住：**${data.checkInDate || 'N/A'}**，共 **${data.nights || 'N/A'} 晚**
 👨‍👩‍👧‍👦 人數：**${data.adultCount || 'N/A'} 大 ${data.childCount || 0} 小**
@@ -148,31 +148,59 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
     /** 規則 2: 訂房流程規則 (核心邏輯 P:98, P:101) */
     static async bookingFlowRule(intents, session, message, extractedEntities) {
-        const flow = BookingFlowController.getFlow(); 
+        const flow = BookingFlowController.getFlow();
         const isAffirm = intents.includes('affirm') || message.toLowerCase().includes('確認');
         const isCorrection = intents.includes('correction') || intents.includes('modify') || message.toLowerCase().includes('修改');
         const isDeny = intents.includes('deny');
         const data = session.collectedData;
         let currentStateKey = session.currentStep;
-        
+
         let currentState = flow.states[currentStateKey];
+
+        // =========================================================================
+        // 【P:103 房間數量硬性上限檢查】 (新增)
+        // 目的：在進入日期收集狀態前，就排除大於 5 間房的預訂，並強制回退到收集房型。
+        // -------------------------------------------------------------------------
+        const MAX_ROOM_LIMIT = 5;
+        if (
+            data.roomType && // 必須有房型
+            data.roomCount > MAX_ROOM_LIMIT && // 檢查是否超過硬性上限
+            currentStateKey !== 'collect_room_and_dates' // 避免無限循環
+        ) {
+            // 清除房數和日期，要求用戶重新輸入
+            data.roomCount = null;
+            data.nights = null;
+            data.checkInDate = null;
+
+            const nextStateKey = 'collect_room_and_dates'; // 假設這是詢問 "房型 / 幾間房 / 幾晚" 的狀態
+
+            return {
+                shouldProcess: true,
+                priority: 103, // 極高優先級
+                nextStep: nextStateKey,
+                response: `抱歉，為了確保大型團體訂房的品質，**${data.roomType}** 單次最多僅能預訂 **${MAX_ROOM_LIMIT} 間**。請修正您需要的房間數。`,
+                richCard: flow.states[nextStateKey].richCard || null,
+                allowGeminiCall: false
+            };
+        }
+        // =========================================================================
 
         // 1. 查詢/介紹優先級處理 (P:98) - 流程暫停邏輯
         // 只有當用戶輸入查詢/閒聊意圖，且這次輸入【沒有包含任何新的訂房實體】時，才觸發暫停
         const hasNewEntities = Object.keys(extractedEntities).length > 0;
-        
+
         if (intents.includes('inquiry') || intents.includes('pricing') || intents.includes('roomType_keyword') || intents.includes('general_inquiry')) {
-            if (currentStateKey && 
-                currentStateKey !== 'init' && 
+            if (currentStateKey &&
+                currentStateKey !== 'init' &&
                 currentStateKey !== 'paused_waiting_for_resume' &&
-                !isAffirm && 
+                !isAffirm &&
                 !hasNewEntities) { // ⚠️ 關鍵修正：如果用戶提供了實體，則不應暫停
-                 
-                session.pausedState = currentStateKey; 
+
+                session.pausedState = currentStateKey;
 
                 return {
                     shouldProcess: true,
-                    priority: 98, 
+                    priority: 98,
                     response: `好的，我將為您查詢相關資訊。\n\n**查詢完成後，請回覆『繼續』以恢復訂房流程。**`,
                     richCard: {
                         "type": "button_list",
@@ -183,7 +211,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                         ]
                     },
                     nextStep: 'paused_waiting_for_resume',
-                    allowGeminiCall: true 
+                    allowGeminiCall: true
                 };
             }
         }
@@ -191,10 +219,10 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         // 2. 流程恢復處理 (P:99)
         if (currentStateKey === 'paused_waiting_for_resume' && session.pausedState) {
             if (isAffirm) {
-                currentStateKey = session.pausedState; 
+                currentStateKey = session.pausedState;
                 session.pausedState = null;
                 session.currentStep = currentStateKey;
-                currentState = flow.states[currentStateKey]; 
+                currentState = flow.states[currentStateKey];
             } else if (isDeny) {
                 return {
                     shouldProcess: true,
@@ -205,10 +233,10 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                     allowGeminiCall: false
                     };
             } else {
-                return { shouldProcess: false, priority: 0 }; 
+                return { shouldProcess: false, priority: 0 };
             }
         }
-        
+
         // 3. 流程內部轉移與邏輯處理
         let nextStateKey = currentStateKey;
 
@@ -219,7 +247,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 break;
             }
         }
-        
+
         // 【接送機邏輯】
         if (currentStateKey === 'ask_transfer_service') {
             if (intents.includes('affirm') || intents.includes('request_transfer') || message.toLowerCase().includes('要') || message.toLowerCase().includes('需要')) {
@@ -227,7 +255,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 nextStateKey = 'collect_transfer_details';
             } else if (intents.includes('deny') || message.toLowerCase().includes('不要') || message.toLowerCase().includes('不需要')) {
                 session.collectedData.needsTransfer = false;
-                session.collectedData.transferFee = 0; 
+                session.collectedData.transferFee = 0;
                 nextStateKey = 'ask_payment_method';
             }
         }
@@ -241,7 +269,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
             if (allEntitiesCollected) {
                 nextStateKey = currentState.next_state;
-                
+
                 // 實體推進邏輯 (Entity Forwarding)
                 let nextState = flow.states[nextStateKey];
                 while (nextState && nextState.entities && nextState.next_state) {
@@ -252,7 +280,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                         nextStateKey = nextState.next_state;
                         nextState = flow.states[nextStateKey];
                     } else {
-                        break; 
+                        break;
                     }
                 }
             }
@@ -261,7 +289,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         // C. 流程特殊邏輯處理 (在狀態轉移時觸發)
 
         // C.1. 價格計算與 OOS 檢查
-        if (nextStateKey === 'ask_member_account' || nextStateKey === 'ask_promo_code') { 
+        if (nextStateKey === 'ask_member_account' || nextStateKey === 'ask_promo_code') {
             // 處理接送機費用
             if (data.transferType === 'roundTrip') {
                 data.transferFee = 1800;
@@ -271,37 +299,37 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 data.transferFee = 0;
             }
 
-            const priceResult = BookingFlowController.calculatePrice(data); 
+            const priceResult = BookingFlowController.calculatePrice(data);
 
             if (!priceResult.success) {
                 const errorPrompt = priceResult.oos
                     ? priceResult.errorMessage + " **請修正房數、晚數或選擇其他日期/房型。**"
                     : priceResult.errorMessage || "抱歉，計算價格或檢查庫存時發生錯誤。";
-                
+
                 nextStateKey = 'collect_room_and_dates'; // OOS 錯誤強制回退
 
                 return {
                     shouldProcess: true,
                     // ⚠️ 修正點二：提高 OOS 錯誤處理優先級
-                    priority: 102,  
+                    priority: 102,
                     response: errorPrompt,
-                    nextStep: nextStateKey, 
-                    richCard: flow.states[nextStateKey].richCard || null, 
-                    allowGeminiCall: false 
+                    nextStep: nextStateKey,
+                    richCard: flow.states[nextStateKey].richCard || null,
+                    allowGeminiCall: false
                 };
             }
         }
-        
+
         // C.2. 處理 confirm_booking 狀態的確認/修改邏輯
         if (currentStateKey === 'confirm_booking') {
             if (isAffirm) {
-                const bookingResult = BookingFlowController.submitBooking(data); 
+                const bookingResult = BookingFlowController.submitBooking(data);
                 data.orderId = bookingResult.id;
                 data.paymentMessage = bookingResult.paymentMessage;
-                
+
                 const nextState = flow.states['booking_complete'];
                 const finalPrompt = interpolatePrompt(nextState.prompt, data);
-                
+
                 return {
                     shouldProcess: true,
                     priority: 96,
@@ -312,8 +340,8 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                     allowGeminiCall: false
                 };
             } else if (isCorrection) {
-                sessionManager.clearEntities(sessionId); 
-                
+                sessionManager.clearEntities(sessionId);
+
                 return {
                     shouldProcess: true,
                     priority: 96,
@@ -324,17 +352,17 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 };
             }
         }
-        
+
         // C.3. 在轉移到 confirm_booking 時，動態生成摘要
         if (nextStateKey === 'confirm_booking') {
             const summary = this.generateSummary(data);
             const nextState = flow.states[nextStateKey];
             const finalPrompt = nextState.prompt.replace('[SUMMARY]', summary);
-            
+
             return {
                 shouldProcess: true,
                 // ⚠️ 修正點三：提高轉移到 confirm_booking 的優先級
-                priority: 101, 
+                priority: 101,
                 response: finalPrompt,
                 nextStep: nextStateKey,
                 richCard: nextState.richCard || null,
@@ -345,21 +373,21 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         // 4. 輸出回應 (流程轉移或實體不足的提示)
         if (nextStateKey !== currentStateKey || (nextStateKey === currentStateKey && allEntitiesCollected === false)) {
             const nextState = flow.states[nextStateKey];
-            
+
             if (nextStateKey === currentStateKey && nextStateKey === 'init') {
                 return { shouldProcess: false, priority: 0 };
             }
-            
+
             const responsePrompt = nextState.prompt ? interpolatePrompt(nextState.prompt, data) : currentState.fallback;
 
             return {
                 shouldProcess: true,
                 // ⚠️ 修正點四：提高所有流程轉移和提示的優先級
-                priority: 101, 
+                priority: 101,
                 response: responsePrompt,
                 nextStep: nextStateKey,
                 richCard: nextState.richCard || null,
-                allowGeminiCall: nextState.allow_gemini_call === true 
+                allowGeminiCall: nextState.allow_gemini_call === true
             };
         }
 
@@ -371,30 +399,30 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         // 6. 流程內，但訊息無法驅動流程 (fallback 到當前狀態，例如用戶沒有提供所需的實體)
         if (currentStateKey !== 'init' && !allEntitiesCollected) {
             const responsePrompt = currentState.fallback ? interpolatePrompt(currentState.fallback, data) : currentState.prompt;
-            
+
             return {
                 shouldProcess: true,
                 // ⚠️ 修正點五：提高流程內 Fallback 的優先級
-                priority: 101, 
+                priority: 101,
                 response: responsePrompt,
                 nextStep: currentStateKey,
                 richCard: currentState.richCard || null,
-                allowGeminiCall: false 
+                allowGeminiCall: false
             };
         }
 
         // 7. 閒聊/未知意圖：返回 false，讓 control 流到 generalRule
         return { shouldProcess: false, priority: 0 };
     }
-    
+
     /** 規則 3: 一般詢問與閒聊 (最低優先級 P:1) */
     static generalRule(intents, session, message) {
-        return { 
-            shouldProcess: true, 
-            priority: 1, 
-            response: '我正在為您查詢或處理您的要求...', 
+        return {
+            shouldProcess: true,
+            priority: 1,
+            response: '我正在為您查詢或處理您的要求...',
             nextStep: 'handle_general_inquiry',
-            allowGeminiCall: true 
+            allowGeminiCall: true
         };
     }
 }
