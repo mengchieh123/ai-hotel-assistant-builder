@@ -16,14 +16,14 @@ dayjs.extend(isSameOrAfter);
 // 從配置中解構常數
 const {
     ROOM_RATES = {
-        // 預設值，以防 config.js 導入失敗
-        '豪華客房': 3000,
-        '行政套房': 6000,
-        '海景雙人房': 4500
-    },
+        // 預設值，以防 config.js 導入失敗
+        '豪華客房': 3000,
+        '行政套房': 6000,
+        '海景雙人房': 4500
+    },
     WEEKEND_MULTIPLIER = 1.2,
     CHILD_FEE_PER_NIGHT = 500,
-    DEFAULT_ROOM_INVENTORY = 5, 
+    DEFAULT_ROOM_INVENTORY = 5, 
     VIRTUAL_INVENTORY = {},
     VIRTUAL_MEMBERS = {}
 } = config;
@@ -68,24 +68,24 @@ class BookingFlowController {
             transferFee = 0
         } = data;
 
-        // ⭐️ 關鍵檢查點 1：確認 ROOM_RATES 是否已載入
-        if (Object.keys(ROOM_RATES).length === 0) {
-            return { 
-                success: false, 
-                errorMessage: "系統警告：未載入任何房價數據 (ROOM_RATES 為空)，請檢查 config.js 檔案。",
-                oos: true // 觸發 rule_engine 中的 OOS 錯誤處理邏輯 (P:102)
-            };
-        }
-        
-        // ⭐️ 關鍵檢查點 2：確認房型與房價是否存在
-        if (!roomType || !ROOM_RATES[roomType]) {
-            return { 
-                success: false, 
-                errorMessage: `警告：無法找到房型 [${roomType}] 的價格，請檢查 config.js 或房型名稱。`,
-                oos: true
-            };
-        }
-        
+        // ⭐️ 關鍵檢查點 1：確認 ROOM_RATES 是否已載入 (防止價格為 0)
+        if (Object.keys(ROOM_RATES).length === 0) {
+            return { 
+                success: false, 
+                errorMessage: "系統警告：未載入任何房價數據 (ROOM_RATES 為空)，請檢查 config.js 檔案。",
+                oos: true // Out Of Stock / 價格異常 標記
+            };
+        }
+        
+        // ⭐️ 關鍵檢查點 2：確認房型與房價是否存在
+        if (!roomType || !ROOM_RATES[roomType]) {
+            return { 
+                success: false, 
+                errorMessage: `警告：無法找到房型 [${roomType}] 的價格，請檢查 config.js 或房型名稱。`,
+                oos: true
+            };
+        }
+        
         // --- 1. 數據完整性檢查 (不含房型/房價，已在上一步檢查) ---
         if (!checkInDate || nights <= 0 || roomCount <= 0 || adultCount <= 0) {
             return { success: false, errorMessage: "價格計算所需的數據不完整或無效 (請檢查日期、晚數、房間數、大人數)。" };
@@ -102,7 +102,7 @@ class BookingFlowController {
             // a) 庫存檢查
             const availableRooms = VIRTUAL_INVENTORY[dateKey]
                 ? VIRTUAL_INVENTORY[dateKey][roomType] || DEFAULT_ROOM_INVENTORY
-                : DEFAULT_ROOM_INVENTORY; 
+                : DEFAULT_ROOM_INVENTORY; 
 
             if (roomCount > availableRooms) {
                 // 庫存不足，回傳錯誤訊息和 OOS 標記
