@@ -51,7 +51,7 @@
       },
       "entities": ["roomType"],
       "next_state": "ask_room_count",
-      "clear_entities": ["roomCount", "adultCount", "childCount", "checkInDate", "nights"], // <-- 已修正：在此加上逗號
+      "clear_entities": ["roomCount", "adultCount", "childCount", "checkInDate", "nights"],
       "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
     },
     "ask_room_count": {
