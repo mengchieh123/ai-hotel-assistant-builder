@@ -27,6 +27,10 @@ class RuleEngine {
         const session = sessionManager.getSession(sessionId);
         const intents = SmartIntentClassifier.classify(userMessage);
 
+        // 🚨 【調試點：檢查意圖分類結果】
+        console.log(`🔍 Intent Classifier Output: ${JSON.stringify(intents)}`);
+        // 🚨 【調試點結束】
+
         // 【優化】先提取實體，供後續 P:98 規則判斷是否為「新實體輸入」
         const extractedEntities = SmartIntentClassifier.extractEntities(userMessage);
         Object.assign(session.collectedData, extractedEntities);
@@ -88,10 +92,10 @@ class RuleEngine {
 
         // 規則優先級：緊急 > 查詢覆蓋 > 流程控制 > 閒聊
         const rules = [
-            this.emergencyRule,
-            this.generalInquiryOverrideRule, // 👈 P:104 修正，優先處理純查詢
-            this.bookingFlowRule,
-            this.generalRule
+            this.emergencyRule, // P:105
+            this.generalInquiryOverrideRule, // P:104
+            this.bookingFlowRule, // P:95-P:103
+            this.generalRule // P:1
         ];
 
         for (const rule of rules) {
@@ -142,7 +146,6 @@ class RuleEngine {
 
     /** 輔助函數：生成訂單摘要 (強化版) */
     static generateSummary(data) {
-        // ... (保持不變) ...
         const isMember = data.memberAccount ? true : false;
 
         let summary = `🗓️ 日期/房型：**${data.roomType || 'N/A'}** (${data.roomCount || 1} 間)
@@ -182,14 +185,11 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         
         // =========================================================================
         // 【P:103 房間數量硬性上限檢查】
-        // 目的：在流程開始處就排除大於 5 間房的預訂。
-        // -------------------------------------------------------------------------
         const MAX_ROOM_LIMIT = 5;
         if (
-            data.roomType && // 條件 1：必須有房型
-            data.roomCount > MAX_ROOM_LIMIT // 條件 2：房間數 > 5
+            data.roomType && 
+            data.roomCount > MAX_ROOM_LIMIT 
         ) {
-            // 清除房數和日期，要求用戶重新輸入
             data.roomCount = null;
             data.nights = null;
             data.checkInDate = null;
@@ -210,7 +210,8 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         // 1. 查詢/介紹優先級處理 (P:98) - 流程暫停邏輯
         // 僅針對 inquiry/pricing/roomType_keyword 且【沒有新的訂房實體】時才觸發暫停
         const hasNewEntities = Object.keys(extractedEntities).length > 0;
-        // ⚠️ 關鍵修正：將 'general_inquiry' 從這裡移除
+        
+        // ⚠️ 修正：這裡不再包含 general_inquiry 意圖
         if (intents.includes('inquiry') || intents.includes('pricing') || intents.includes('roomType_keyword')) {
             if (currentStateKey &&
                 currentStateKey !== 'init' &&
@@ -245,7 +246,6 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 session.pausedState = null;
                 session.currentStep = currentStateKey;
                 currentState = flow.states[currentStateKey];
-                // 成功恢復，繼續執行流程轉移邏輯
             } else if (isDeny) {
                 return {
                     shouldProcess: true,
@@ -256,13 +256,13 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                     allowGeminiCall: false
                     };
             } else {
-                // 流程暫停期間的閒聊（讓 generalRule 接管）
                 return { shouldProcess: false, priority: 0 };
             }
         }
         
         // 處理完恢復邏輯後，確保currentState是最新的
         currentState = flow.states[currentStateKey];
+
 
         // 3. 流程內部轉移與邏輯處理
         let nextStateKey = currentStateKey;
@@ -282,7 +282,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 nextStateKey = 'collect_transfer_details';
             } else if (intents.includes('deny') || message.toLowerCase().includes('不要') || message.toLowerCase().includes('不需要')) {
                 session.collectedData.needsTransfer = false;
-                data.transferFee = 0; // 確保費用被清除
+                data.transferFee = 0; 
                 nextStateKey = 'ask_payment_method';
             }
         }
@@ -317,7 +317,6 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
         // C.1. 價格計算與 OOS 檢查 (從 ask_guest_count/ask_nights_and_dates 轉移到 check_availability_and_price)
         if (nextStateKey === 'check_availability_and_price') {
-            // 處理接送機費用 (如果 collect_transfer_details 被跳過，這裡確保 transferType 不會是 undefined)
             if (data.transferType === 'roundTrip') {
                 data.transferFee = 1800;
             } else if (data.transferType === 'oneWay') {
@@ -325,7 +324,6 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
             } else if (data.transferType === undefined) {
                 data.transferFee = 0;
             }
-            // 進行價格計算
             const priceResult = BookingFlowController.calculatePrice(data);
 
             if (!priceResult.success) {
@@ -333,7 +331,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                     ? priceResult.errorMessage + " **請修正房數、晚數或選擇其他日期/房型。**"
                     : priceResult.errorMessage || "抱歉，計算價格或檢查庫存時發生錯誤。";
 
-                nextStateKey = 'show_room_types'; // OOS 錯誤強制回退
+                nextStateKey = 'show_room_types'; 
 
                 return {
                     shouldProcess: true,
@@ -440,7 +438,6 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
     /** 規則 3: 一般詢問與閒聊 (最低優先級 P:1) */
     static generalRule(intents, session, message) {
-        // 這個規則現在只處理那些沒有被 P:104 覆蓋到的，或者純粹的閒聊
         return {
             shouldProcess: true,
             priority: 1,
