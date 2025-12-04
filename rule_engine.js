@@ -199,9 +199,8 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
             data.roomType && 
             data.roomCount > MAX_ROOM_LIMIT 
         ) {
-            data.roomCount = null;
-            data.nights = null;
-            data.checkInDate = null;
+            // 清空所有流程相關實體 (只保留通用資訊如會員，但這裡為了安全全清)
+            sessionManager.clearEntities(sessionId);
 
             const nextStateKey = 'show_room_types'; 
 
@@ -209,7 +208,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                 shouldProcess: true,
                 priority: 103, // 極高優先級
                 nextStep: nextStateKey,
-                response: `抱歉，為了確保大型團體訂房的品質，**${data.roomType}** 單次最多僅能預訂 **${MAX_ROOM_LIMIT} 間**。請修正您需要的房間數。`,
+                response: `抱歉，為了確保大型團體訂房的品質，**${data.roomType || '您選擇的房型'}** 單次最多僅能預訂 **${MAX_ROOM_LIMIT} 間**。請修正您需要的房間數。`,
                 richCard: flow.states[nextStateKey].richCard || null,
                 allowGeminiCall: false
             };
@@ -276,13 +275,17 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         let nextStateKey = currentStateKey;
 
         // =========================================================================
-        // 🚨 關鍵修正：處理 INIT 狀態的邏輯 (P:101 啟動點)
+        // 🚨 最終修正：處理 INIT 狀態的邏輯 (P:101 啟動點)
         if (currentStateKey === 'init') {
-            // 修正：只要有 booking 意圖 或 帶有日期/晚數實體，就啟動流程
-            if (intents.includes('booking') || data.checkInDate || data.nights) {
+            // 修正：只要有 booking 意圖 OR 偵測到任何一個關鍵訂房實體，就啟動流程
+            if (
+                intents.includes('booking') || 
+                data.checkInDate || data.nights || 
+                data.roomType || data.roomCount
+            ) {
                 nextStateKey = 'show_room_types'; // ✅ 強制轉移到起始狀態
             } else {
-                // 如果是 init 狀態，但不是訂房意圖且沒有實體，讓 control 流到 P:104 或 P:1
+                // 如果是 init 狀態，且沒有任何訂房線索，讓 control 流到 P:104 或 P:1
                 return { shouldProcess: false, priority: 0 }; 
             }
         }
@@ -354,6 +357,9 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
                     : priceResult.errorMessage || "抱歉，計算價格或檢查庫存時發生錯誤。";
 
                 nextStateKey = 'show_room_types'; 
+
+                // 清空所有流程相關實體
+                sessionManager.clearEntities(sessionId);
 
                 return {
                     shouldProcess: true,
