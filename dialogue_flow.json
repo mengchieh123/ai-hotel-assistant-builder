@@ -1,207 +1,227 @@
 {
-  "name": "HotelBookingFlow",
-  "version": "1.5 (Optimized)",
-  "initial_state": "init",
-  "states": {
-    
-    "init": {
-      "prompt": "您好，我是您的專屬 AI 酒店訂房助理。很高興為您服務！請問您是想【預訂房間】還是【查詢酒店資訊】呢？",
-      "richCard": {
-        "type": "button_list",
-        "title": "請選擇服務類型：",
-        "buttons": [
-          {
-            "text": "🛏️ 預訂房間",
-            "value": "我要訂房"
-          },
-          {
-            "text": "ℹ️ 查詢資訊",
-            "value": "我想查詢資訊"
-          }
-        ]
-      },
-      "intents": {
-        "booking": "show_room_types",
-        "general_inquiry": "handle_general_inquiry"
-      },
-      "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
-    },
-    
-    "show_room_types": {
-      "prompt": "我們有以下四種熱門房型：\n\n1. 標準雙人房 (定價NT$2,200)\n2. 豪華客房 (定價NT$3,200)\n3. 行政套房 (定價NT$4,800)\n4. 家庭四人房 (定價NT$4,500)\n\n請問您想預訂哪一種房型？",
-      "richCard": {
-        "type": "button_list",
-        "title": "請選擇房型：",
-        "buttons": [
-          { "text": "標準雙人房", "value": "標準雙人房" },
-          { "text": "豪華客房", "value": "豪華客房" },
-          { "text": "行政套房", "value": "行政套房" },
-          { "text": "家庭四人房", "value": "家庭四人房" }
-        ]
-      },
-      "entities": [ "roomType" ],
-      "next_state": "ask_room_count", 
-      "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
-    },
-    
-    "ask_room_count": {
-      "prompt": "好的，您選擇了 {roomType}。請問您需要預訂【幾間】呢？",
-      "entities": [ "roomCount" ],
-      "next_state": "ask_nights_and_dates",
-      "fallback": "請提供您需要的房間間數，例如：2間。"
-    },
-
-    "ask_nights_and_dates": {
-      "prompt": "請接著提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
-      "entities": [ "checkInDate", "nights" ],
-      "next_state": "ask_guest_count",
-      "fallback": "請提供入住日期及住宿晚數，我會為您查詢空房與價格。"
-    },
-    
-    "ask_guest_count": {
-      "prompt": "感謝您！請問總共【幾位大人】和【幾位兒童】入住呢？ (例如：2位大人, 1位兒童)",
-      "entities": [ "adultCount", "childCount" ],
-      "next_state": "check_availability_and_price",
-      "fallback": "請提供大人及兒童的人數。"
-    },
-    
-    "check_availability_and_price": {
+  "name": "HotelBookingFlow",
+  "version": "1.5 (Optimized)",
+  "initial_state": "init",
+  "states": {
+    "init": {
+      "prompt": "您好，我是您的專屬 AI 酒店訂房助理。很高興為您服務！請問您是想【預訂房間】還是【查詢酒店資訊】呢？",
+      "richCard": {
+        "type": "button_list",
+        "title": "請選擇服務類型：",
+        "buttons": [
+          {
+            "text": "🛏️ 預訂房間",
+            "value": "我要訂房"
+          },
+          {
+            "text": "ℹ️ 查詢資訊",
+            "value": "我想查詢資訊"
+          }
+        ]
+      },
+      "intents": {
+        "booking": "show_room_types",
+        "general_inquiry": "handle_general_inquiry"
+      },
+      "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
+    },
+    "show_room_types": {
+      "prompt": "我們有以下四種熱門房型：\n\n1. 標準雙人房 (定價NT$2,200)\n2. 豪華客房 (定價NT$3,200)\n3. 行政套房 (定價NT$4,800)\n4. 家庭四人房 (定價NT$4,500)\n\n請問您想預訂哪一種房型？",
+      "richCard": {
+        "type": "button_list",
+        "title": "請選擇房型：",
+        "buttons": [
+          {
+            "text": "標準雙人房",
+            "value": "標準雙人房"
+          },
+          {
+            "text": "豪華客房",
+            "value": "豪華客房"
+          },
+          {
+            "text": "行政套房",
+            "value": "行政套房"
+          },
+          {
+            "text": "家庭四人房",
+            "value": "家庭四人房"
+          }
+        ]
+      },
+      "entities": ["roomType"],
+      "next_state": "ask_room_count",
+      "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
+    },
+    "ask_room_count": {
+      "prompt": "好的，您選擇了 {roomType}。請問您需要預訂【幾間】呢？",
+      "entities": ["roomCount"],
+      "next_state": "ask_nights_and_dates",
+      "fallback": "請提供您需要的房間間數，例如：2間。"
+    },
+    "ask_nights_and_dates": {
+      "prompt": "請接著提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
+      "entities": ["checkInDate", "nights"],
+      "next_state": "ask_guest_count",
+      "fallback": "請提供入住日期及住宿晚數，我會為您查詢空房與價格。"
+    },
+    "ask_guest_count": {
+      "prompt": "感謝您！請問總共【幾位大人】和【幾位兒童】入住呢？ (例如：2位大人, 1位兒童)",
+      "entities": ["adultCount", "childCount"],
+      "next_state": "check_availability_and_price",
+      "fallback": "請提供大人及兒童的人數。"
+    },
+    "check_availability_and_price": {
       "type": "logic_exec",
-      "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。請問您是否為會員？",
+      "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。請問您是否為會員？",
       "handler": "calculatePrice",
-      "richCard": {
-        "type": "button_list",
-        "title": "會員獨享優惠：",
-        "buttons": [
-          { "text": "我是會員，我要登入", "value": "我是會員，我要登入會員" },
-          { "text": "我不是會員", "value": "我不是會員" }
-        ]
-      },
-      "intents": {
-        "member_login": "login_member_account",
-        "deny": "confirm_member_and_meal" // 非會員直接跳到下一步
-      },
-      "fallback": "請回答您是否是會員，以便為您計算折扣。"
-    },
-    
-    "login_member_account": {
-      "prompt": "請輸入您的【會員帳號】或【手機號碼】。",
-      "entities": [ "memberAccount" ],
-      "next_state": "apply_member_discount",
-      "fallback": "請輸入有效的會員帳號或手機號碼，以便我們查詢您的會員等級。"
-    },
-    
-    "apply_member_discount": {
+      "richCard": {
+        "type": "button_list",
+        "title": "會員獨享優惠：",
+        "buttons": [
+          {
+            "text": "我是會員，我要登入",
+            "value": "我是會員，我要登入會員"
+          },
+          {
+            "text": "我不是會員",
+            "value": "我不是會員"
+          }
+        ]
+      },
+      "intents": {
+        "member_login": "login_member_account",
+        "deny": "confirm_member_and_meal"
+      },
+      "fallback": "請回答您是否是會員，以便為您計算折扣。"
+    },
+    "login_member_account": {
+      "prompt": "請輸入您的【會員帳號】或【手機號碼】。",
+      "entities": ["memberAccount"],
+      "next_state": "apply_member_discount",
+      "fallback": "請輸入有效的會員帳號或手機號碼，以便我們查詢您的會員等級。"
+    },
+    "apply_member_discount": {
       "type": "logic_exec",
-      "handler": "calculatePrice", // 重新計算折扣後價格
-      "prompt": "{memberLevel} 會員 {memberAccount}，恭喜您享有 {discountRate}% 折扣！原價 NT$ {totalPrice}，折扣後總價為 NT$ {newTotalPrice}。是否需要加購早餐？",
-      "richCard": {
-        "type": "button_list",
-        "title": "早餐加購 (NT$350/人/天)：",
-        "buttons": [
-          { "text": "我要加購早餐", "value": "是" },
-          { "text": "不用，謝謝", "value": "否" }
-        ]
-      },
-      "entities": ["needsMeal"],
-      "next_state": "ask_transfer_service",
-      "fallback": "請選擇是否加購早餐。"
-    },
-    
-    "confirm_member_and_meal": {
-      "prompt": "確認您不是會員，總價為 NT$ {totalPrice}。是否需要加購早餐？",
-      "richCard": {
-        "type": "button_list",
-        "title": "早餐加購 (NT$350/人/天)：",
-        "buttons": [
-          { "text": "我要加購早餐", "value": "是" },
-          { "text": "不用，謝謝", "value": "否" }
-        ]
-      },
-      "entities": ["needsMeal"],
-      "next_state": "ask_transfer_service",
-      "fallback": "請選擇是否加購早餐。"
-    },
-    
-    "ask_transfer_service": {
-        "prompt": "接下來，請問您是否需要額外的接送機服務？(單程 NT$ 1,000，來回 NT$ 1,800)",
-        "richCard": {
-            "type": "button_list",
-            "title": "是否需要接送機服務？",
-            "buttons": [
-                { "text": "✅ 需要接送", "value": "需要接送" },
-                { "text": "❌ 不需要", "value": "不需要接送" }
-            ]
-        },
-        "intents": {
-            "affirm": "collect_transfer_details",
-            "deny": "ask_contact_info" // 不需要接送，跳到聯絡資訊
-        },
-        "fallback": "請告訴我您是否需要接送機服務，如果不需要，請回覆『不需要』。"
-    },
-
-    "collect_transfer_details": {
-        "prompt": "好的，請提供您的【航班資訊】（航班號、抵達/起飛時間）以及【單程或來回】。",
-        "entities": ["flightNumber", "transferType"],
-        "next_state": "ask_contact_info", // 收集完畢，跳到聯絡資訊
-        "fallback": "請務必提供完整的航班和接送類型資訊（例如：CI102，單程）。"
-    },
-
-    "ask_contact_info": { 
-        "prompt": "好的，請提供您的【訂房人姓名】、【聯絡電話】和【電子郵件】。這些資訊將用於訂單通知。",
-        "entities": [ // 使用標準實體名
-            "name",
-            "phone",
-            "email"
-        ],
-        "next_state": "ask_payment_method", // 收集完畢，跳到付款方式
-        "fallback": "請提供訂房人姓名、聯絡電話和電子郵件。"
-    },
-    
-    "ask_payment_method": {
+      "handler": "calculatePrice",
+      "prompt": "{memberLevel} 會員 {memberAccount}，恭喜您享有 {discountRate}% 折扣！原價 NT$ {totalPrice}，折扣後總價為 NT$ {newTotalPrice}。是否需要加購早餐？",
+      "richCard": {
+        "type": "button_list",
+        "title": "早餐加購 (NT$350/人/天)：",
+        "buttons": [
+          {
+            "text": "我要加購早餐",
+            "value": "是"
+          },
+          {
+            "text": "不用，謝謝",
+            "value": "否"
+          }
+        ]
+      },
+      "entities": ["needsMeal"],
+      "next_state": "ask_transfer_service",
+      "fallback": "請選擇是否加購早餐。"
+    },
+    "confirm_member_and_meal": {
+      "prompt": "確認您不是會員，總價為 NT$ {totalPrice}。是否需要加購早餐？",
+      "richCard": {
+        "type": "button_list",
+        "title": "早餐加購 (NT$350/人/天)：",
+        "buttons": [
+          {
+            "text": "我要加購早餐",
+            "value": "是"
+          },
+          {
+            "text": "不用，謝謝",
+            "value": "否"
+          }
+        ]
+      },
+      "entities": ["needsMeal"],
+      "next_state": "ask_transfer_service",
+      "fallback": "請選擇是否加購早餐。"
+    },
+    "ask_transfer_service": {
+      "prompt": "接下來，請問您是否需要額外的接送機服務？(單程 NT$ 1,000，來回 NT$ 1,800)",
+      "richCard": {
+        "type": "button_list",
+        "title": "是否需要接送機服務？",
+        "buttons": [
+          {
+            "text": "✅ 需要接送",
+            "value": "需要接送"
+          },
+          {
+            "text": "❌ 不需要",
+            "value": "不需要接送"
+          }
+        ]
+      },
+      "intents": {
+        "affirm": "collect_transfer_details",
+        "deny": "ask_contact_info"
+      },
+      "fallback": "請告訴我您是否需要接送機服務，如果不需要，請回覆『不需要』。"
+    },
+    "collect_transfer_details": {
+      "prompt": "好的，請提供您的【航班資訊】（航班號、抵達/起飛時間）以及【單程或來回】。",
+      "entities": ["flightNumber", "transferType"],
+      "next_state": "ask_contact_info",
+      "fallback": "請務必提供完整的航班和接送類型資訊（例如：CI102，單程）。"
+    },
+    "ask_contact_info": {
+      "prompt": "好的，請提供您的【訂房人姓名】、【聯絡電話】和【電子郵件】。這些資訊將用於訂單通知。",
+      "entities": ["name", "phone", "email"],
+      "next_state": "ask_payment_method",
+      "fallback": "請提供訂房人姓名、聯絡電話和電子郵件。"
+    },
+    "ask_payment_method": {
       "type": "logic_exec",
-      "handler": "calculatePrice", // 執行最終價格計算，確保 transferFee 和 needsMeal 已計入
-      "prompt": "好的，所有加購服務和折扣已計入。最終總價為 NT$ {finalPrice}。請選擇您的付款方式：",
-      "richCard": {
-        "type": "button_list",
-        "title": "請選擇付款方式：",
-        "buttons": [
-          { "text": "線上付款 (即時確認)", "value": "線上付款" },
-          { "text": "現場結帳 (保留至 24H)", "value": "現場結帳" }
-        ]
-      },
-      "entities": ["paymentMethod"],
-      "next_state": "confirm_booking",
-      "fallback": "請選擇線上付款或現場結帳。"
-    },
-
-    "confirm_booking": {
-      "prompt": "【最終確認】請檢視您的訂單：\n\n[SUMMARY]\n\n若資料正確，請回覆『確認』；若要修改，請回覆『修改』。",
-      "intents": {
-        "affirm": "booking_complete", 
-        "correction": "show_room_types" // 修改直接回到房型選擇
-      },
-      "fallback": "請確認訂房資訊，並回答『確認』或『修改』。"
-    },
-    
-    "booking_complete": {
-      "prompt": "🎉 訂房完成！\n\n感謝 {name} 先生/女士。您的訂單編號是 {orderId}，最終價格 NT$ {finalPrice}。\n\n{paymentMessage}",
-      "end": true 
-    },
-    
-    "end_conversation": {
-      "prompt": "感謝您的使用，期待下次為您服務。",
-      "end": true 
-    },
-    
-    "handle_general_inquiry": {
-      "prompt": "請提供更多細節，我會盡力回答您。",
-      "allow_gemini_call": true
-    },
-
-    "paused_waiting_for_resume": {
-      "prompt": "流程已暫停，請回覆『繼續』或點擊按鈕恢復訂房。",
-      "allow_gemini_call": true
-    }
-  }
+      "handler": "calculatePrice",
+      "prompt": "好的，所有加購服務和折扣已計入。最終總價為 NT$ {finalPrice}。請選擇您的付款方式：",
+      "richCard": {
+        "type": "button_list",
+        "title": "請選擇付款方式：",
+        "buttons": [
+          {
+            "text": "線上付款 (即時確認)",
+            "value": "線上付款"
+          },
+          {
+            "text": "現場結帳 (保留至 24H)",
+            "value": "現場結帳"
+          }
+        ]
+      },
+      "entities": ["paymentMethod"],
+      "next_state": "confirm_booking",
+      "fallback": "請選擇線上付款或現場結帳。"
+    },
+    "confirm_booking": {
+      "prompt": "【最終確認】請檢視您的訂單：\n\n[SUMMARY]\n\n若資料正確，請回覆『確認』；若要修改，請回覆『修改』。",
+      "intents": {
+        "affirm": "booking_complete",
+        "correction": "show_room_types"
+      },
+      "fallback": "請確認訂房資訊，並回答『確認』或『修改』。"
+    },
+    "booking_complete": {
+      "prompt": "🎉 訂房完成！\n\n感謝 {name} 先生/女士。您的訂單編號是 {orderId}，最終價格 NT$ {finalPrice}。\n\n{paymentMessage}",
+      "end": true
+    },
+    "end_conversation": {
+      "prompt": "感謝您的使用，期待下次為您服務。",
+      "end": true
+    },
+    "handle_general_inquiry": {
+      "prompt": "請提供更多細節，我會盡力回答您。",
+      "allow_gemini_call": true
+    },
+    "paused_waiting_for_resume": {
+      "prompt": "流程已暫停，請回覆『繼續』或點擊按鈕恢復訂房。",
+      "allow_gemini_call": true
+    }
+  }
 }
