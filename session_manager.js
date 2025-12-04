@@ -9,42 +9,56 @@ class SessionManager {
         setInterval(() => this.cleanupExpiredSessions(), 30 * 60 * 1000); 
     }
 
+    /** 獲取或初始化會話 */
     getSession(sessionId) {
         if (!this.sessions.has(sessionId)) {
+            // 從 flowConfig 獲取初始狀態
+            const initialState = flowLoader.getFlow().initial_state || 'init';
+            
             this.sessions.set(sessionId, {
-                currentStep: flowLoader.getFlow().initial_state || 'init', 
+                currentStep: initialState, 
                 collectedData: {
+                    // 初始化核心數據結構
                     finalPrice: '0', 
                     totalPrice: '0',
                     totalPriceNoChild: '0',
                     childCost: '0',
                     discountRate: '0',
+                    serviceFee: '0', // 建議新增，用於價格明細
+                    transferFee: '0', // 建議新增，用於價格明細
                     paymentMethod: '未選擇'
                 }, 
                 conversationHistory: [],
                 lastActive: new Date().getTime(),
-                pausedState: null
+                pausedState: null,
+                executedHandlers: {} // 追蹤 RuleEngine 內 Handler 的執行狀態
             });
         }
-        return this.sessions.get(sessionId);
+        // 確保每次獲取會話時更新活動時間
+        const session = this.sessions.get(sessionId);
+        session.lastActive = new Date().getTime();
+        return session;
     }
 
+    /** 更新會話 (用戶輸入) */
     updateSession(sessionId, message, intents) {
         const session = this.getSession(sessionId);
-        session.lastActive = new Date().getTime(); // 更新時間戳
+        
         session.conversationHistory.push({
             role: 'user',
             message,
             intents,
             timestamp: new Date().toISOString()
         });
+        
         // 歷史記錄只保留最近 20 則
         if (session.conversationHistory.length > 20) {
-             session.conversationHistory.shift();
+            session.conversationHistory.shift();
         }
         return session;
     }
 
+    /** 記錄助理回應 */
     addAssistantResponse(sessionId, reply, richCard) {
         const session = this.getSession(sessionId);
         session.conversationHistory.push({
@@ -55,6 +69,60 @@ class SessionManager {
         });
     }
 
+    // --- 【修正：實現 RuleEngine 所需的 resetSession】 ---
+
+    /** 🏆 完整重置會話：用於訂單提交完成或流程強制結束時 */
+    resetSession(sessionId) {
+        if (this.sessions.has(sessionId)) {
+            const session = this.sessions.get(sessionId);
+            const initialState = flowLoader.getFlow().initial_state || 'init';
+
+            console.log(`🧹 會話重置：${sessionId}`);
+            // 重置所有流程相關數據
+            session.currentStep = initialState;
+            session.collectedData = {
+                finalPrice: '0', 
+                totalPrice: '0',
+                totalPriceNoChild: '0',
+                childCost: '0',
+                discountRate: '0',
+                serviceFee: '0', 
+                transferFee: '0', 
+                paymentMethod: '未選擇'
+            }; 
+            session.pausedState = null;
+            session.executedHandlers = {};
+            // 清理歷史記錄 (可選，但建議保留少數歷史記錄以供除錯)
+            session.conversationHistory = []; 
+        }
+    }
+    
+    /** 清除預訂核心實體：用於空房或價格檢查失敗，要求重新輸入基本資訊時 */
+    clearBookingEssentials(sessionId) {
+        if (this.sessions.has(sessionId)) {
+            const data = this.sessions.get(sessionId).collectedData;
+            
+            // 只需要清除流程中斷時需要重新收集的核心實體
+            delete data.roomType;
+            delete data.checkInDate;
+            delete data.nights;
+            delete data.roomCount;
+            // 清除計算出的價格
+            data.finalPrice = '0';
+            data.totalPrice = '0';
+            data.serviceFee = '0';
+            data.transferFee = '0';
+
+            // 重置 Handler 追蹤 (確保價格計算會再次執行)
+            this.sessions.get(sessionId).executedHandlers = {}; 
+
+            console.log(`⚠️ 已清除會話 ${sessionId} 的核心預訂數據。`);
+        }
+    }
+    
+    // --- 【會話清理邏輯】 ---
+
+    /** 定期清理過期的會話 */
     cleanupExpiredSessions() {
         const timeout = 60 * 60 * 1000; // 1 小時未活動
         const now = new Date().getTime();
@@ -72,7 +140,7 @@ class SessionManager {
     }
 }
 
-// 導出 SessionManager 的實例，讓其他模組可以直接使用
+// 導出 SessionManager 的單例實例
 const sessionManager = new SessionManager();
 
 module.exports = sessionManager;
