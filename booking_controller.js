@@ -16,11 +16,10 @@ dayjs.extend(isSameOrAfter);
 // 從配置中解構常數
 const {
     ROOM_RATES = {
-        // ========== ⚠️ 新增虛擬房價數據 START ⚠️ ==========
+        // 確保這裡有預設值，以防 config.js 導入失敗
         '豪華客房': 3000,
         '行政套房': 6000,
         '海景雙人房': 4500
-        // ========== ⚠️ 新增虛擬房價數據 END ⚠️ ==========
     },
     WEEKEND_MULTIPLIER = 1.2,
     CHILD_FEE_PER_NIGHT = 500,
@@ -69,9 +68,13 @@ class BookingFlowController {
             transferFee = 0
         } = data;
 
+        // ⭐️ 關鍵 DEBUG 日誌：檢查房價數據是否到達
+        console.log(`DEBUG_CALC: Type=${roomType}, Rate=${ROOM_RATES[roomType]}, Nights=${nights}, Rooms=${roomCount}`); 
+
+
         // --- 1. 數據完整性檢查 ---
         if (!roomType || !ROOM_RATES[roomType] || !checkInDate || nights <= 0 || roomCount <= 0 || adultCount <= 0) {
-            // 房價缺失導致無法計算，返回錯誤
+            // 如果 Rate 顯示 undefined，就會觸發此錯誤
             return { success: false, errorMessage: "價格計算所需的數據不完整或無效 (請檢查房型、日期、晚數、房間數、大人數，或確認該房型有定價)。" };
         }
 
