@@ -158,8 +158,8 @@ class RuleEngine {
                 const isSuspicious = suspiciousNameKeywords.some(keyword => value.includes(keyword));
                 
                 if (isSuspicious) {
-                     console.warn(`⚠️ 忽略可疑的 name 實體 (包含流程關鍵字): ${value}`);
-                     continue;
+                    console.warn(`⚠️ 忽略可疑的 name 實體 (包含流程關鍵字): ${value}`);
+                    continue;
                 }
             }
             
@@ -279,7 +279,9 @@ class RuleEngine {
         
         const isAffirm = intents.includes('affirm') || message.toLowerCase().includes('繼續');
         const isDeny = intents.includes('deny') || message.toLowerCase().includes('取消') || message.toLowerCase().includes('不要');
-        const isQueryIntent = intents.some(i => ['inquiry', 'pricing', 'facilities'].includes(i));
+        
+        // 🏆 修正: 擴展查詢意圖，包含 'restaurant' 等閒聊意圖
+        const isQueryIntent = intents.some(i => ['inquiry', 'pricing', 'facilities', 'restaurant', 'general_inquiry'].includes(i));
 
         // 1. 恢復處理 (P:99) - 從暫停狀態恢復
         if (currentStateKey === 'paused_waiting_for_resume' && session.pausedState) {
@@ -385,7 +387,7 @@ class RuleEngine {
         }
         nextStateKey = currentNextState;
         
-        // 3. 處理 Handler 邏輯 (如價格計算)
+        // 3. 處理 Handler 邏輯 (如價格計算、會員折扣)
         if (flow.states[nextStateKey]?.handler && !hasExecutedHandler(session, nextStateKey)) {
             
             // C. 價格計算與空房檢查 (P:102)
@@ -398,15 +400,34 @@ class RuleEngine {
                 
                 // 檢查是否能進一步推進
                 nextStateKey = this.autoAdvanceFlow(flow, nextStateKey, data, session);
-            } else {
-                 // 這裡可以擴展其他 Handler 的執行，例如：檢查促銷碼、特殊服務費用計算等。
-                 console.warn(`⚠️ 發現未處理的 Handler: ${flow.states[nextStateKey].handler}`);
+            } 
+            
+            // 🏆 新增：會員折扣應用 Handler 處理 (P:95)
+            else if (flow.states[nextStateKey].handler === 'applyDiscount') {
+                const result = await this.executeDiscountApplication(data, flow, nextStateKey, session);
+                if (result.isError) {
+                    return result.response; // 折扣應用失敗，返回錯誤並退回 login_member_account
+                }
+                nextStateKey = result.nextStep;
+                
+                // 🏆 關鍵：折扣應用成功後，清除價格 Handler 追蹤，強制在 check_availability_and_price 再次執行
+                // 假設 check_availability_and_price 已經執行過，我們需要它重新執行
+                delete session.executedHandlers['check_availability_and_price']; 
+
+                // 檢查是否能進一步推進
+                nextStateKey = this.autoAdvanceFlow(flow, nextStateKey, data, session);
+
+            } 
+            
+            else {
+                // 這裡可以擴展其他 Handler 的執行
+                console.warn(`⚠️ 發現未處理的 Handler: ${flow.states[nextStateKey].handler}`);
             }
         }
 
         // 4. 輸出回應 (流程轉移或實體不足的提示)
         if (nextStateKey !== currentStateKey || (nextStateKey === currentStateKey && !isAffirm && !isDeny)) {
-             // 如果狀態有轉移，或狀態未轉移但需要提示用戶提供新實體
+            // 如果狀態有轉移，或狀態未轉移但需要提示用戶提供新實體
             return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
         }
 
@@ -429,7 +450,7 @@ class RuleEngine {
             }
             // --- Handler 執行檢查 (如果 Handler 未執行，則必須停止於此) ---
             if (nextState.handler && nextState.handler !== 'noop' && !hasExecutedHandler(session, currentIterationKey)) {
-                 break; 
+                break; 
             }
 
             // --- 實體滿足檢查 ---
@@ -447,19 +468,20 @@ class RuleEngine {
                     break;
                 }
             } else {
-                 // 狀態沒有定義 entities 或 next_state，流程停止推進。
-                 break;
+                // 狀態沒有定義 entities 或 next_state，流程停止推進。
+                break;
             }
         }
         return currentIterationKey;
     }
 
     /** 【內部輔助方法】執行價格計算與空房檢查 (Handler) */
-    static executePriceCheck(data, flow, nextStateKey, session) {
-        console.log(`💲 觸發價格計算/空房檢查於狀態: ${nextStateKey}`);
+    static async executePriceCheck(data, flow, currentStateKey, session) {
+        console.log(`💲 觸發價格計算/空房檢查於狀態: ${currentStateKey}`);
         let priceResult;
         try {
-            priceResult = BookingFlowController.calculatePrice(data);
+            // 呼叫 BookingFlowController 進行價格/空房檢查
+            priceResult = await BookingFlowController.calculatePrice(data);
         } catch (e) {
             console.error(`💥 calculatePrice 發生錯誤: ${e.message}`);
             priceResult = { success: false, errorMessage: '價格計算服務錯誤。' };
@@ -491,11 +513,52 @@ class RuleEngine {
         data.transferFee = priceResult.transferFee?.toFixed(0) || '0';
         
         // 標記 Handler 執行過
-        markHandlerExecuted(session, nextStateKey); 
+        markHandlerExecuted(session, currentStateKey); 
 
         // 價格檢查成功，返回下一狀態
-        return { isError: false, nextStep: flow.states[nextStateKey].next_state };
+        return { isError: false, nextStep: flow.states[currentStateKey].next_state };
     }
+    
+    /** 【內部輔助方法】執行會員折扣應用 (Handler) 🏆 新增方法 */
+    static async executeDiscountApplication(data, flow, currentStateKey, session) {
+        console.log(`💲 觸發會員折扣應用於狀態: ${currentStateKey}`);
+        let discountResult;
+        
+        // 假設 BookingFlowController 有一個 applyDiscount 方法
+        try {
+            discountResult = await BookingFlowController.applyDiscount(data.memberAccount, data); 
+        } catch (e) {
+            console.error(`💥 applyDiscount 發生錯誤: ${e.message}`);
+            discountResult = { success: false, errorMessage: '會員折扣服務發生錯誤。' };
+        }
+
+        if (!discountResult.success) {
+            // 如果應用失敗，返回一個錯誤狀態
+            const fallbackStateKey = 'login_member_account'; 
+            
+            return {
+                isError: true,
+                response: this.generateStateResponse(
+                    flow, 
+                    fallbackStateKey, 
+                    { ...data, ERROR_MESSAGE: discountResult.errorMessage }, 
+                    PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK
+                )
+            };
+        }
+        
+        // 更新折扣相關數據
+        data.discountRate = discountResult.rate || '0';
+        // 假設 applyDiscount 會直接更新 collectedData 中的價格 (或等待 check_availability_and_price 重新計算)
+        // 為了確保價格是準確的，我們只需記錄折扣率，並強制價格檢查重新執行。
+
+        // 標記 Handler 執行過
+        markHandlerExecuted(session, currentStateKey); 
+
+        // 折扣應用成功，返回下一狀態
+        return { isError: false, nextStep: flow.states[currentStateKey].next_state };
+    }
+
 
     /** 【內部輔助方法】執行訂單提交 (Handler) */
     static executeSubmission(data, flow) {
