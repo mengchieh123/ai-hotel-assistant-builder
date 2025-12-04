@@ -27,7 +27,7 @@ class RuleEngine {
         const session = sessionManager.getSession(sessionId);
         const intents = SmartIntentClassifier.classify(userMessage);
 
-        // 🚨 【調試點：檢查意圖分類結果】(保留調試 Log，幫助追蹤)
+        // 🚨 【調試點：檢查意圖分類結果】
         console.log(`🔍 Intent Classifier Output: ${JSON.stringify(intents)}`);
         // 🚨 【調試點結束】
 
@@ -199,7 +199,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
             data.roomType && 
             data.roomCount > MAX_ROOM_LIMIT 
         ) {
-            // 清空所有流程相關實體 (只保留通用資訊如會員，但這裡為了安全全清)
+            // 清空所有流程相關實體，引導用戶重新開始
             sessionManager.clearEntities(sessionId);
 
             const nextStateKey = 'show_room_types'; 
@@ -275,7 +275,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
         let nextStateKey = currentStateKey;
 
         // =========================================================================
-        // 🚨 最終修正：處理 INIT 狀態的邏輯 (P:101 啟動點)
+        // 🚨 關鍵修正：處理 INIT 狀態的邏輯 (P:101 啟動點)
         if (currentStateKey === 'init') {
             // 修正：只要有 booking 意圖 OR 偵測到任何一個關鍵訂房實體，就啟動流程
             if (
@@ -358,7 +358,7 @@ ${data.discountRate !== '0' && !data.appliedPromoCode ? `會員折扣 (${data.di
 
                 nextStateKey = 'show_room_types'; 
 
-                // 清空所有流程相關實體
+                // 清空所有流程相關實體，引導用戶重新選擇
                 sessionManager.clearEntities(sessionId);
 
                 return {
