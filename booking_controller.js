@@ -1,4 +1,4 @@
-// booking_controller.js - 負責業務計算與訂單模擬
+// booking_controller.js - 負責業務計算與訂單模擬 (最終修正版)
 
 // 導入依賴
 const config = require('./config');
@@ -13,7 +13,7 @@ dayjs.extend(customParseFormat);
 dayjs.extend(weekday);
 dayjs.extend(isSameOrAfter);
 
-// 從配置中解構常數 (包含預設值以提升魯棒性)
+// 從配置中解構常數
 const {
     ROOM_RATES = {},
     WEEKEND_MULTIPLIER = 1.2,
@@ -24,9 +24,9 @@ const {
 } = config;
 
 // 常數定義
-const MEAL_PRICE_PER_PERSON_PER_NIGHT = 150; // 早餐單價
+const MEAL_PRICE_PER_PERSON_PER_NIGHT = 350; // 早餐單價 (配合 flow.json 修正)
 const SERVICE_FEE_RATE = 0.1; // 10% 服務費
-const PET_FEE_PER_PET_PER_NIGHT = 300; // 寵物加價單價
+const PET_FEE_PER_PET_PER_NIGHT = 300; // 寵物加價單價 (新增)
 const VIRTUAL_PAYMENT_BASE_URL = 'https://secure.payment.gateway.com/pay'; // 虛擬金流服務基礎URL
 
 // 模擬優惠代碼列表
@@ -58,16 +58,13 @@ class BookingFlowController {
             memberAccount,
             promoCode,
             petCount = 0,
-            needsMeal = true,
+            needsMeal = '是', // 假設沒有問到就是預設「是」
             transferFee = 0,
         } = data;
 
-        // 關鍵檢查點 1 & 2：確認房價數據是否存在
-        if (Object.keys(ROOM_RATES).length === 0) {
-            return { success: false, errorMessage: "系統警告：未載入房價數據，請檢查配置。", oos: true };
-        }
-        if (!roomType || !ROOM_RATES[roomType]) {
-            return { success: false, errorMessage: `警告：無法找到房型 [${roomType}] 的價格。`, oos: true };
+        // 關鍵檢查點：房價數據是否存在
+        if (Object.keys(ROOM_RATES).length === 0 || !roomType || !ROOM_RATES[roomType]) {
+            return { success: false, errorMessage: `警告：無法找到房型 [${roomType}] 的價格或配置錯誤。`, oos: true };
         }
         
         // 數據完整性檢查
@@ -118,7 +115,7 @@ class BookingFlowController {
         // c) 餐飲費計算
         const guests = adultCount + childCount;
         let mealPrice = 0;
-        if (needsMeal) {
+        if (needsMeal === '是' || needsMeal === true) { // 檢查是否需要早餐
             mealPrice = MEAL_PRICE_PER_PERSON_PER_NIGHT * guests * nights;
         }
         data.mealPrice = Math.round(mealPrice).toFixed(0);
@@ -131,7 +128,8 @@ class BookingFlowController {
         const serviceFee = subtotalBeforeService * SERVICE_FEE_RATE;
         data.serviceFee = Math.round(serviceFee).toFixed(0);
 
-        // e) 接送機費 (已由 RuleEngine 設置)
+        // e) 接送機費
+        // 注意：此處 transferFee 應由 rule_engine 在 collect_transfer_details 狀態中根據 transferType 計算並寫入 data
         data.transferFee = Math.round(transferFee).toFixed(0);
 
         // 總價 (含服務費、接送機費)
@@ -139,17 +137,16 @@ class BookingFlowController {
         let discountedPrice = total;
         let discountApplied = false;
         
-        // --- 4. 應用折扣 (優惠碼優先於會員折扣) ---
+        // --- 4. 應用折扣 ---
         
         // a) 應用優惠代碼折扣
         if (promoCode && VIRTUAL_PROMO_CODES[promoCode.toUpperCase()]) {
             const promo = VIRTUAL_PROMO_CODES[promoCode.toUpperCase()];
-            const currentTotal = discountedPrice; // 計算折扣基數
 
-            if (typeof promo === 'number') { // 百分比折扣
+            if (typeof promo === 'number') { 
                 discountedPrice *= promo;
                 data.promoDiscountRate = ((1 - promo) * 100).toFixed(0);
-            } else if (promo.type === 'fixed') { // 固定金額減免
+            } else if (promo.type === 'fixed') { 
                 discountedPrice -= promo.value;
                 data.promoDiscountValue = promo.value;
             }
@@ -192,7 +189,7 @@ class BookingFlowController {
         
         if (data.paymentMethod === '線上付款') {
             const finalPrice = data.finalPrice;
-            const virtualPaymentURL = `${VIRTUAL_PAYMENT_BASE_URL}?orderId=${orderId}&amount=${finalPrice}&sessionId=${data.sessionId}`;
+            const virtualPaymentURL = `${VIRTUAL_PAYMENT_BASE_URL}?orderId=${orderId}&amount=${finalPrice}`;
 
             paymentMessage = `您的訂單編號是 **${orderId}**，最終金額 NT$ ${finalPrice}。\n\n**[點擊此處完成線上付款](${virtualPaymentURL})**\n\n請注意：連結將在 30 分鐘內有效。`;
 
