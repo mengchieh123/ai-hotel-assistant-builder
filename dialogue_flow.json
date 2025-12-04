@@ -1,6 +1,6 @@
 {
   "name": "HotelBookingFlow",
-  "version": "1.5 (Optimized)",
+  "version": "1.6 (Fixed Logic)",
   "initial_state": "init",
   "states": {
     "init": {
@@ -51,6 +51,8 @@
       },
       "entities": ["roomType"],
       "next_state": "ask_room_count",
+      // 【修改 1-1】強制清除可能誤抓的實體，防止跳轉
+      "clear_entities": ["roomCount", "adultCount", "childCount", "checkInDate", "nights"],
       "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
     },
     "ask_room_count": {
@@ -73,8 +75,9 @@
     },
     "check_availability_and_price": {
       "type": "logic_exec",
+      // 【修復 2】此處的 handler 必須確保在後端邏輯中返回 "next_state"
+      "handler": "calculatePrice", 
       "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。請問您是否為會員？",
-      "handler": "calculatePrice",
       "richCard": {
         "type": "button_list",
         "title": "會員獨享優惠：",
@@ -91,7 +94,7 @@
       },
       "intents": {
         "member_login": "login_member_account",
-        "deny": "confirm_member_and_meal"
+        "deny": "ask_meal_option" // 【修改 3】轉移到新的狀態名稱
       },
       "fallback": "請回答您是否是會員，以便為您計算折扣。"
     },
@@ -123,7 +126,8 @@
       "next_state": "ask_transfer_service",
       "fallback": "請選擇是否加購早餐。"
     },
-    "confirm_member_and_meal": {
+    // 【修改 3】原 "confirm_member_and_meal" 狀態更名為 "ask_meal_option"
+    "ask_meal_option": { 
       "prompt": "確認您不是會員，總價為 NT$ {totalPrice}。是否需要加購早餐？",
       "richCard": {
         "type": "button_list",
@@ -173,7 +177,8 @@
     },
     "ask_contact_info": {
       "prompt": "好的，請提供您的【訂房人姓名】、【聯絡電話】和【電子郵件】。這些資訊將用於訂單通知。",
-      "entities": ["name", "phone", "email"],
+      // 【修改 4】統一實體命名，與專案規格書保持一致
+      "entities": ["contactName", "contactPhone", "contactEmail"], 
       "next_state": "ask_payment_method",
       "fallback": "請提供訂房人姓名、聯絡電話和電子郵件。"
     },
@@ -203,18 +208,47 @@
       "prompt": "【最終確認】請檢視您的訂單：\n\n[SUMMARY]\n\n若資料正確，請回覆『確認』；若要修改，請回覆『修改』。",
       "intents": {
         "affirm": "booking_complete",
-        "correction": "show_room_types"
+        "correction": "select_correction_target" // 【修改 5】導向修改目標選擇狀態
       },
       "fallback": "請確認訂房資訊，並回答『確認』或『修改』。"
     },
+    // 【新增 6】訂單修改目標選擇狀態
+    "select_correction_target": {
+      "prompt": "請問您想修改哪個部分？",
+      "richCard": {
+        "type": "button_list",
+        "title": "選擇修改項目：",
+        "buttons": [
+          {
+            "text": "房型/間數/日期",
+            "value": "修改房型"
+          },
+          {
+            "text": "入住人數",
+            "value": "修改人數"
+          },
+          {
+            "text": "聯絡資訊",
+            "value": "修改聯絡資訊"
+          }
+        ]
+      },
+      "intents": {
+        "modify_room_date": "show_room_types",
+        "modify_guests": "ask_guest_count",
+        "modify_contact": "ask_contact_info"
+      },
+      "fallback": "請選擇您想修改的項目。"
+    },
     "booking_complete": {
-      "prompt": "🎉 訂房完成！\n\n感謝 {name} 先生/女士。您的訂單編號是 {orderId}，最終價格 NT$ {finalPrice}。\n\n{paymentMessage}",
+      "prompt": "🎉 訂房完成！\n\n感謝 {contactName} 先生/女士。您的訂單編號是 {orderId}，最終價格 NT$ {finalPrice}。\n\n{paymentMessage}",
       "end": true
     },
     "end_conversation": {
       "prompt": "感謝您的使用，期待下次為您服務。",
       "end": true
     },
+    // 以下中斷狀態保持不變，但需確保 P:95 規則不會強制蓋過它們
     "handle_general_inquiry": {
       "prompt": "請提供更多細節，我會盡力回答您。",
       "allow_gemini_call": true
