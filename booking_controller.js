@@ -1,11 +1,11 @@
 // booking_controller.js
 /**
- * 核心訂房流程 Handler 實現 (V1.14 - 會員/加購/驗證優化版)
- * 假設流程圖已採用包含 login_member_account, ask_member_password, ask_addons 的優化結構。
+ * 核心訂房流程 Handler 實現 (V1.15 - 整合 Mock API, 庫存鎖定, 結構化日誌)
+ * 準備部署至 Staging 環境。
  */
 
-// 假設 sessionManager 存在且提供 clearHandlerExecution 方法
-const sessionManager = require('./session_manager');
+const MockAPI = require('./service_mock_api'); // 引入 Mock API 服務層
+const sessionManager = require('./session_manager'); // 假設您有一個 session_manager
 
 // --- 輔助常量 ---
 const MAX_NIGHTS = 30;
@@ -13,140 +13,130 @@ const CHILD_SURCHARGE = 500;
 const SERVICE_FEE_RATE = 0.1;
 const MEMBER_DISCOUNT_RATE = 0.05; // 5% 折扣
 
-// --- 模擬服務層數據 ---
-const ROOM_PRICING = {
-    '標準雙人房': { price: 2200, weekendMultiplier: 1.2, capacity: 2 },
-    '豪華客房': { price: 3200, weekendMultiplier: 1.2, capacity: 4 },
-    '行政套房': { price: 4800, weekendMultiplier: 1.2, capacity: 4 },
-    '家庭四人房': { price: 4500, weekendMultiplier: 1.1, capacity: 5 }
-};
-
-const ADDONS_SERVICE = {
-    'meal_breakfast': { 
-        name: '每日自助早餐', 
-        price: 450, 
-        isPerNight: true, 
-        type: 'per_person', 
-        description: '享受豐盛的自助式早餐，供應時間 07:00-10:00。',
-        image: 'https://i.imgur.com/L79p44K.png' // 替換為實際圖片 URL
-    },
-    'ticket_waterpark': { 
-        name: '水上樂園門票', 
-        price: 800, 
-        isPerNight: false, 
-        type: 'per_person', 
-        description: '包含單日票，僅限入住期間使用。兒童票價另計。',
-        image: 'https://i.imgur.com/K5fJq2J.png'
-    },
-    'transfer': { 
-        name: '機場接送服務', 
-        price: 2000, 
-        isPerNight: false, 
-        type: 'flat_fee', 
-        description: '4人座專車，適用單程接駁服務 (TPE/TSA/KHH)。',
-        image: 'https://i.imgur.com/D4sX4n9.png'
-    }
-};
+// --- 結構化日誌函數 (階段 3：安全與日誌) ---
+function log(level, message, details = {}) {
+    const timestamp = new Date().toISOString();
+    // 輸出 JSON 格式的結構化日誌
+    console.log(JSON.stringify({ timestamp, level, message, details }));
+}
 
 // --- 輔助函數 (Helper Functions) ---
 
 /**
  * 計算詳細價格明細。
+ * 🚨 已修改：價格數據從 MockAPI 獲取。
  */
-function getPriceDetails(data) {
-    if (!data.nights || !data.roomType || !ROOM_PRICING[data.roomType]) {
-        return { roomCost: 0, childCost: 0, addonsCost: 0, memberDiscountValue: 0, serviceFee: 0, finalPrice: 0 };
+async function getPriceDetails(data) {
+    if (!data.nights || !data.roomType) {
+        return { roomCost: 0, childCost: 0, addonsCost: 0, memberDiscountValue: 0, serviceFee: 0, finalPrice: 0, error: true };
     }
 
-    let roomCost = 0;
-    const totalNights = data.nights || 1;
-    const roomDetails = ROOM_PRICING[data.roomType];
+    try {
+        // 階段 1：呼叫 Mock API 獲取價格和加購服務清單
+        const pricingData = await MockAPI.getPricingDetails(data.roomType);
+        const roomDetails = pricingData.roomDetails;
+        const ADDONS_SERVICE = pricingData.addons; // 從 API 獲取最新的加購服務列表
 
-    // 1. 房間基礎費用 (包含週末加成)
-    if (roomDetails) {
-        // 假設 checkInDate 存在
+        if (!roomDetails) {
+            log('ERROR', 'Room details not found in API response', { roomType: data.roomType });
+            return { roomCost: 0, childCost: 0, finalPrice: 0, error: true };
+        }
+
+        let roomCost = 0;
+        const totalNights = data.nights || 1;
         const checkInDate = data.checkInDate ? new Date(data.checkInDate) : null;
-        // 週末為週六(6)和週日(0)
-        let isWeekend = checkInDate ? (checkInDate.getDay() === 6 || checkInDate.getDay() === 0) : false; 
-        let multiplier = isWeekend ? roomDetails.weekendMultiplier : 1;
+        let isWeekend = checkInDate ? (checkInDate.getDay() === 6 || checkInDate.getDay() === 0) : false;
         
+        // 1. 房間基礎費用 (使用 API 獲取的價格)
+        let multiplier = isWeekend ? (roomDetails.weekendMultiplier || 1.2) : 1;
         let basePrice = roomDetails.price * multiplier;
         roomCost = basePrice * (data.roomCount || 1) * totalNights;
-    }
 
-    // 2. 兒童附加費
-    const childCost = (data.childCount || 0) * CHILD_SURCHARGE * totalNights;
+        // 2. 兒童附加費
+        const childCost = (data.childCount || 0) * CHILD_SURCHARGE * totalNights;
 
-    // 3. 加購服務費用
-    let addonsCost = 0;
-    if (data.addons && data.addons.length > 0) {
-        data.addons.forEach(addon => {
-            const item = ADDONS_SERVICE[addon.id];
-            if (item) {
-                let cost = item.price;
-                if (item.type === 'per_person') {
-                    // 假設 per_person 是按成人數計算
-                    cost *= (data.adultCount || 1); 
+        // 3. 加購服務費用 (使用 API 獲取的服務列表)
+        let addonsCost = 0;
+        if (data.addons && data.addons.length > 0) {
+            data.addons.forEach(addon => {
+                const item = ADDONS_SERVICE[addon.id];
+                if (item) {
+                    let cost = item.price;
+                    if (item.type === 'per_person') {
+                        cost *= (data.adultCount || 1);
+                    }
+                    if (item.isPerNight) {
+                        cost *= totalNights;
+                    }
+                    addonsCost += cost;
                 }
-                if (item.isPerNight) {
-                    cost *= totalNights;
-                }
-                addonsCost += cost;
-            }
+            });
+        }
+
+        let totalPriceBeforeFee = roomCost + childCost + addonsCost;
+
+        // 4. 會員折扣
+        const memberDiscountValue = data.isLoggedIn ? roomCost * MEMBER_DISCOUNT_RATE : 0; // 僅對房費折扣
+
+        let subtotalAfterDiscount = totalPriceBeforeFee - memberDiscountValue;
+
+        // 5. 服務費
+        const serviceFee = subtotalAfterDiscount * SERVICE_FEE_RATE;
+
+        // 6. 最終總價
+        const finalPrice = Math.round(subtotalAfterDiscount + serviceFee);
+
+        // 階段 3：記錄計算結果
+        log('INFO', 'Price Calculation Completed', {
+            roomCost, childCost, addonsCost, memberDiscountValue: memberDiscountValue.toFixed(2), finalPrice
         });
+
+        return {
+            roomCost: roomCost,
+            childCost: childCost,
+            addonsCost: addonsCost,
+            memberDiscountValue: memberDiscountValue,
+            serviceFee: serviceFee,
+            finalPrice: finalPrice,
+            error: false // 成功
+        };
+
+    } catch (error) {
+        log('FATAL', 'Price Service API Failure', { error: error.message, stack: error.stack });
+        return { roomCost: 0, childCost: 0, finalPrice: 0, error: true };
     }
-    
-    // 4. 初始總價 (房費 + 兒童費 + 加購費)
-    let totalPriceBeforeFee = roomCost + childCost + addonsCost;
-
-    // 5. 會員折扣 - 僅在 isLoggedIn 為 true 時應用
-    const memberDiscountValue = data.isLoggedIn ? totalPriceBeforeFee * MEMBER_DISCOUNT_RATE : 0;
-    
-    let subtotalAfterDiscount = totalPriceBeforeFee - memberDiscountValue;
-
-    // 6. 服務費
-    const serviceFee = subtotalAfterDiscount * SERVICE_FEE_RATE;
-    
-    // 7. 最終總價
-    const finalPrice = Math.round(subtotalAfterDiscount + serviceFee);
-
-    return {
-        roomCost: roomCost,
-        childCost: childCost,
-        addonsCost: addonsCost,
-        memberDiscountValue: memberDiscountValue,
-        serviceFee: serviceFee,
-        finalPrice: finalPrice
-    };
 }
 
 /**
  * 產生加購服務的 RichCard 輪播圖。
+ * 🚨 已修改：從 MockAPI 獲取數據。
  */
-function generateAddonsCarousel(data) {
-    // 確保 data.addons 已經初始化，以便檢查是否已加入
-    if (!data.addons) data.addons = []; 
-    
-    // 重新計算價格，確保 RichCard 上顯示的總價是最新的
-    const details = getPriceDetails(data); 
-    
+async function generateAddonsCarousel(data) {
+    if (!data.addons) data.addons = [];
+
+    // 重新計算價格並獲取最新的 Addons 列表
+    const [details, pricingData] = await Promise.all([
+        getPriceDetails(data),
+        MockAPI.getPricingDetails(data.roomType)
+    ]);
+    const ADDONS_SERVICE = pricingData.addons;
+
     const cards = Object.keys(ADDONS_SERVICE).map(key => {
         const item = ADDONS_SERVICE[key];
         const priceLabel = `TWD ${item.price.toLocaleString()} / ${item.type === 'per_person' ? '人' : '趟'}${item.isPerNight ? ' / 晚' : ''}`;
         const isAdded = data.addons.some(a => a.id === key);
 
         return {
-            title: item.name + (isAdded ? ' ✅' : ''), 
+            title: item.name + (isAdded ? ' ✅' : ''),
             description: item.description,
-            image: item.image,
+            image: item.image || 'https://i.imgur.com/placeholder.png', // Fallback Image
             footer: priceLabel,
-            buttons: isAdded ? 
-                [ { text: '取消加購', value: `remove:${key}` } ] :
-                [ { text: '新增至訂單', value: `add:${key}` } ]
+            buttons: isAdded ?
+                [{ text: '取消加購', value: `remove:${key}` }] :
+                [{ text: '新增至訂單', value: `add:${key}` }]
         };
     });
-    
-    // 價格提示：強調已包含的項目
+
     const prompt = `💳 目前訂單總價：NT$ **${details.finalPrice.toLocaleString()}** (含房費、加購及服務費)。\n請選擇需要的加購服務或點擊「完成」。`;
 
     return {
@@ -177,7 +167,6 @@ function checkDateAndNights(session) {
         return { isHandled: false };
     }
     
-    // 檢查通過
     delete data.CUSTOM_PROMPT;
     return { isHandled: true }; 
 }
@@ -188,45 +177,82 @@ function checkDateAndNights(session) {
 function checkBookingEssentials(session) {
     const data = session.collectedData;
     
-    if (!data.roomType || !ROOM_PRICING[data.roomType]) {
+    if (!data.roomType) {
         data.CUSTOM_PROMPT = '請選擇有效的【房型】。';
         return { nextStep: 'show_room_types', isHandled: true };
     }
     if (!data.roomCount || data.roomCount <= 0) {
         data.CUSTOM_PROMPT = '請輸入正確的【房間數】。';
-        return { nextStep: 'ask_guest_count', isHandled: true };
+        return { nextStep: 'ask_room_count', isHandled: true }; // 導向問房間數
     }
     if (!data.adultCount || data.adultCount <= 0) {
         data.CUSTOM_PROMPT = '請輸入正確的【大人】人數。';
-        return { nextStep: 'ask_guest_count', isHandled: true };
+        return { nextStep: 'ask_guest_count', isHandled: true }; // 導向問人數
     }
-    // 檢查通過
+    
     delete data.CUSTOM_PROMPT;
-    return { isHandled: false }; // 讓流程繼續到 check_availability_and_price
+    return { isHandled: false }; // 讓流程繼續到 lock_inventory
 }
 
 /**
- * 計算價格 (calculatePrice) - (用於 check_availability_and_price 狀態)
+ * 🏆 新增：處理庫存鎖定 (lockInventory) - (階段 2 實作)
  */
-function calculatePrice(session) {
+async function lockInventory(session) {
     const data = session.collectedData;
+    const { roomType, roomCount } = data;
     
-    // ⭐ 優化 1: 如果價格已經計算過且沒有變更 (例如：沒有登入、沒有加購操作)，則跳過計算
-    if (session.executedHandlers.calculatePrice) {
-        return { isHandled: false }; 
+    // 如果已經有鎖定 ID，代表已鎖定，直接跳過
+    if (data.inventoryLockId) {
+        return { isHandled: false };
     }
 
-    const details = getPriceDetails(data);
+    try {
+        const lockResult = await MockAPI.lockInventory(roomType, roomCount);
+        
+        if (lockResult.isLocked) {
+            data.inventoryLockId = lockResult.lockId;
+            log('INFO', 'Inventory locked successfully', { lockId: lockResult.lockId, roomType, roomCount });
+            return { isHandled: true, prompt: `✅ 庫存鎖定成功！【${roomType}】現有 ${lockResult.remaining} 間庫存。正在計算總價...` };
+        } else {
+            log('WARNING', 'Inventory lock failed', { roomType, roomCount, reason: lockResult.message, remaining: lockResult.remaining });
+            return { 
+                isHandled: true,
+                prompt: `😭 抱歉，您選擇的【${roomType}】庫存不足 (剩餘 ${lockResult.remaining} 間)，請重新選擇房型或間數。`,
+                nextStep: 'show_room_types' // 導回房型選擇
+            };
+        }
+    } catch (error) {
+        log('FATAL', 'Inventory API failed', { error: error.message });
+        return { 
+            isHandled: true, 
+            prompt: '系統暫時無法處理庫存鎖定，請稍後再試。', 
+            nextStep: 'paused_waiting_for_resume' // 暫停流程
+        };
+    }
+}
+
+
+/**
+ * 計算價格 (calculatePrice) - (用於 check_availability_and_price 狀態)
+ * 🚨 已修改：整合非同步 API 呼叫。
+ */
+async function calculatePrice(session) {
+    const data = session.collectedData;
+
+    if (session.executedHandlers.calculatePrice) {
+        return { isHandled: false };
+    }
     
-    // ⭐ 優化 2: 價格異常檢查，防止 NT$ 0 顯示
-    if (details.finalPrice <= 0) {
-         // 這是一個嚴重錯誤，應導回前面收集實體
-         console.error("價格計算結果無效或為零。實體缺失或計算錯誤。");
-         return {
-             isHandled: true,
-             prompt: '抱歉，價格計算失敗。請確認您已提供正確的日期、晚數和房型。',
-             nextStep: 'show_room_types' // 導回選擇房型
-         };
+    const details = await getPriceDetails(data);
+    
+    if (details.error || details.finalPrice <= 0) {
+        // 價格計算失敗或 API 錯誤
+        log('ERROR', 'Final price is invalid or zero.', { details });
+        return {
+            isHandled: true,
+            prompt: '抱歉，價格計算失敗。請確認您已提供正確的日期、晚數和房型。',
+            nextStep: 'show_room_types'
+        };
     }
     
     data.finalPrice = details.finalPrice;
@@ -234,139 +260,144 @@ function calculatePrice(session) {
 
     session.executedHandlers.calculatePrice = true;
     
-    // 由於 prompt 中使用了 {finalPrice} 變數，這裡不返回 prompt，讓 RuleEngine 使用流程定義的 prompt
     return { isHandled: false }; 
 }
 
 
 /**
  * 🏆 模擬會員登入驗證 Handler。
- * 狀態: login_member_account, ask_member_password
+ * 🚨 已修改：整合非同步 Mock API 呼叫。
  */
 async function loginMemberAccount(session) {
-    const data = session.collectedData; 
+    const data = session.collectedData;
     const account = data.memberAccount;
-    const password = data.memberPassword; 
-
-    // 1. 檢查帳號 (用於 login_member_account 狀態)
+    const password = data.memberPassword;
+    
+    // 1. 檢查帳號
     if (!account || account.length < 3) {
-        return { 
-            prompt: data.CUSTOM_PROMPT || '請輸入有效的【會員帳號】(至少3位)。若無需登入，請輸入「跳過」。', 
-            nextStep: 'login_member_account', 
-            isHandled: true 
+        return {
+            prompt: data.CUSTOM_PROMPT || '請輸入有效的【會員帳號】(至少3位)。若無需登入，請輸入「跳過」。',
+            nextStep: 'login_member_account',
+            isHandled: true
         };
     }
     
-    // 2. 檢查密碼 (用於 ask_member_password 狀態)
-    if (!password || password.length < 4) {
-        if (session.currentStep === 'ask_member_password') {
-            data.CUSTOM_PROMPT = '請輸入有效的【會員密碼】(至少4位)。';
-        }
-        
-        // 清理本次輸入的實體，讓流程能問密碼
-        delete data.memberPassword; 
-        return { isHandled: false }; // 讓 RuleEngine 根據流程配置推進到問密碼狀態
+    // 2. 檢查密碼 (如果流程到了 ask_member_password 且密碼仍缺失)
+    if (session.currentStep === 'ask_member_password' && (!password || password.length < 4)) {
+        delete data.memberPassword;
+        return { isHandled: false };
     }
 
     // 3. 模擬登入驗證
-    const isLoginSuccessful = (account.toUpperCase() === 'VIP' && password === '1234');
-    
-    delete data.memberPassword; // 清理密碼實體
-    
-    if (isLoginSuccessful) {
-        data.isLoggedIn = true;
-        
-        // 🚨 登入成功後，強制清除價格計算追蹤，讓 calculatePrice 重新執行
-        sessionManager.clearHandlerExecution(session.id, 'calculatePrice');
-        
-        // 立即計算更新後的價格並取得詳情 (應用折扣)
-        const details = getPriceDetails(data); 
-        data.finalPrice = details.finalPrice; // 更新 session 總價
+    if (account && password) {
+        try {
+            const authResult = await MockAPI.verifyMember(account, password);
 
-        const prompt = `🎉 恭喜！會員【${account.toUpperCase()}】登入成功，已為您套用 ${MEMBER_DISCOUNT_RATE * 100}% 專屬折扣！\n當前總價為 NT$ **${details.finalPrice.toLocaleString()}**。現在進入加購步驟。`;
-
-        // 推進到加購選單 (RichCard)
-        const carouselResult = generateAddonsCarousel(data);
-
-        return { 
-            prompt: prompt,
-            richCard: carouselResult.richCard,
-            nextStep: 'ask_addons', 
-            isHandled: true 
-        };
-        
-    } else {
-        // 登入失敗：要求重新輸入帳號，流程回退到 login_member_account
-        data.isLoggedIn = false;
-        data.memberAccount = null;
-        
-        return { 
-            prompt: '❌ 登入失敗。帳號或密碼錯誤。請重新輸入完整的【會員帳號】。若無需登入，請輸入「跳過」。', 
-            nextStep: 'login_member_account', 
-            isHandled: true 
-        };
+            delete data.memberPassword; // 清理密碼實體
+            
+            if (authResult.isSuccessful) {
+                data.isLoggedIn = true;
+                data.memberId = authResult.memberId;
+                log('INFO', 'Member login successful', { memberId: data.memberId });
+                
+                // 🚨 登入成功後，強制清除價格計算追蹤，讓 calculatePrice 重新執行
+                sessionManager.clearHandlerExecution(session.id, 'calculatePrice');
+                
+                const details = await getPriceDetails(data); // 重新計算應用折扣後的價格
+                data.finalPrice = details.finalPrice;
+                
+                const prompt = `🎉 恭喜！會員【${account.toUpperCase()}】登入成功，已為您套用 ${MEMBER_DISCOUNT_RATE * 100}% 專屬折扣！\n當前總價為 NT$ **${details.finalPrice.toLocaleString()}**。現在進入加購步驟。`;
+                const carouselResult = await generateAddonsCarousel(data); // 重新生成 RichCard
+                
+                return {
+                    prompt: prompt,
+                    richCard: carouselResult.richCard,
+                    nextStep: 'ask_addons',
+                    isHandled: true
+                };
+            } else {
+                log('WARNING', 'Member login failed', { account });
+                data.isLoggedIn = false;
+                data.memberAccount = null;
+                
+                return {
+                    prompt: '❌ 登入失敗。帳號或密碼錯誤。請重新輸入完整的【會員帳號】。若無需登入，請輸入「跳過」。',
+                    nextStep: 'login_member_account',
+                    isHandled: true
+                };
+            }
+        } catch (error) {
+            log('FATAL', 'Member API failed', { error: error.message });
+            return {
+                prompt: '會員服務暫時無法使用，流程將跳過登入。',
+                nextStep: 'ask_addons',
+                isHandled: true
+            };
+        }
     }
+
+    // 預設讓流程繼續到下一個狀態（問密碼）
+    return { isHandled: false };
 }
 
 
 /**
  * 🏆 處理加購服務的選擇和動作。
- * 狀態: ask_addons
+ * 🚨 已修改：整合非同步 API 呼叫。
  */
-function executeAddonsSelection(session) {
-    const data = session.collectedData; 
+async function executeAddonsSelection(session) {
+    const data = session.collectedData;
     
     if (!data.addons) data.addons = [];
     
-    // 處理 RichCard/按鈕點擊傳回的 action 和 id (假設這些實體已在 RuleEngine 內處理)
-    const action = data.addonAction; 
-    const addonId = data.addonId;    
+    const action = data.addonAction;
+    const addonId = data.addonId;
 
     let isModified = false;
     let message = '';
+    const pricingData = await MockAPI.getPricingDetails(data.roomType);
+    const ADDONS_SERVICE = pricingData.addons;
 
-    if (action && addonId) {
+    if (action && addonId && ADDONS_SERVICE[addonId]) {
+        // ... (省略加購/移除邏輯，與您提供的版本相同)
         if (action.toLowerCase() === 'add') {
-            const exists = data.addons.some(a => a.id === addonId);
-            if (!exists) {
-                data.addons.push({ id: addonId, count: 1 });
-                message = `✅ 已成功加入加購服務：${ADDONS_SERVICE[addonId].name}。`;
-                isModified = true;
-            } else {
-                 message = `ℹ️ ${ADDONS_SERVICE[addonId].name} 已在訂單中。`;
-            }
-        } else if (action.toLowerCase() === 'remove') {
-            const initialLength = data.addons.length;
-            data.addons = data.addons.filter(a => a.id !== addonId);
-            if (initialLength !== data.addons.length) {
-                 message = `🗑️ 已移除加購服務：${ADDONS_SERVICE[addonId].name}。`;
+             const exists = data.addons.some(a => a.id === addonId);
+             if (!exists) {
+                 data.addons.push({ id: addonId, count: 1 });
+                 message = `✅ 已成功加入加購服務：${ADDONS_SERVICE[addonId].name}。`;
                  isModified = true;
-            }
-        }
+             } else {
+                  message = `ℹ️ ${ADDONS_SERVICE[addonId].name} 已在訂單中。`;
+             }
+         } else if (action.toLowerCase() === 'remove') {
+             const initialLength = data.addons.length;
+             data.addons = data.addons.filter(a => a.id !== addonId);
+             if (initialLength !== data.addons.length) {
+                   message = `🗑️ 已移除加購服務：${ADDONS_SERVICE[addonId].name}。`;
+                   isModified = true;
+             }
+         }
         
         delete data.addonAction;
         delete data.addonId;
     }
     
     if (isModified) {
-        // 🚨 只要加購項目有變動，強制重新計算價格 (透過清除追蹤)
         sessionManager.clearHandlerExecution(session.id, 'calculatePrice');
         
-        // 重新計算價格以更新 RichCard 上的總價提示
-        const details = getPriceDetails(data);
+        const details = await getPriceDetails(data);
         data.finalPrice = details.finalPrice;
         
-        const result = generateAddonsCarousel(data);
-        return { 
-            prompt: message + result.prompt, 
+        const result = await generateAddonsCarousel(data);
+        return {
+            prompt: message + result.prompt,
             richCard: result.richCard,
-            nextStep: 'ask_addons', 
-            isHandled: true 
+            nextStep: 'ask_addons',
+            isHandled: true
         };
     }
 
-    // 如果沒有動作，則顯示選單
-    const result = generateAddonsCarousel(data);
+    const result = await generateAddonsCarousel(data);
     return {
         isHandled: true,
         richCard: result.richCard,
@@ -377,50 +408,98 @@ function executeAddonsSelection(session) {
 
 /**
  * 🏆 驗證聯絡資訊的有效性。
- * 狀態: ask_contact_info
+ * 🚨 備註：此處應加入 PII 加密日誌（階段 3）
  */
 function validateContactInfo(session) {
-    const data = session.collectedData; 
+    const data = session.collectedData;
 
-    // 姓名檢查
+    // ... (驗證邏輯與您提供的版本相同，此處省略)
     if (!data.contactName || data.contactName.length < 2 || !/^[\u4e00-\u9fa5a-zA-Z\s]{2,}$/.test(data.contactName)) {
-        data.CUSTOM_PROMPT = '請輸入有效的【聯絡人姓名】 (至少2個字)。'; 
-        return { nextStep: 'ask_contact_info', isHandled: true };
+         data.CUSTOM_PROMPT = '請輸入有效的【聯絡人姓名】 (至少2個字)。';
+         return { nextStep: 'ask_contact_info', isHandled: true };
     }
 
-    // 電話檢查
     if (!data.contactPhone || !/^\d{8,12}$/.test(data.contactPhone.replace(/[\s-]/g, ''))) {
-        data.CUSTOM_PROMPT = '請輸入有效的【聯絡電話】 (8-12位數字)。';
-        return { nextStep: 'ask_contact_info', isHandled: true };
+         data.CUSTOM_PROMPT = '請輸入有效的【聯絡電話】 (8-12位數字)。';
+         return { nextStep: 'ask_contact_info', isHandled: true };
     }
-    data.contactPhone = data.contactPhone.replace(/[\s-]/g, ''); // 清理電話格式
+    data.contactPhone = data.contactPhone.replace(/[\s-]/g, '');
 
-    // 郵件檢查
     if (!data.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.contactEmail)) {
-        data.CUSTOM_PROMPT = '請輸入有效的【電子郵件地址】。';
-        return { nextStep: 'ask_contact_info', isHandled: true };
+         data.CUSTOM_PROMPT = '請輸入有效的【電子郵件地址】。';
+         return { nextStep: 'ask_contact_info', isHandled: true };
     }
+    
+    log('INFO', 'Contact Info Validated', { name: data.contactName, email: 'PII_REDACTED', phone: 'PII_REDACTED' }); // 階段 3 PII 日誌處理
 
-    // 所有檢查通過，清除自訂 Prompt 並推進
     delete data.CUSTOM_PROMPT;
     return { isHandled: false };
 }
 
 
+/**
+ * 🏆 覆蓋：提交訂單 (需處理庫存解鎖)
+ * 🚨 已修改：整合非同步 API 呼叫，並加入庫存解鎖。
+ */
+async function submitBooking(session) {
+    const data = session.collectedData;
+    const lockId = data.inventoryLockId;
+    
+    // 1. 模擬訂單創建 (實際串接資料庫)
+    const orderId = `HMB-${Date.now()}`;
+    let paymentMessage = '';
+    
+    try {
+        // 模擬呼叫後端 API 寫入訂單，並檢查寫入結果
+        // const submitResult = await BackendAPI.submitOrder(data); 
+
+        // 2. 處理付款訊息
+        if (data.paymentMethod === '現場支付') {
+            paymentMessage = '請您在入住時完成支付。';
+        } else {
+            paymentMessage = '我們已發送付款連結至您的信箱，請於 30 分鐘內完成支付。';
+        }
+
+        // 3. 解鎖庫存 (假設訂單提交成功，解除暫時鎖定)
+        if (lockId) {
+            await MockAPI.unlockInventory(lockId);
+            log('INFO', 'Inventory unlocked after successful booking.', { orderId, lockId });
+        }
+        
+        // 返回成功訊息
+        return { 
+            isHandled: true, 
+            orderId: orderId, 
+            paymentMessage: paymentMessage,
+            nextStep: 'booking_complete'
+        };
+
+    } catch (error) {
+        // 訂單提交失敗，需要通知用戶並可能需要重新鎖定庫存或回滾操作
+        log('FATAL', 'Order Submission Failed', { error: error.message, lockId });
+        
+        // 🚨 這裡我們不會解鎖，因為訂單可能部分寫入，需要人工檢查！
+
+        return {
+            isHandled: true,
+            prompt: `⚠️ 訂單提交失敗：發生系統錯誤 (${error.message})，請聯繫客服人員，訂單號碼: ${orderId} (可能未創建成功)。`,
+            nextStep: 'end_conversation'
+        };
+    }
+}
+
+
 // --- 匯出所有 Handler ---
 module.exports = {
-    checkDateAndNights, 
+    checkDateAndNights,
     checkBookingEssentials,
+    lockInventory, // 新增
     calculatePrice,
-    loginMemberAccount, 
-    executeAddonsSelection, 
-    validateContactInfo, 
+    loginMemberAccount,
+    executeAddonsSelection,
+    validateContactInfo,
     // 模擬其他 Handler
-    handleSpecialRequests: (session) => ({ isHandled: false }), 
-    generateOrderSummary: (session) => ({ isHandled: false }), 
-    submitBooking: (session) => { 
-        session.collectedData.orderId = Math.random().toString(36).substring(2, 10).toUpperCase();
-        session.collectedData.paymentMessage = `您的訂單已保留，請於 48 小時內完成 ${session.collectedData.paymentMethod} 付款。`;
-        return { isHandled: false };
-    }
+    handleSpecialRequests: (session) => ({ isHandled: false }),
+    generateOrderSummary: (session) => ({ isHandled: false }),
+    submitBooking, // 覆蓋
 };
