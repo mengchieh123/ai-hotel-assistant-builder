@@ -1,11 +1,13 @@
 // session_manager.js
 // 導入 flowLoader 實例
-const { FlowConfigLoader } = require('./flow_loader'); // 🚨 請確保 flow_loader 模組存在
+const { FlowConfigLoader } = require('./flow_loader'); // 🚨 請確保此模組存在
 const flowLoader = new FlowConfigLoader('dialogue_flow.json'); // 確保實例化
 
 class SessionManager {
     constructor() {
-        this.sessions = new new Map();
+        // 🏆 修正：移除了多餘的 'new' 關鍵字
+        this.sessions = new Map(); 
+        
         // 定期清理過期的 session (每 30 分鐘)
         setInterval(() => this.cleanupExpiredSessions(), 30 * 60 * 1000); 
     }
@@ -64,7 +66,10 @@ class SessionManager {
             priceDetails: null, 
             
             // Handler 追蹤的額外數據 (例如自訂 Prompt)
-            CUSTOM_PROMPT: null
+            CUSTOM_PROMPT: null,
+            
+            // 儲存已選擇的 addons
+            addons: []
         };
     }
 
@@ -135,6 +140,7 @@ class SessionManager {
             data.serviceFee = 0;
             data.transferFee = 0;
             data.priceDetails = null;
+            data.addons = []; // 清除加購選項
             
             // 重置 Handler 追蹤，確保價格計算、核心檢查會再次執行
             session.executedHandlers = {}; 
@@ -144,7 +150,7 @@ class SessionManager {
         }
     }
 
-    /** 🏆 新增：清除特定 Handler 的執行狀態 (用於強制重新計算) */
+    /** 🏆 清除特定 Handler 的執行狀態 (用於強制重新計算) */
     clearHandlerExecution(sessionId, handlerName) {
         if (this.sessions.has(sessionId)) {
              const session = this.sessions.get(sessionId);
