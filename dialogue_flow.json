@@ -1,12 +1,16 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.14 (Addons & Member Login Optimized)",
+    "version": "1.14 (Fixed JSON & Optimized Member/Addons)",
     "initial_state": "init",
     "states": {
         "init": {
             "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間？",
             "next_state": "ask_nights_and_dates",
-            "clear_entities": ["roomType", "roomCount", "checkInDate", "nights", "memberAccount", "contactName", "contactPhone", "contactEmail", "specialRequest", "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons"],
+            "clear_entities": [
+                "roomType", "roomCount", "checkInDate", "nights", "memberAccount", 
+                "contactName", "contactPhone", "contactEmail", "specialRequest", 
+                "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons", "memberPassword"
+            ],
             "entities": ["adultCount", "childCount", "roomCount"],
             "fallback": "您可以直接告訴我預計入住日期，例如：『我想訂明天兩晚的房間』。"
         },
@@ -53,11 +57,9 @@
             "fallback": "訂房資訊不完整，請從頭開始。"
         },
         
-        // ⭐ 優化點 1: 價格計算與會員引導
         "check_availability_and_price": {
             "type": "logic_exec",
             "handler": "calculatePrice",
-            // 替換 totalPrice 為 finalPrice (與 Handler 輸出一致)
             "prompt": "已確認您的預訂資訊，當前房價總計 **NT$ {finalPrice}** (未含服務費與其他費用)。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。",
             "richCard": {
                 "type": "button_list",
@@ -74,7 +76,6 @@
             "next_state": "login_member_account"
         },
         
-        // ⭐ 優化點 2: 會員登入子流程
         "login_member_account": {
             "type": "logic_exec",
             "handler": "loginMemberAccount",
@@ -89,34 +90,28 @@
         "ask_member_password": {
             "type": "logic_exec",
             "handler": "loginMemberAccount",
-            "prompt": "{CUSTOM_PROMPT|請輸入您的會員密碼。}",
+            "prompt": "請輸入您的會員密碼。",
             "entities": ["memberPassword"],
             "fallback": "請輸入有效的會員密碼，或回覆『跳過』。",
             "intents": {
                 "skip": "ask_addons"
-            }
+            },
+            "next_state": "ask_addons"
         },
         
-        // ⭐ 優化點 3: 加購服務 RichCard 輪播圖
         "ask_addons": {
             "type": "logic_exec",
             "handler": "executeAddonsSelection",
-            // 這裡的 prompt 和 richCard 將由 executeAddonsSelection 函數的輸出覆蓋
-            "prompt": "我們提供多種加購服務讓您的旅程更輕鬆。請選擇或回覆『完成』進入下一步。",
-            "richCard": {
-                "type": "button_list",
-                "buttons": [
-                    {"text": "完成加購，進入下一步", "value": "完成", "intent": "affirm"}
-                ]
-            },
+            "prompt": "您目前已選購的加購服務有：{addons}。請選擇或回覆『完成』進入下一步。",
             "entities": ["addonAction", "addonId"],
             "intents": {
                 "affirm": "ask_contact_info",
                 "skip": "ask_contact_info"
             },
-            "fallback": "請選擇您需要的加購服務，或回覆『完成』。"
+            "fallback": "請選擇您需要的加購服務，或回覆『完成』。",
+            "next_state": "ask_contact_info"
         },
-
+        
         "ask_contact_info": {
             "type": "logic_exec",
             "handler": "validateContactInfo",
@@ -178,7 +173,7 @@
                 ]
             },
             "intents": {
-                "correction": "" 
+                "correction": ""
             },
             "fallback": "請選擇您要修改的目標。"
         },
@@ -214,8 +209,7 @@
             },
             "allow_gemini_call": true,
             "intents": {
-                // 恢復後回到價格確認點，確保價格是最新且正確的
-                "resume": "check_availability_and_price", 
+                "resume": "check_availability_and_price",
                 "booking": "init",
                 "correction": "select_correction_target"
             },
