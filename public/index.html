@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>海灣麗景酒店 AI 訂房助理</title>
+    <title>旅萌大酒店 AI 訂房助理</title>
     <style>
         /* 基礎樣式 */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
@@ -36,6 +36,7 @@
         /* ⭐️ Rich Card 樣式 - 升級以支援 Carousel */
         .rich-card-wrapper { margin-top: 10px; }
         .rich-card-title { font-weight: 600; margin-bottom: 8px; color: #444; }
+        /* 讓按鈕的顏色在輪播卡片中更具對比 */
         .rich-card-btn { background-color: #007bff; color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer; transition: background-color 0.3s; width: 100%; text-align: center; }
         .rich-card-btn:hover:not(:disabled) { background-color: #0056b3; }
         .rich-card-btn:disabled { background-color: #aaaaaa; cursor: not-allowed; }
@@ -118,7 +119,7 @@
             // ⭐️ Rich Card 渲染邏輯
             if (sender !== 'user' && richCardData) {
                 
-                // 1. button_list 處理 (舊邏輯，已調整樣式類名以匹配新 CSS)
+                // 1. button_list 處理
                 if (richCardData.type === 'button_list') {
                     let cardHTML = '<div class="rich-card-wrapper">';
                     if (richCardData.title) {
@@ -127,7 +128,7 @@
                     cardHTML += '<div class="button-group" style="display:flex; flex-direction:column; gap:8px;">';
                     
                     richCardData.buttons.forEach(button => {
-                        // button.value 用於純文字回覆 (例如房型選擇)
+                        // button.value 用於純文字回覆或簡單指令
                         cardHTML += `<button class="rich-card-btn" type="button" data-value="${button.value}">${button.text}</button>`;
                     });
                     
@@ -138,7 +139,8 @@
                 // 2. ⭐️ carousel 處理 (新增邏輯 for ask_addons)
                 else if (richCardData.type === 'carousel' && richCardData.items) {
                     let carouselHTML = '<div class="rich-card-wrapper">';
-                    carouselHTML += '<div class="carousel-container">';
+                    // 注意：這裡將輪播卡片放在一個 div 中，以便在訊息泡泡內滾動
+                    carouselHTML += '<div class="carousel-container">'; 
                     
                     richCardData.items.forEach(card => {
                         // 單個卡片
@@ -164,7 +166,7 @@
                         if (card.buttons) {
                             carouselHTML += `<div class="card-actions">`;
                             card.buttons.forEach(button => {
-                                // ⭐️ 關鍵：將 JSON 數據 (例如 {addonId: '...', addonAction: 'add'}) 存儲在 data-value 中
+                                // ⭐️ 關鍵：將 JSON 數據 (例如 {addonId: '...', addonAction: 'add'}) 或純文字存儲在 data-value 中
                                 let dataToSend = button.data || button.value; 
                                 carouselHTML += `<button class="rich-card-btn" type="button" data-value='${dataToSend}' data-intent='${button.intent || ''}'>${button.text}</button>`;
                             });
@@ -189,7 +191,7 @@
          * @param {string | null} customMessage - 來自按鈕的值 (可能是純文字或 JSON 字串)。
          * @param {boolean} isUserAction - 是否為用戶主動行為 (渲染到視窗)。
          */
-        async function sendMessage(customMessage = null, isUserAction = true) { // 必須有 async
+        async function sendMessage(customMessage = null, isUserAction = true) {
             let message;
             
             if (customMessage !== null) {
@@ -203,7 +205,7 @@
             if (!message && isUserAction) {
                 return;
             } else if (!message && !isUserAction) {
-                message = 'initial_connection_message';
+                message = 'initial_connection_message'; // 觸發後端初始化
             }
 
             if (isUserAction) {
@@ -211,11 +213,11 @@
                 let displayMessage = message;
                 if (customMessage !== null) {
                     try {
-                        const json = JSON.parse(customMessage);
-                        // 如果按鈕值是 JSON 數據，我們可以顯示一個更通用的提示
-                        displayMessage = `[已點擊按鈕]`; 
+                        // 嘗試解析 JSON，如果是 JSON 數據，顯示通用提示
+                        JSON.parse(customMessage); 
+                        displayMessage = `[已點擊選項]`; 
                     } catch (e) {
-                         // 正常文字，繼續使用 message
+                        // 正常文字，繼續使用 message
                     }
                 }
                 
@@ -283,6 +285,7 @@
                 const buttonValue = e.target.getAttribute('data-value');
                 if (buttonValue) {
                     // 禁用當前訊息泡泡中的所有按鈕，防止重複點擊
+                    // 注意：這會禁用 button_list 和 carousel 內卡片的所有按鈕
                     const buttons = e.target.closest('.message').querySelectorAll('.rich-card-btn');
                     buttons.forEach(btn => btn.disabled = true);
                     
