@@ -110,23 +110,18 @@
       "next_state": "ask_transfer_service",
       "fallback": "資訊處理中，請稍候。"
     },
-    
-    // 註解：已移除舊的 ask_meal_option 狀態
-    
     "ask_transfer_service": {
       "entities": ["needsTransfer"],
       "handler": "executeTransferService",
       "next_state": "ask_addons",
       "prompt": "請問是否需要加購接送服務？"
     },
-    
     "ask_addons": {
       "entities": ["addonId", "addonAction"],
       "handler": "executeAddonsSelection",
       "next_state": "ask_contact_info",
       "prompt": "請問您還需要加購其他服務或票券嗎？請從下方選項中選擇。"
     },
-    
     "ask_contact_info": {
       "prompt": "好的，請提供您的【訂房人姓名】、【聯絡電話】和【電子郵件】。這些資訊將用於訂單通知。",
       "entities": ["name", "memberAccount", "email"],
