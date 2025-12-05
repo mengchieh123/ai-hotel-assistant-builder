@@ -160,6 +160,7 @@ class SmartIntentClassifier {
         const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
         if (nameMatch) {
             let extractedName = nameMatch[1] || nameMatch[2];
+            // 避免提取到不相關的詞語，例如 '訂房' 或 '助理'
             if (extractedName && extractedName.length >= 2 && !/(訂房|本人|我是|查詢|價格|預訂|訂房助理)/.test(extractedName)) {
                 data.name = extractedName.trim();
             }
@@ -170,6 +171,7 @@ class SmartIntentClassifier {
         }
 
         // 5. 會員帳號/手機號碼
+        // 匹配 8-12 位數字（手機/帳號）或 5-10 位英數混和（帳號）
         const memberMatch = message.match(/(\d{8,12})|([A-Za-z0-9]{5,10})/);
         if (memberMatch) {
             data.memberAccount = memberMatch[0];
@@ -181,10 +183,9 @@ class SmartIntentClassifier {
             data.roomCount = parseInt(roomCountMatch[1], 10);
         }
 
-        // 7. ⭐️ 關鍵新增：加購實體解析 (從 Rich Card 按鈕數據中提取)
+        // 7. ⭐️ 關鍵新增：加購實體解析 (從 Rich Card 按鈕數據中提取 JSON)
         try {
             // 嘗試將整個訊息解析為 JSON。
-            // 這是處理 Rich Card 按鈕點擊的標準方法，因為按鈕通常會傳送一個 JSON 字串。
             const buttonData = JSON.parse(message);
             
             // 檢查是否包含我們在 BookingController 中定義的加購實體
@@ -198,7 +199,7 @@ class SmartIntentClassifier {
             // 如果解析失敗，說明這是一條普通文字訊息，無需動作
         }
 
-        // 預設值
+        // 預設值 (確保在沒有明確提及時，它們有數值)
         if (data.adultCount === undefined) data.adultCount = 1;
         if (data.childCount === undefined) data.childCount = 0;
         if (data.roomCount === undefined) data.roomCount = 1;
