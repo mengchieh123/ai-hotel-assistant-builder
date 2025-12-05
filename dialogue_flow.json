@@ -1,6 +1,6 @@
 {
   "name": "HotelBookingFlow",
-  "version": "1.9 (Optimized Logic)",
+  "version": "1.9 (Optimized Structure)",
   "initial_state": "init",
   "states": {
     "init": {
@@ -25,7 +25,6 @@
       },
       "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
     },
-    // ... (show_room_types 到 ask_guest_count 狀態不變) ...
     "show_room_types": {
       "prompt": "我們有以下四種熱門房型：\n\n1. 標準雙人房 (定價NT$2,200)\n2. 豪華客房 (定價NT$3,200)\n3. 行政套房 (定價NT$4,800)\n4. 家庭四人房 (定價NT$4,500)\n\n請問您想預訂哪一種房型？",
       "richCard": {
@@ -52,7 +51,7 @@
       },
       "entities": ["roomType"],
       "next_state": "ask_room_count",
-      "clear_entities": ["roomCount", "adultCount", "childCount", "checkInDate", "nights"],
+      "clear_entities": ["roomCount", "adultCount", "childCount", "checkInDate", "nights", "memberAccount"],
       "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
     },
     "ask_room_count": {
@@ -73,10 +72,11 @@
       "next_state": "check_availability_and_price",
       "fallback": "請提供大人及兒童的人數。"
     },
+    // 結構修正 1: 僅作空房/價格檢查與會員身份確認，避免與 intnets 衝突
     "check_availability_and_price": {
-      // ⭐️ 修正 1A: 移除 handler: "calculatePrice"，避免意圖轉移失敗
-      // 價格計算將在後續狀態或規則中被調用
-      "prompt": "好的，已確認空房狀況。在計算價格前，**您是否為會員？登入可享有額外折扣！**",
+      "type": "logic_exec",
+      "handler": "calculatePrice",
+      "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。\n\n**您是否為會員？登入可享有額外折扣！**",
       "richCard": {
         "type": "button_list",
         "title": "會員獨享優惠：",
@@ -93,24 +93,25 @@
       },
       "intents": {
         "member_login": "login_member_account",
-        "deny": "ask_addons" // 非會員/跳過，直接進入加購
+        "deny": "ask_addons"
       },
       "fallback": "請回答您是否是會員，以便為您計算折扣。"
     },
+    // 結構修正 2 & 3: 合併登入與折扣計算
     "login_member_account": {
-      // ⭐️ 修正 2A: 移除 apply_member_discount 狀態，將邏輯合併於此
-      "type": "logic_exec",
-      "handler": "loginMemberAccount", // ⭐️ 修正 2B: 使用新的 loginMemberAccount Handler
       "prompt": "請輸入您的【會員帳號】或【手機號碼】。",
+      "type": "logic_exec",
+      "handler": "loginMemberAccount",
       "entities": ["memberAccount"],
-      "next_state": "ask_addons", // ⭐️ 修正 2C: 登入成功後跳到加購
+      "next_state": "ask_addons",
       "fallback": "請輸入有效的會員帳號或手機號碼，以便我們查詢您的會員等級。"
     },
-    // ⭐️ 移除 "apply_member_discount" 狀態 (已合併)
+    // "apply_member_discount" 狀態已移除
+    // 結構修正 4: 確保 "ask_addons" 具有 logic_exec 類型
     "ask_addons": {
-      "type": "logic_exec", // ⭐️ 修正 3A: 確保設定為 logic_exec
+      "type": "logic_exec",
       "entities": ["addonId", "addonAction"],
-      "handler": "executeAddonsSelection", // ⭐️ 修正 3B: 確保 Handler 名稱正確 (已修正於 controller)
+      "handler": "executeAddonsSelection",
       "next_state": "ask_contact_info",
       "prompt": "請問您還需要加購其他服務或票券嗎？接送機服務已整合在下方選項中。請選擇。"
     },
@@ -118,8 +119,17 @@
       "prompt": "好的，請提供您的【訂房人姓名】、【聯絡電話】和【電子郵件】。這些資訊將用於訂單通知。",
       "entities": ["contactName", "contactPhone", "contactEmail"],
       "handler": "validateContactInfo",
-      "next_state": "ask_payment_method",
+      // 結構修正 5: 聯絡資訊收集完成後，進入特殊需求收集
+      "next_state": "ask_special_requests",
       "fallback": "請提供有效的訂房人姓名、聯絡電話和電子郵件，這是必填欄位。"
+    },
+    // 結構新增：特殊需求收集狀態
+    "ask_special_requests": {
+      "prompt": "請問您對房間是否有任何特殊要求？例如：高樓層、安靜的角落、嬰兒床等。 (非保證提供)",
+      "entities": ["specialRequest"],
+      "handler": "handleSpecialRequests",
+      "next_state": "ask_payment_method",
+      "fallback": "您可以直接輸入您的特殊需求，或輸入『沒有』跳過此步驟。"
     },
     "ask_payment_method": {
       "type": "logic_exec",
@@ -153,7 +163,6 @@
       },
       "fallback": "請確認訂房資訊，並回答『確認』或『修改』。"
     },
-    // ... (select_correction_target 到 paused_waiting_for_resume 狀態不變) ...
     "select_correction_target": {
       "prompt": "請問您想修改哪個部分？",
       "richCard": {
@@ -169,7 +178,7 @@
             "value": "修改人數"
           },
           {
-            "text": "聯絡資訊",
+            "text": "聯絡資訊/特殊要求",
             "value": "修改聯絡資訊"
           },
           {
