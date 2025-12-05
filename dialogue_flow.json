@@ -1,6 +1,6 @@
 {
   "name": "HotelBookingFlow",
-  "version": "1.7 (Addons Integrated)",
+  "version": "1.8 (Finalized Logic)",
   "initial_state": "init",
   "states": {
     "init": {
@@ -75,24 +75,24 @@
     "check_availability_and_price": {
       "type": "logic_exec",
       "handler": "calculatePrice",
-      "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。請問您是否為會員？",
+      "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。\n\n**您是否為會員？登入可享有額外折扣！**",
       "richCard": {
         "type": "button_list",
         "title": "會員獨享優惠：",
         "buttons": [
           {
             "text": "我是會員，我要登入",
-            "value": "我是會員，我要登入會員"
+            "value": "我要登入會員"
           },
           {
-            "text": "我不是會員",
+            "text": "我不是會員/暫不登入",
             "value": "我不是會員"
           }
         ]
       },
       "intents": {
         "member_login": "login_member_account",
-        "deny": "ask_transfer_service"
+        "deny": "ask_addons"
       },
       "fallback": "請回答您是否是會員，以便為您計算折扣。"
     },
@@ -105,33 +105,33 @@
     "apply_member_discount": {
       "type": "logic_exec",
       "handler": "calculatePrice",
-      "prompt": "{memberLevel} 會員 {memberAccount}，恭喜您享有 {discountRate}% 折扣！原價 NT$ {totalPrice}，折扣後總價為 NT$ {newTotalPrice}。現在將進入加購流程。",
+      "prompt": "✅ 登入成功！您是 **{memberLevel}** 會員，恭喜您享有額外折扣！原價 NT$ {totalBeforeDiscount}，折扣後總價為 NT$ {finalPrice}。現在將進入加購流程。",
       "entities": [],
-      "next_state": "ask_transfer_service",
+      // ⭐️ 修正：直接導向 ask_addons (問題 4)
+      "next_state": "ask_addons",
       "fallback": "資訊處理中，請稍候。"
     },
-    "ask_transfer_service": {
-      "entities": ["needsTransfer"],
-      "handler": "executeTransferService",
-      "next_state": "ask_addons",
-      "prompt": "請問是否需要加購接送服務？"
-    },
+    // ⭐️ 移除 ask_transfer_service 狀態 (問題 4)
     "ask_addons": {
       "entities": ["addonId", "addonAction"],
       "handler": "executeAddonsSelection",
+      // ⭐️ 修正：加購後進入聯絡資訊 (問題 4)
       "next_state": "ask_contact_info",
-      "prompt": "請問您還需要加購其他服務或票券嗎？請從下方選項中選擇。"
+      "prompt": "請問您還需要加購其他服務或票券嗎？接送機服務已整合在下方選項中。請選擇。"
     },
     "ask_contact_info": {
       "prompt": "好的，請提供您的【訂房人姓名】、【聯絡電話】和【電子郵件】。這些資訊將用於訂單通知。",
-      "entities": ["name", "memberAccount", "email"],
+      "entities": ["contactName", "contactPhone", "contactEmail"],
+      // ⭐️ 新增 Handler：用於檢查輸入格式 (問題 6)
+      "handler": "validateContactInfo",
+      // ⭐️ 修正：聯絡資訊通過後進入付款方式選擇 (問題 5)
       "next_state": "ask_payment_method",
-      "fallback": "請提供訂房人姓名、聯絡電話和電子郵件。"
+      "fallback": "請提供有效的訂房人姓名、聯絡電話和電子郵件，這是必填欄位。"
     },
     "ask_payment_method": {
       "type": "logic_exec",
       "handler": "calculatePrice",
-      "prompt": "好的，所有加購服務和折扣已計入。最終總價為 NT$ {finalPrice}。請選擇您的付款方式：",
+      "prompt": "好的，所有加購服務和折扣已計入。您的最終總價為 **NT$ {finalPrice}**。請選擇您的付款方式：",
       "richCard": {
         "type": "button_list",
         "title": "請選擇付款方式：",
@@ -141,7 +141,7 @@
             "value": "線上付款"
           },
           {
-            "text": "現場結帳 (保留至 24H)",
+            "text": "現場結帳 (保留至入住)",
             "value": "現場結帳"
           }
         ]
@@ -151,7 +151,10 @@
       "fallback": "請選擇線上付款或現場結帳。"
     },
     "confirm_booking": {
-      "prompt": "【最終確認】請檢視您的訂單：\n\n[SUMMARY]\n\n若資料正確，請回覆『確認』；若要修改，請回覆『修改』。",
+      "type": "logic_exec",
+      // ⭐️ 新增 Handler：在確認前顯示詳細摘要 (問題 7)
+      "handler": "generateOrderSummary", 
+      "prompt": "【最終確認】請檢視您的訂單：\n\n{finalSummary}\n\n若資料正確，請回覆『確認』；若要修改，請回覆『修改』。",
       "intents": {
         "affirm": "booking_complete",
         "correction": "select_correction_target"
@@ -169,24 +172,32 @@
             "value": "修改房型"
           },
           {
-            "text": "入住人數",
-            "value": "修改人數"
+          "text": "入住人數",
+          "value": "修改人數"
           },
           {
             "text": "聯絡資訊",
             "value": "修改聯絡資訊"
+          },
+          {
+            "text": "加購項目/付款方式",
+            "value": "修改加購"
           }
         ]
       },
       "intents": {
         "modify_room_date": "show_room_types",
         "modify_guests": "ask_guest_count",
-        "modify_contact": "ask_contact_info"
+        "modify_contact": "ask_contact_info",
+        "modify_addons": "ask_addons"
       },
       "fallback": "請選擇您想修改的項目。"
     },
     "booking_complete": {
-      "prompt": "🎉 訂房完成！\n\n感謝 {contactName} 先生/女士。您的訂單編號是 {orderId}，最終價格 NT$ {finalPrice}。\n\n{paymentMessage}",
+      "type": "logic_exec",
+      // ⭐️ 修正：在完成狀態執行最終提交和生成回覆 (問題 7)
+      "handler": "submitBooking",
+      "prompt": "{finalSummary}",
       "end": true
     },
     "end_conversation": {
