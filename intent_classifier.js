@@ -30,6 +30,12 @@ class SmartIntentClassifier {
         // 會員意圖
         if (lowerMessage.includes('我要登入會員')) intents.add('member_login');
 
+        // ⭐️ 新增：加購/附加項目意圖 (addon_selection)
+        // 此意圖主要用於處理 Rich Card 按鈕點擊的回饋
+        if (lowerMessage.includes('加購') || lowerMessage.includes('票券') || lowerMessage.includes('下午茶') || lowerMessage.includes('早餐')) {
+            intents.add('addon_selection');
+        }
+
         // ⭐️ 查詢/介紹意圖 (Inquiry)
         if (/(介紹|說明|什麼樣|怎麼樣|細節|環境|特色|如何|查詢|是什麼)/.test(lowerMessage)) {
              intents.add('inquiry');
