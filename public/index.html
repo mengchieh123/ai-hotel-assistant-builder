@@ -33,11 +33,43 @@
         #send-button:hover:not(:disabled) { background-color: #218838; }
         #send-button:disabled { background-color: #909090; cursor: not-allowed; }
         
-        /* Rich Card 樣式 */
-        .rich-card { background-color: #f7f7f7; border: 1px solid #eee; padding: 15px; margin-top: 10px; border-radius: 12px; display: flex; flex-direction: column; gap: 8px; }
-        .rich-card-btn { background-color: #007bff; color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer; transition: background-color 0.3s; width: 100%; text-align: left; }
+        /* ⭐️ Rich Card 樣式 - 升級以支援 Carousel */
+        .rich-card-wrapper { margin-top: 10px; }
+        .rich-card-title { font-weight: 600; margin-bottom: 8px; color: #444; }
+        .rich-card-btn { background-color: #007bff; color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer; transition: background-color 0.3s; width: 100%; text-align: center; }
         .rich-card-btn:hover:not(:disabled) { background-color: #0056b3; }
         .rich-card-btn:disabled { background-color: #aaaaaa; cursor: not-allowed; }
+
+        /* ⭐️ 輪播容器 (Carousel) 樣式 */
+        .carousel-container { 
+            display: flex; 
+            overflow-x: auto; 
+            gap: 15px; 
+            padding: 10px 0;
+            /* 讓滾動條消失，但仍可滾動 */
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+        .carousel-container::-webkit-scrollbar { display: none; } /* Chrome, Safari, Opera */
+
+        /* ⭐️ 單個卡片 (Card) 樣式 */
+        .carousel-card { 
+            flex-shrink: 0; 
+            width: 250px; /* 固定寬度，使其可以滾動 */
+            background-color: #f7f7f7; 
+            border: 1px solid #eee; 
+            border-radius: 12px; 
+            overflow: hidden; 
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+        .card-image { width: 100%; height: 120px; object-fit: cover; }
+        .card-content { padding: 10px; display: flex; flex-direction: column; gap: 5px; flex-grow: 1; }
+        .card-content h3 { margin: 0; font-size: 1.1em; color: #333; }
+        .card-content p { margin: 0; font-size: 0.9em; color: #666; }
+        .card-section { padding: 5px 10px; font-size: 0.8em; background-color: #fff; border-top: 1px solid #f0f0f0; }
+        .card-actions { padding: 10px; border-top: 1px solid #eee; }
     </style>
 </head>
 <body>
@@ -67,14 +99,11 @@
         const chatWindow = document.getElementById('chat-window');
         const userInput = document.getElementById('input-message');
         const sendBtn = document.getElementById('send-button');
-        // API_ENDPOINT 不再需要，直接在 fetch 中使用相對路徑
 
-        // 會話 ID 管理
         let sessionId = localStorage.getItem('sessionId') || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         localStorage.setItem('sessionId', sessionId);
 
         // 首次載入時，發送一個特殊指令來觸發後端的初始回覆
-        // isUserAction = false: 不將此訊息渲染到聊天視窗
         sendMessage('', false);
 
         /**
@@ -86,20 +115,68 @@
             
             let messageContent = text.replace(/\n/g, '<br>');
 
-            // Rich Card/Button 渲染邏輯
-            if (sender !== 'user' && richCardData && richCardData.type === 'button_list') {
-                 let cardHTML = '<div class="rich-card">';
-                 if (richCardData.title) {
-                     cardHTML += `<p style="font-weight:600; margin-bottom: 8px; color: #444;">${richCardData.title}</p>`;
-                 }
-                 cardHTML += '<div class="button-group" style="display:flex; flex-direction:column; gap:8px;">';
-                 
-                 richCardData.buttons.forEach(button => {
-                     cardHTML += `<button class="rich-card-btn" type="button" data-value="${button.value}">${button.text}</button>`;
-                 });
-                 
-                 cardHTML += '</div></div>';
-                 messageContent += cardHTML;
+            // ⭐️ Rich Card 渲染邏輯
+            if (sender !== 'user' && richCardData) {
+                
+                // 1. button_list 處理 (舊邏輯，已調整樣式類名以匹配新 CSS)
+                if (richCardData.type === 'button_list') {
+                    let cardHTML = '<div class="rich-card-wrapper">';
+                    if (richCardData.title) {
+                        cardHTML += `<p class="rich-card-title">${richCardData.title}</p>`;
+                    }
+                    cardHTML += '<div class="button-group" style="display:flex; flex-direction:column; gap:8px;">';
+                    
+                    richCardData.buttons.forEach(button => {
+                        // button.value 用於純文字回覆 (例如房型選擇)
+                        cardHTML += `<button class="rich-card-btn" type="button" data-value="${button.value}">${button.text}</button>`;
+                    });
+                    
+                    cardHTML += '</div></div>';
+                    messageContent += cardHTML;
+                } 
+                
+                // 2. ⭐️ carousel 處理 (新增邏輯 for ask_addons)
+                else if (richCardData.type === 'carousel' && richCardData.items) {
+                    let carouselHTML = '<div class="rich-card-wrapper">';
+                    carouselHTML += '<div class="carousel-container">';
+                    
+                    richCardData.items.forEach(card => {
+                        // 單個卡片
+                        carouselHTML += `<div class="carousel-card">`;
+                        if (card.imageUrl) {
+                            carouselHTML += `<img src="${card.imageUrl}" alt="${card.title}" class="card-image" />`;
+                        }
+                        carouselHTML += `<div class="card-content">`;
+                        carouselHTML += `<h3>${card.title}</h3>`;
+                        if (card.description) {
+                            carouselHTML += `<p>${card.description}</p>`;
+                        }
+                        
+                        // Sections
+                        if (card.sections) {
+                            card.sections.forEach(section => {
+                                carouselHTML += `<div class="card-section"><strong>${section.title}:</strong> ${section.text}</div>`;
+                            });
+                        }
+                        carouselHTML += `</div>`; // .card-content end
+
+                        // Buttons
+                        if (card.buttons) {
+                            carouselHTML += `<div class="card-actions">`;
+                            card.buttons.forEach(button => {
+                                // ⭐️ 關鍵：將 JSON 數據 (例如 {addonId: '...', addonAction: 'add'}) 存儲在 data-value 中
+                                let dataToSend = button.data || button.value; 
+                                carouselHTML += `<button class="rich-card-btn" type="button" data-value='${dataToSend}' data-intent='${button.intent || ''}'>${button.text}</button>`;
+                            });
+                            carouselHTML += `</div>`; // .card-actions end
+                        }
+                        
+                        carouselHTML += `</div>`; // .carousel-card end
+                    });
+
+                    carouselHTML += '</div></div>'; // .carousel-container end, .rich-card-wrapper end
+                    messageContent += carouselHTML;
+                }
             }
             
             messageContainer.innerHTML = messageContent;
@@ -108,14 +185,15 @@
         }
 
         /**
-         * 處理用戶輸入和 API 請求 (已修正 async/await 結構)
-         * @param {string | null} customMessage - 來自按鈕的值。如果是 null，表示來自輸入框。
+         * 處理用戶輸入和 API 請求
+         * @param {string | null} customMessage - 來自按鈕的值 (可能是純文字或 JSON 字串)。
          * @param {boolean} isUserAction - 是否為用戶主動行為 (渲染到視窗)。
          */
         async function sendMessage(customMessage = null, isUserAction = true) { // 必須有 async
             let message;
             
             if (customMessage !== null) {
+                // 如果是來自按鈕，customMessage 就是 data-value 的值
                 message = customMessage.trim();
             } else {
                 message = userInput.value.trim();
@@ -129,7 +207,19 @@
             }
 
             if (isUserAction) {
-                appendMessage('user', message);
+                // 為了用戶介面美觀，如果是點擊按鈕，只顯示一個簡單提示
+                let displayMessage = message;
+                if (customMessage !== null) {
+                    try {
+                        const json = JSON.parse(customMessage);
+                        // 如果按鈕值是 JSON 數據，我們可以顯示一個更通用的提示
+                        displayMessage = `[已點擊按鈕]`; 
+                    } catch (e) {
+                         // 正常文字，繼續使用 message
+                    }
+                }
+                
+                appendMessage('user', displayMessage);
                 if (customMessage === null) {
                     userInput.value = '';
                 }
@@ -143,13 +233,12 @@
 
             try { 
                 
-                // API 呼叫：已修正為 /api/chat
-                const response = await fetch('/api/chat', { 
+                const response = await fetch('/api/chat', { 
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    // 💥 修正點: 將 Message 改為小寫的 message
+                    // 傳遞 message，後端會判斷它是純文字還是 JSON 字串
                     body: JSON.stringify({ sessionId: currentSessionId, message: message }), 
                 });
                 
@@ -158,6 +247,7 @@
                 if (response.ok) {
                     appendMessage('assistant', data.reply, data.richCard);
                     sessionId = data.sessionId;
+                    localStorage.setItem('sessionId', sessionId);
                 } else {
                     const errorMessage = data.error || data.reply || `[HTTP 錯誤 ${response.status}] 服務器發生錯誤。`;
                     appendMessage('assistant', `發生錯誤: ${errorMessage}。請稍後再試。`);
@@ -196,7 +286,7 @@
                     const buttons = e.target.closest('.message').querySelectorAll('.rich-card-btn');
                     buttons.forEach(btn => btn.disabled = true);
                     
-                    // 將按鈕的值視為用戶輸入發送
+                    // 將按鈕的值 (可能是純文字或 JSON 字串) 視為用戶輸入發送
                     sendMessage(buttonValue, true);
                 }
             }
