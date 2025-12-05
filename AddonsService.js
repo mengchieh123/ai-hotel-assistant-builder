@@ -60,3 +60,4 @@ class AddonsService {
 }
 
 module.exports = AddonsService;
+
