@@ -1,215 +1,189 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.9 (Optimized Structure V3)",
+    "version": "1.9 (Optimized Structure V5)",
     "initial_state": "init",
     "states": {
         "init": {
-            "prompt": "您好，我是您的專屬 AI 酒店訂房助理。很高興為您服務！請問您是想【預訂房間】還是【查詢酒店資訊】呢？",
-            "richCard": {
-                "type": "button_list",
-                "title": "請選擇服務類型：",
-                "buttons": [
-                    {
-                        "text": "🛏️ 預訂房間",
-                        "value": "我要訂房"
-                    },
-                    {
-                        "text": "ℹ️ 查詢資訊",
-                        "value": "我想查詢資訊"
-                    }
-                ]
-            },
-            "intents": {
-                "booking": "show_room_types",
-                "general_inquiry": "handle_general_inquiry"
-            },
-            "fallback": "抱歉，我沒聽懂您的意思，請告訴我是想預訂房間或查詢其他資訊？"
-        },
-        "show_room_types": {
-            "prompt": "我們有以下四種熱門房型：\n\n1. 標準雙人房 (定價NT$2,200)\n2. 豪華客房 (定價NT$3,200)\n3. 行政套房 (定價NT$4,800)\n4. 家庭四人房 (定價NT$4,500)\n\n請問您想預訂哪一種房型？",
-            "richCard": {
-                "type": "button_list",
-                "title": "請選擇房型：",
-                "buttons": [
-                    {
-                        "text": "標準雙人房",
-                        "value": "標準雙人房"
-                    },
-                    {
-                        "text": "豪華客房",
-                        "value": "豪華客房"
-                    },
-                    {
-                        "text": "行政套房",
-                        "value": "行政套房"
-                    },
-                    {
-                        "text": "家庭四人房",
-                        "value": "家庭四人房"
-                    }
-                ]
-            },
-            "entities": ["roomType"],
-            "next_state": "ask_room_count",
-            "clear_entities": ["roomCount", "adultCount", "childCount", "checkInDate", "nights", "memberAccount"],
-            "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
-        },
-        "ask_room_count": {
-            "prompt": "好的，您選擇了 {roomType}。請問您需要預訂【幾間】呢？",
-            "entities": ["roomCount"],
+            "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間？",
             "next_state": "ask_nights_and_dates",
-            "fallback": "請提供您需要的房間間數，例如：2間。"
+            "clear_entities": ["roomType", "roomCount", "adultCount", "childCount", "checkInDate", "nights", "memberAccount", "contactName", "contactPhone", "contactEmail", "specialRequest", "paymentMethod", "addonAction", "addonId"],
+            "entities": ["adultCount", "childCount", "roomCount"],
+            "fallback": "您可以直接告訴我預計入住日期，例如：『我想訂明天兩晚的房間』。"
         },
         "ask_nights_and_dates": {
-            "prompt": "請接著提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
+            "type": "logic_exec",
+            "handler": "checkDateAndNights",
+            "prompt": "請提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
             "entities": ["checkInDate", "nights"],
             "next_state": "ask_guest_count",
             "fallback": "請提供入住日期及住宿晚數，我會為您查詢空房與價格。"
         },
         "ask_guest_count": {
-            "prompt": "感謝您！請問總共【幾位大人】和【幾位兒童】入住呢？ (例如：2位大人, 1位兒童)",
+            "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
             "entities": ["adultCount", "childCount"],
+            "next_state": "show_room_types",
+            "fallback": "請提供準確的入住人數 (大人/兒童)，謝謝。"
+        },
+        "show_room_types": {
+            "prompt": "我們有以下四種熱門房型：\n\n- 標準雙人房 (NT$ 2,200/晚)\n- 豪華客房 (NT$ 3,200/晚)\n- 行政套房 (NT$ 4,800/晚)\n- 家庭四人房 (NT$ 4,500/晚)\n\n請問您想預訂哪一種房型？",
+            "richCard": {
+                "type": "button_list",
+                "buttons": [
+                    {"text": "標準雙人房", "value": "標準雙人房"},
+                    {"text": "豪華客房", "value": "豪華客房"},
+                    {"text": "行政套房", "value": "行政套房"},
+                    {"text": "家庭四人房", "value": "家庭四人房"}
+                ]
+            },
+            "entities": ["roomType"],
+            "next_state": "ask_room_count",
+            "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
+        },
+        "ask_room_count": {
+            "prompt": "好的，您選擇了 {roomType}。請問您需要預訂【幾間】呢？",
+            "entities": ["roomCount"],
             "next_state": "check_availability_and_price",
-            "fallback": "請提供大人及兒童的人數。"
+            "fallback": "請提供您需要的房間間數，例如：2間。"
         },
         "check_availability_and_price": {
             "type": "logic_exec",
             "handler": "calculatePrice",
-            "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。\n\n**您是否為會員？登入可享有額外折扣！**",
+            "prompt": "已確認您的預訂資訊，當前房價總計 **NT$ {totalPrice}** (未含服務費與加購)。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。",
             "richCard": {
                 "type": "button_list",
-                "title": "會員獨享優惠：",
                 "buttons": [
-                    {
-                        "text": "我是會員，我要登入",
-                        "value": "我要登入會員"
-                    },
-                    {
-                        "text": "我不是會員/暫不登入",
-                        "value": "我不是會員"
-                    }
+                    {"text": "我有會員，立即登入", "value": "登入會員"},
+                    {"text": "暫不登入，查看加購服務", "value": "查看加購服務"}
                 ]
             },
             "intents": {
-                "member_login": "login_member_account",
-                "deny": "ask_addons"
+                "login": "login_member_account",
+                "skip": "ask_addons"
             },
-            "fallback": "請回答您是否是會員，以便為您計算折扣。"
+            "fallback": "請點擊按鈕或回覆『登入』或『跳過』。",
+            "next_state": "login_member_account" 
         },
         "login_member_account": {
-            "prompt": "請輸入您的【會員帳號】或【手機號碼】。",
+            "type": "logic_exec",
             "handler": "loginMemberAccount",
+            "prompt": "請輸入您的會員帳號 (手機號碼或 Email) 進行登入。",
             "entities": ["memberAccount"],
-            "next_state": "ask_addons",
-            "fallback": "請輸入有效的會員帳號或手機號碼，以便我們查詢您的會員等級。"
+            "fallback": "請輸入有效的會員帳號，或回覆『跳過』。"
         },
         "ask_addons": {
-            "entities": ["addonId", "addonAction"],
+            "type": "logic_exec",
             "handler": "executeAddonsSelection",
-            "next_state": "ask_contact_info",
-            "prompt": "請問您還需要加購其他服務或票券嗎？接送機服務已整合在下方選項中。請選擇。",
-            "fallback": "請輸入您想加購的項目，或輸入「完成」跳過。"
+            "prompt": "您目前已選購的加購服務有：{addons}。請選擇或回覆『完成』進入下一步。",
+            "entities": ["addonAction", "addonId"],
+            "intents": {
+                "affirm": "ask_contact_info",
+                "skip": "ask_contact_info"
+            },
+            "fallback": "請選擇您需要的加購服務，或回覆『完成』。"
         },
         "ask_contact_info": {
-            "prompt": "好的，請提供您的【訂房人姓名】、【聯絡電話】和【電子郵件】。這些資訊將用於訂單通知。",
-            "entities": ["contactName", "contactPhone", "contactEmail"],
+            "type": "logic_exec",
             "handler": "validateContactInfo",
+            "prompt": "請提供【聯絡人姓名】、【手機號碼】和【電子郵件】 (例如：王大明, 0912345678, test@mail.com)。",
+            "entities": ["contactName", "contactPhone", "contactEmail"],
             "next_state": "ask_special_requests",
-            "fallback": "請提供有效的訂房人姓名、聯絡電話和電子郵件，這是必填欄位。"
+            "fallback": "請務必提供有效的聯絡資訊，這關係到您的訂單接收。"
         },
         "ask_special_requests": {
-            "prompt": "請問您對房間是否有任何特殊要求？例如：高樓層、安靜的角落、嬰兒床等。 (非保證提供)",
-            "entities": ["specialRequest"],
+            "type": "logic_exec",
             "handler": "handleSpecialRequests",
+            "prompt": "請問您有任何特殊需求嗎？ (例如：高樓層、素食早餐、嬰兒床等)\n\n若無，請回覆『無』。",
+            "entities": ["specialRequest"],
             "next_state": "ask_payment_method",
-            "fallback": "您可以直接輸入您的特殊需求，或輸入『沒有』跳過此步驟。"
+            "fallback": "請提供特殊要求或回覆『無』。"
         },
         "ask_payment_method": {
             "type": "logic_exec",
             "handler": "calculatePrice",
-            "prompt": "好的，所有加購服務和折扣已計入。您的最終總價為 **NT$ {finalPrice}**。請選擇您的付款方式：",
+            "prompt": "最終總價為 NT$ {finalPrice}。請選擇您的付款方式：",
             "richCard": {
                 "type": "button_list",
-                "title": "請選擇付款方式：",
                 "buttons": [
-                    {
-                        "text": "線上付款 (即時確認)",
-                        "value": "線上付款"
-                    },
-                    {
-                        "text": "現場結帳 (保留至入住)",
-                        "value": "現場結帳"
-                    }
+                    {"text": "信用卡 (VISA/Master)", "value": "信用卡"},
+                    {"text": "LINE Pay", "value": "LINE Pay"},
+                    {"text": "現場支付", "value": "現場支付"}
                 ]
             },
             "entities": ["paymentMethod"],
             "next_state": "confirm_booking",
-            "fallback": "請選擇線上付款或現場結帳。"
+            "fallback": "請選擇一種付款方式。"
         },
         "confirm_booking": {
             "type": "logic_exec",
             "handler": "generateOrderSummary",
-            "prompt": "【最終確認】請檢視您的訂單：\n\n{finalSummary}\n\n若資料正確，請回覆『確認』；若要修改，請回覆『修改』。",
+            "prompt": "請確認您的訂單摘要：{finalSummary}\n\n是否確認送出訂單？",
+            "richCard": {
+                "type": "button_list",
+                "buttons": [
+                    {"text": "確認送出", "value": "確認送出"},
+                    {"text": "修改資訊", "value": "修改資訊"}
+                ]
+            },
             "intents": {
                 "affirm": "booking_complete",
                 "correction": "select_correction_target"
             },
-            "fallback": "請確認訂房資訊，並回答『確認』或『修改』。"
+            "fallback": "請回覆『確認送出』或『修改資訊』。"
         },
         "select_correction_target": {
-            "prompt": "請問您想修改哪個部分？",
+            "prompt": "請問您想修改哪部分資訊？",
             "richCard": {
                 "type": "button_list",
-                "title": "選擇修改項目：",
                 "buttons": [
-                    {
-                        "text": "房型/間數/日期",
-                        "value": "修改房型"
-                    },
-                    {
-                        "text": "入住人數",
-                        "value": "修改人數"
-                    },
-                    {
-                        "text": "聯絡資訊/特殊要求",
-                        "value": "修改聯絡資訊"
-                    },
-                    {
-                        "text": "加購項目/付款方式",
-                        "value": "修改加購"
-                    }
+                    {"text": "修改日期/晚數", "value": "修改日期", "intent": "correction", "next_state": "ask_nights_and_dates"},
+                    {"text": "修改房型/間數", "value": "修改房型", "intent": "correction", "next_state": "show_room_types"},
+                    {"text": "修改加購服務", "value": "修改加購", "intent": "correction", "next_state": "ask_addons"},
+                    {"text": "修改聯絡資訊", "value": "修改聯絡", "intent": "correction", "next_state": "ask_contact_info"}
                 ]
             },
             "intents": {
-                "modify_room_date": "show_room_types",
-                "modify_guests": "ask_guest_count",
-                "modify_contact": "ask_contact_info",
-                "modify_addons": "ask_addons"
+                "correction": ""
             },
-            "fallback": "請選擇您想修改的項目。"
+            "fallback": "請選擇您要修改的目標。"
         },
         "booking_complete": {
             "type": "logic_exec",
             "handler": "submitBooking",
-            "prompt": "{finalSummary}",
-            "end": true
+            "prompt": "{finalPrompt}",
+            "next_state": "end_conversation",
+            "fallback": "訂單已送出，無法修改。"
         },
         "end_conversation": {
-            "prompt": "感謝您的使用，期待下次為您服務。",
-            "end": true
-        },
-        "handle_general_inquiry": {
-            "prompt": "請提供更多細節，我會盡力回答您。",
-            "allow_gemini_call": true
-        },
-        "paused_waiting_for_resume": {
-            "prompt": "流程已暫停，請回覆『繼續』或點擊按鈕恢復訂房。",
+            "prompt": "謝謝您的預訂！期待您的光臨。您可以輸入『重新開始』或『查詢訂單』。",
             "allow_gemini_call": true,
             "intents": {
-                "resume": "ask_addons"
+                "booking": "init"
             },
-            "fallback": "抱歉，無法恢復流程。請重新輸入『預訂房間』或『查詢資訊』。",
-            "next_state": "end_conversation"
+            "fallback": "謝謝，祝您有美好的一天！"
+        },
+        "handle_general_inquiry": {
+            "prompt": "我是一個訂房助理，主要負責預訂服務。關於 {user_query}，您可以直接詢問我：\n\n1. 房價資訊\n2. 飯店設施\n3. 訂房流程問題",
+            "allow_gemini_call": true,
+            "next_state": "paused_waiting_for_resume",
+            "fallback": "請具體說明您的問題。"
+        },
+        "paused_waiting_for_resume": {
+            "prompt": "流程已暫停。請回覆『繼續』或點擊按鈕恢復訂房流程，或提出新的預訂請求。",
+            "richCard": {
+                "type": "button_list",
+                "buttons": [
+                    {"text": "繼續訂房", "value": "繼續"},
+                    {"text": "重新預訂", "value": "重新預訂", "intent": "booking"}
+                ]
+            },
+            "allow_gemini_call": true,
+            "intents": {
+                "resume": "ask_addons",
+                "booking": "init",
+                "correction": "select_correction_target"
+            },
+            "fallback": "抱歉，無法恢復流程。請重新輸入『繼續』或『重新預訂』。",
+            "next_state": "init"
         }
     }
 }
