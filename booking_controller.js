@@ -4,6 +4,7 @@
  * 假設流程圖已採用包含 login_member_account, ask_member_password, ask_addons 的優化結構。
  */
 
+// 假設 sessionManager 存在且提供 clearHandlerExecution 方法
 const sessionManager = require('./session_manager');
 
 // --- 輔助常量 ---
@@ -50,7 +51,7 @@ const ADDONS_SERVICE = {
 // --- 輔助函數 (Helper Functions) ---
 
 /**
- * 計算詳細價格明細。 (此函數邏輯已在優化中確認可用，確保使用了 isLoggedIn 判斷折扣)
+ * 計算詳細價格明細。
  */
 function getPriceDetails(data) {
     if (!data.nights || !data.roomType || !ROOM_PRICING[data.roomType]) {
@@ -63,8 +64,10 @@ function getPriceDetails(data) {
 
     // 1. 房間基礎費用 (包含週末加成)
     if (roomDetails) {
+        // 假設 checkInDate 存在
         const checkInDate = data.checkInDate ? new Date(data.checkInDate) : null;
-        let isWeekend = checkInDate ? (checkInDate.getDay() === 6 || checkInDate.getDay() === 0) : false; // 修正：週末為週六和週日
+        // 週末為週六(6)和週日(0)
+        let isWeekend = checkInDate ? (checkInDate.getDay() === 6 || checkInDate.getDay() === 0) : false; 
         let multiplier = isWeekend ? roomDetails.weekendMultiplier : 1;
         
         let basePrice = roomDetails.price * multiplier;
@@ -121,7 +124,11 @@ function getPriceDetails(data) {
  * 產生加購服務的 RichCard 輪播圖。
  */
 function generateAddonsCarousel(data) {
-    const details = getPriceDetails(data);
+    // 確保 data.addons 已經初始化，以便檢查是否已加入
+    if (!data.addons) data.addons = []; 
+    
+    // 重新計算價格，確保 RichCard 上顯示的總價是最新的
+    const details = getPriceDetails(data); 
     
     const cards = Object.keys(ADDONS_SERVICE).map(key => {
         const item = ADDONS_SERVICE[key];
@@ -155,7 +162,7 @@ function generateAddonsCarousel(data) {
 // --- Handler 實現區 ---
 
 /**
- * 檢查日期與晚數 (checkDateAndNights) - (假設與舊版邏輯相同，用於 ask_nights_and_dates 狀態)
+ * 檢查日期與晚數 (checkDateAndNights) - (用於 ask_nights_and_dates 狀態)
  */
 function checkDateAndNights(session) {
     const data = session.collectedData;
@@ -204,12 +211,24 @@ function checkBookingEssentials(session) {
 function calculatePrice(session) {
     const data = session.collectedData;
     
-    // 如果價格已經計算過且沒有變更，則跳過
+    // ⭐ 優化 1: 如果價格已經計算過且沒有變更 (例如：沒有登入、沒有加購操作)，則跳過計算
     if (session.executedHandlers.calculatePrice) {
         return { isHandled: false }; 
     }
 
     const details = getPriceDetails(data);
+    
+    // ⭐ 優化 2: 價格異常檢查，防止 NT$ 0 顯示
+    if (details.finalPrice <= 0) {
+         // 這是一個嚴重錯誤，應導回前面收集實體
+         console.error("價格計算結果無效或為零。實體缺失或計算錯誤。");
+         return {
+             isHandled: true,
+             prompt: '抱歉，價格計算失敗。請確認您已提供正確的日期、晚數和房型。',
+             nextStep: 'show_room_types' // 導回選擇房型
+         };
+    }
+    
     data.finalPrice = details.finalPrice;
     data.priceDetails = details;
 
@@ -240,7 +259,6 @@ async function loginMemberAccount(session) {
     
     // 2. 檢查密碼 (用於 ask_member_password 狀態)
     if (!password || password.length < 4) {
-        // 如果已經在問密碼的狀態，但密碼無效，給予錯誤提示
         if (session.currentStep === 'ask_member_password') {
             data.CUSTOM_PROMPT = '請輸入有效的【會員密碼】(至少4位)。';
         }
@@ -261,13 +279,13 @@ async function loginMemberAccount(session) {
         // 🚨 登入成功後，強制清除價格計算追蹤，讓 calculatePrice 重新執行
         sessionManager.clearHandlerExecution(session.id, 'calculatePrice');
         
-        // 立即計算更新後的價格並取得詳情
+        // 立即計算更新後的價格並取得詳情 (應用折扣)
         const details = getPriceDetails(data); 
         data.finalPrice = details.finalPrice; // 更新 session 總價
 
         const prompt = `🎉 恭喜！會員【${account.toUpperCase()}】登入成功，已為您套用 ${MEMBER_DISCOUNT_RATE * 100}% 專屬折扣！\n當前總價為 NT$ **${details.finalPrice.toLocaleString()}**。現在進入加購步驟。`;
 
-        // 推進到加購選單
+        // 推進到加購選單 (RichCard)
         const carouselResult = generateAddonsCarousel(data);
 
         return { 
@@ -308,13 +326,14 @@ function executeAddonsSelection(session) {
     let message = '';
 
     if (action && addonId) {
-        // ... (省略 Add/Remove 邏輯，與前一版相同)
         if (action.toLowerCase() === 'add') {
             const exists = data.addons.some(a => a.id === addonId);
             if (!exists) {
                 data.addons.push({ id: addonId, count: 1 });
                 message = `✅ 已成功加入加購服務：${ADDONS_SERVICE[addonId].name}。`;
                 isModified = true;
+            } else {
+                 message = `ℹ️ ${ADDONS_SERVICE[addonId].name} 已在訂單中。`;
             }
         } else if (action.toLowerCase() === 'remove') {
             const initialLength = data.addons.length;
@@ -330,8 +349,12 @@ function executeAddonsSelection(session) {
     }
     
     if (isModified) {
-        // 🚨 只要加購項目有變動，強制重新計算價格
+        // 🚨 只要加購項目有變動，強制重新計算價格 (透過清除追蹤)
         sessionManager.clearHandlerExecution(session.id, 'calculatePrice');
+        
+        // 重新計算價格以更新 RichCard 上的總價提示
+        const details = getPriceDetails(data);
+        data.finalPrice = details.finalPrice;
         
         const result = generateAddonsCarousel(data);
         return { 
@@ -392,9 +415,9 @@ module.exports = {
     loginMemberAccount, 
     executeAddonsSelection, 
     validateContactInfo, 
-    // ... 假設其他未列出的 Handler 仍然存在
-    handleSpecialRequests: (session) => ({ isHandled: false }), // 模擬簡單通過
-    generateOrderSummary: (session) => ({ isHandled: false }), // 模擬簡單通過
+    // 模擬其他 Handler
+    handleSpecialRequests: (session) => ({ isHandled: false }), 
+    generateOrderSummary: (session) => ({ isHandled: false }), 
     submitBooking: (session) => { 
         session.collectedData.orderId = Math.random().toString(36).substring(2, 10).toUpperCase();
         session.collectedData.paymentMessage = `您的訂單已保留，請於 48 小時內完成 ${session.collectedData.paymentMethod} 付款。`;
