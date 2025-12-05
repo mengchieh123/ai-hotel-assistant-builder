@@ -25,9 +25,9 @@ const {
 } = config;
 
 // 常數定義
-const SERVICE_FEE_RATE = 0.1; 
-const PET_FEE_PER_PET_PER_NIGHT = 300; 
-const VIRTUAL_PAYMENT_BASE_URL = 'https://secure.payment.gateway.com/pay'; 
+const SERVICE_FEE_RATE = 0.1;
+const PET_FEE_PER_PET_PER_NIGHT = 300;
+const VIRTUAL_PAYMENT_BASE_URL = 'https://secure.payment.gateway.com/pay';
 
 // 模擬優惠代碼列表
 const VIRTUAL_PROMO_CODES = {
@@ -48,11 +48,12 @@ class BookingFlowController {
      * 建議在流程初始化時呼叫此函數，確保數據結構完整
      */
     static initializeBookingData(session) {
-         session.bookingData = {
-            // ... (其他核心數據) ...
-            addons: [], // ⭐️ 初始化 addons 陣列
-            // ...
-         };
+        // 確保 session.bookingData 存在，並初始化 addons 陣列
+        if (!session.bookingData) {
+            session.bookingData = {};
+        }
+        session.bookingData.addons = session.bookingData.addons || [];
+        // 如果有需要，可以將其他核心數據也放在這裡初始化
     }
 
     /**
@@ -74,9 +75,11 @@ class BookingFlowController {
         } = data;
 
         if (Object.keys(ROOM_RATES).length === 0 || !roomType || !ROOM_RATES[roomType]) {
+            // 這是安全檢查，確保價格配置存在
             return { success: false, errorMessage: `警告：無法找到房型 [${roomType}] 的價格或配置錯誤。`, oos: true };
         }
         if (!checkInDate || nights <= 0 || roomCount <= 0 || adultCount <= 0) {
+            // 這是業務邏輯檢查，確保核心預訂參數存在
             return { success: false, errorMessage: "價格計算所需的數據不完整或無效。" };
         }
 
@@ -86,7 +89,8 @@ class BookingFlowController {
         // --- 2. 逐晚檢查庫存與動態計算房價 (不變) ---
         for (let i = 0; i < nights; i++) {
             const dateKey = currentDate.format('YYYY-MM-DD');
-            const dayOfWeek = currentDate.day();
+            // Day.js 的 day() 0=Sun, 6=Sat。我們假設 5(Fri) 和 6(Sat) 是週末價
+            const dayOfWeek = currentDate.day(); 
 
             const availableRooms = VIRTUAL_INVENTORY[dateKey]
                 ? VIRTUAL_INVENTORY[dateKey][roomType] || DEFAULT_ROOM_INVENTORY
@@ -145,7 +149,6 @@ class BookingFlowController {
         
         // a) 應用優惠代碼折扣
         if (promoCode && VIRTUAL_PROMO_CODES[promoCode.toUpperCase()]) {
-            // ... (邏輯不變) ...
             const promo = VIRTUAL_PROMO_CODES[promoCode.toUpperCase()];
 
             if (typeof promo === 'number') {
@@ -178,6 +181,7 @@ class BookingFlowController {
         }
 
         // 5. 最終價格
+        // 確保最終價格不為負
         const finalPrice = Math.round(discountedPrice < 0 ? 0 : discountedPrice);
         data.newTotalPrice = finalPrice.toFixed(0); 
         data.finalPrice = finalPrice.toFixed(0);
@@ -189,18 +193,24 @@ class BookingFlowController {
      * ⭐️ 新增：執行通用加購選單邏輯
      */
     static executeAddonsSelection(session, flow, nextStep, extractedEntities) {
+        // 確保 addons 陣列已初始化
         if (!session.bookingData.addons) { session.bookingData.addons = []; }
         
         const data = session.bookingData;
         const currentPrompt = flow.states.ask_addons.prompt;
+        
+        // 確保最新的價格數據已載入到 session.bookingData 中
+        // 因為 calculatePrice 會更新 totalAddonsCost
+        BookingFlowController.calculatePrice(data); 
 
-        // 1. 處理用戶點擊 '完成加購' 按鈕的回饋
+        // 1. 處理用戶點擊 '完成加購' 按鈕的回饋 (addonAction === 'finish')
         if (extractedEntities.addonAction === 'finish') {
             const totalAddons = data.addons.length;
             const finishPrompt = totalAddons > 0 
                 ? `已確認 ${totalAddons} 個加購項目，總加購費用為 NT$ ${data.totalAddonsCost || 0}。` 
                 : '您選擇跳過加購步驟。';
 
+            // 流程前進到下一步 (ask_contact_info)
             return { 
                 nextStep: nextStep, 
                 richCard: null, 
@@ -210,18 +220,19 @@ class BookingFlowController {
             };
         }
 
-        // 2. 處理用戶點擊 '加購' 按鈕的回饋
+        // 2. 處理用戶點擊 '加購' 按鈕的回饋 (addonAction === 'add')
         if (extractedEntities.addonId && extractedEntities.addonAction === 'add') {
             const addon = AddonsService.getAddonById(extractedEntities.addonId);
             if (addon) {
                 let calculatedPrice = 0;
                 
+                // 價格計算邏輯
                 if (addon.type === 'package' && addon.priceFixed) {
                     calculatedPrice = addon.priceFixed;
                 } else if (addon.type === 'meal' || addon.type === 'ticket') {
-                    // 按人頭/天數計算。假設票券或餐飲是依據住幾晚
-                    const guests = (data.adultCount || 1) + (data.childCount || 0);
+                    // 假設票券或餐飲是依據住幾晚 (餐飲通常會乘以晚數)
                     const nights = (data.nights || 1);
+                    // 計算成人和兒童的費用，餐飲依據晚數，票券通常只算一次
                     calculatedPrice = (data.adultCount * addon.priceAdult + data.childCount * addon.priceChild) * (addon.type === 'meal' ? nights : 1);
                 }
 
@@ -233,15 +244,15 @@ class BookingFlowController {
                     price: calculatedPrice
                 });
                 
-                // 重新計算總加購費用
+                // 重新計算總價，更新 data.totalAddonsCost
                 BookingFlowController.calculatePrice(data); 
 
                 const addedCount = data.addons.filter(a => a.id === addon.id).length;
-                session.prompt = `✅ 已為您加入 ${addon.name} (共 ${addedCount} 個，本次費用 NT$ ${calculatedPrice})。總加購費用目前為 NT$ ${data.totalAddonsCost}。`;
+                session.prompt = `✅ 已為您加入 ${addon.name} (共 ${addedCount} 個，本次費用 NT$ ${Math.round(calculatedPrice).toFixed(0)})。總加購費用目前為 NT$ ${data.totalAddonsCost}。`;
             }
         }
         
-        // 3. 動態生成 Rich Card
+        // 3. 動態生成 Rich Card (輪播卡片)
         const availableAddons = AddonsService.getAvailableAddons(data.adultCount, data.childCount);
         
         const addonCards = availableAddons.map(addon => {
@@ -268,6 +279,7 @@ class BookingFlowController {
                     { 
                         text: buttonText, 
                         intent: 'addon_selection', 
+                        // 確保傳遞的數據是 JSON 字串
                         data: JSON.stringify({ addonId: addon.id, addonAction: 'add' }) 
                     }
                 ]
@@ -283,6 +295,7 @@ class BookingFlowController {
                 {
                     text: '完成加購，進入下一步',
                     intent: 'affirm', 
+                    // 傳遞 addonAction: 'finish' 觸發步驟 1 的邏輯
                     data: JSON.stringify({ addonAction: 'finish' }) 
                 }
             ]
@@ -293,6 +306,7 @@ class BookingFlowController {
             items: [...addonCards, finishCard]
         };
         
+        // 返回結果，並將當前狀態的 prompt 設定為 session.prompt (如果處理了 'add' 動作，會顯示成功提示)
         return { 
             nextStep: 'ask_addons', 
             richCard: finalRichCard, 
@@ -306,12 +320,13 @@ class BookingFlowController {
      * 【模擬訂單提交，包含金流連結生成】
      */
     static submitBooking(data) {
-        // ... (邏輯不變) ...
+        // 生成一個模擬的訂單 ID
         const orderId = 'AIBK' + Date.now().toString().slice(-6);
         let paymentMessage;
         
         if (data.paymentMethod === '線上付款') {
             const finalPrice = data.finalPrice;
+            // 模擬金流連結，包含訂單 ID 和金額
             const virtualPaymentURL = `${VIRTUAL_PAYMENT_BASE_URL}?orderId=${orderId}&amount=${finalPrice}`;
 
             paymentMessage = `您的訂單編號是 **${orderId}**，最終金額 NT$ ${finalPrice}。\n\n**[點擊此處完成線上付款](${virtualPaymentURL})**\n\n請注意：連結將在 30 分鐘內有效。`;
