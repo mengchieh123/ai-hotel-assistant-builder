@@ -1,7 +1,8 @@
-// service_mock_api.js (V1.18 - 最終版)
+// service_mock_api.js (V1.20 - 最終版)
 
 /**
  * 模擬外部服務 API 接口
+ * 包含房價、加購服務、會員驗證及庫存鎖定功能
  */
 
 const MOCK_ROOM_PRICING = {
@@ -19,6 +20,7 @@ const MOCK_ADDONS_SERVICE = {
 
 const MOCK_MEMBER_CREDENTIALS = { 'VIP': '1234' }; 
 
+// 模擬當前庫存狀態 
 let CURRENT_INVENTORY = {
     '標準雙人房': 5,
     '豪華客房': 2,
@@ -26,6 +28,7 @@ let CURRENT_INVENTORY = {
     '家庭四人房': 3
 };
 
+// 模擬庫存鎖定數據
 let ACTIVE_LOCKS = {};
 
 // --- 輔助函數 ---
@@ -70,7 +73,7 @@ async function lockInventory(roomType, roomCount) {
         ACTIVE_LOCKS[lockId] = { roomType, roomCount, timestamp: Date.now() };
         CURRENT_INVENTORY[roomType] -= roomCount; 
         
-        // 模擬超時自動釋放
+        // 模擬超時自動釋放（15 秒）
         setTimeout(() => {
             if (ACTIVE_LOCKS[lockId]) {
                 CURRENT_INVENTORY[ACTIVE_LOCKS[lockId].roomType] += ACTIVE_LOCKS[lockId].roomCount;
@@ -98,5 +101,6 @@ module.exports = {
     getPricingDetails,
     verifyMember,
     lockInventory,
-    unlockInventory
+    unlockInventory,
+    simulateDelay // 匯出 simulateDelay 供其他模組測試或模擬使用
 };
