@@ -1,7 +1,7 @@
 /**
  * booking_controller.js
- * 核心訂房流程 Handler 實現
- * 配合 dialogue_flow.json (Optimized Structure V4) 使用
+ * 核心訂房流程 Handler 實現 (V5 Compliant)
+ * 修正了實體防呆檢查，避免流程崩潰。
  */
 
 // --- 模擬服務層數據 (實際應用應調用後端 API) ---
@@ -25,14 +25,25 @@ const CHILD_SURCHARGE = 500; // 兒童不佔床附加費/晚
 // --- 輔助函數 (Helper Functions) ---
 
 function getPriceDetails(data) {
-    let basePrice = 0;
+    // 🏆 防呆檢查：確保 nights, roomType 存在，否則計算會失敗
+    if (!data.nights || !data.roomType || !ROOM_PRICING[data.roomType]) {
+        console.warn("getPriceDetails 缺少必要的實體 (nights 或 roomType)。");
+        return { 
+            roomCost: 0, childCost: 0, addonsCost: 0, memberDiscountValue: 0, 
+            serviceFee: 0, finalPrice: 0 
+        };
+    }
+
     let roomCost = 0;
     let totalNights = data.nights || 1;
     let roomDetails = ROOM_PRICING[data.roomType];
 
+    // 價格計算邏輯
+    let basePrice = 0;
     if (roomDetails) {
         // 假設只有週六是週末價 (簡化計算)
-        let isWeekend = (new Date(data.checkInDate).getDay() === 6);
+        // 🚨 注意: checkInDate 必須是有效日期字串或 Date object
+        let isWeekend = data.checkInDate ? (new Date(data.checkInDate).getDay() === 6) : false;
         let multiplier = isWeekend ? roomDetails.weekendMultiplier : 1;
         basePrice = roomDetails.price * multiplier;
         roomCost = basePrice * (data.roomCount || 1) * totalNights;
@@ -40,9 +51,9 @@ function getPriceDetails(data) {
 
     const childCost = (data.childCount || 0) * CHILD_SURCHARGE * totalNights;
 
-    // 🏆 會員折扣模擬 (95折，回應客戶上次發現的 5% 折扣)
+    // 會員折扣模擬 (95折)
     const MEMBER_DISCOUNT_RATE = 0.05;
-    const memberDiscountValue = data.memberAccount ? (roomCost + childCost) * MEMBER_DISCOUNT_RATE : 0;
+    const memberDiscountValue = data.isLoggedIn ? (roomCost + childCost) * MEMBER_DISCOUNT_RATE : 0;
 
     let totalPriceBeforeFee = roomCost + childCost - memberDiscountValue;
     
@@ -83,12 +94,44 @@ function getPriceDetails(data) {
 // --- Handler 實現區 ---
 
 /**
+ * 0. 檢查日期和晚數是否已收集。用於 ask_nights_and_dates 狀態。
+ * @param {object} session - 對話狀態數據
+ * @returns {object} - 流程控制對象
+ */
+function checkDateAndNights(session) {
+    const data = session.bookingData;
+    
+    // 如果實體已經在之前的步驟中被意圖識別器收集，則直接跳過提示
+    if (data.nights && data.checkInDate) {
+        return {
+            prompt: `已確認入住日期 ${data.checkInDate}，住宿 ${data.nights} 晚。現在請提供入住人數。`,
+            nextStep: 'ask_guest_count', 
+            isHandled: true
+        };
+    }
+    // 否則，流程會進入 'ask_nights_and_dates' 提示並等待用戶輸入
+    return { isHandled: false };
+}
+
+
+/**
  * 1. 處理價格計算和庫存檢查，並處理會員登入的條件式跳轉。
  * @param {object} session - 對話狀態數據
  * @returns {object} - 流程控制對象
  */
 function calculatePrice(session) {
     const data = session.bookingData;
+
+    // 🏆 關鍵修正：檢查必備實體，如果缺少則導回收集日期和晚數的狀態
+    if (!data.nights || !data.checkInDate || !data.roomType) {
+        console.error("calculatePrice 缺少關鍵實體，導回 ask_nights_and_dates");
+        return { 
+            prompt: "抱歉，計算價格需要完整的日期、晚數和房型資訊。請重新提供入住日期和住宿晚數。", 
+            nextStep: 'ask_nights_and_dates', // 導回收集日期狀態
+            isHandled: true 
+        };
+    }
+    
     const { roomCost, childCost, addonsCost, memberDiscountValue, serviceFee, finalPrice } = getPriceDetails(data);
     
     // 檢查庫存 (Oversimplified: 假設庫存總是足夠)
@@ -100,16 +143,18 @@ function calculatePrice(session) {
     session.bookingData.priceDetails = { roomCost, childCost, addonsCost, memberDiscountValue, serviceFee, finalPrice };
 
     if (!isAvailable) {
-        // 實際應用中需返回 OOS 訊息
         return { prompt: `抱歉，${data.roomType} 在該日期庫存不足。請修改房間數或日期。`, nextStep: 'ask_room_count', isHandled: true };
     }
 
-    // 🏆 關鍵優化：如果已登入，直接跳到 ask_addons
+    // 🏆 關鍵優化：如果已登入，直接跳到 ask_addons (解決重複登入問題)
     if (session.bookingData.isLoggedIn) {
-        let prompt = `🎉 您已登入【${data.memberAccount}】。已為您套用 5% 會員折扣。現在為您準備加購服務。`;
-        // 這是 ask_payment_method 狀態執行的情況
+        let prompt = `🎉 您已登入【${data.memberAccount}】。已為您套用 5% 會員折扣。當前總價 NT$ ${finalPrice}。現在為您準備加購服務。`;
+        
+        // 這是 ask_payment_method 狀態執行的情況 (流程末端再次計算價格)
         if (session.currentState === 'ask_payment_method') {
              prompt = `好的，所有費用已確認，最終總價為 **NT$ ${finalPrice}**。請選擇您的付款方式：`;
+             // 在此狀態，我們希望流程繼續，而不是跳回 ask_addons
+             return { prompt: prompt, isHandled: true };
         }
         
         return { 
@@ -132,7 +177,7 @@ function loginMemberAccount(session) {
     const data = session.bookingData;
     const account = data.memberAccount;
 
-    // 模擬驗證 (實際應用中應調用 API)
+    // 模擬驗證
     if (account && account.length >= 5) {
         // 🏆 關鍵優化：設置 isLoggedIn 標記，並強制跳轉
         session.bookingData.memberAccount = account.toUpperCase(); // 設置成功帳號
@@ -161,46 +206,57 @@ function loginMemberAccount(session) {
  */
 function executeAddonsSelection(session) {
     const data = session.bookingData;
-    const { finalPrice } = getPriceDetails(data); // 重新計算價格以更新顯示
-
+    
     // 處理用戶點擊加購動作 (addonAction)
     if (data.addonAction && data.addonId) {
         if (data.addonAction === 'add') {
             if (!data.addons) data.addons = [];
-            data.addons.push({ id: data.addonId, count: 1 }); // 簡化處理，每次點擊加 1
+            
+            // 簡化：檢查是否已存在，避免重複加入 (若需要)
+            const exists = data.addons.some(a => a.id === data.addonId);
+            if (!exists) {
+                data.addons.push({ id: data.addonId, count: 1 });
+            }
+
             delete data.addonAction;
             delete data.addonId;
-            // 處理完畢後，流程需停留在本狀態並重新渲染卡片
+            
+            // 處理完畢後，流程需停留在本狀態並重新渲染卡片，以便用戶繼續選擇
             return { prompt: '✅ 已成功加入加購服務。請繼續選擇或點擊「完成」。', nextStep: 'ask_addons', isHandled: true };
         }
     }
     
     // 檢查是否有「完成」指令，若有則跳轉
     if (session.entities.addonAction && session.entities.addonAction.toLowerCase() === '完成') {
-        const addonsCost = data.priceDetails.addonsCost;
-        let prompt = `您已選擇完成加購。加購總費用為 NT$ ${addonsCost}。`;
+        // 重新計算最終價格，以便在下一步 ask_contact_info 中使用
+        const { finalPrice } = getPriceDetails(data); 
+        const addonsCost = data.priceDetails ? data.priceDetails.addonsCost : 0;
+        let prompt = `您已選擇完成加購，加購總費用為 NT$ ${addonsCost.toLocaleString()}。`;
         return { prompt: prompt, nextStep: 'ask_contact_info', isHandled: true };
     }
+    
+    // 重新計算價格，以顯示含加購的最新總價
+    const { finalPrice } = getPriceDetails(data); 
 
     // 🏆 關鍵優化：動態生成 Rich Card Carousel
     const cards = Object.keys(ADDONS_SERVICE).map(key => {
         const item = ADDONS_SERVICE[key];
         const basePrice = item.price;
-        let priceDescription = `${basePrice} /${item.type === 'per_person' ? '每人' : '每趟'}`;
 
         return {
             title: item.name,
             description: item.name === '每日自助早餐' 
-                ? `飯店精選自助式早餐。價格：TWD ${basePrice} /人 (共 ${data.adultCount} 位大人)`
+                ? `飯店精選自助式早餐。供應時間 07:00-10:00。`
                 : item.name === '水上樂園門票'
-                ? `包含麗寶樂園水上/探索樂園單日票。價格：TWD ${basePrice} /人`
-                : `接送服務。價格：TWD ${basePrice} /趟。`,
+                ? `包含單日票，僅限入住期間使用。`
+                : `4人座專車，適用桃園機場與松山機場的單程接駁。`,
             image: item.image,
-            footer: `TWD ${basePrice}`,
+            footer: `TWD ${basePrice.toLocaleString()} / ${item.type === 'per_person' ? '人' : '趟'}`,
             buttons: [
                 {
                     text: '新增至訂單',
-                    value: `add:${key}` // 使用 value 傳遞指令和 ID
+                    // 後端會解析此字串，將 add 設為 addonAction, key 設為 addonId
+                    value: `add:${key}` 
                 }
             ]
         };
@@ -212,7 +268,7 @@ function executeAddonsSelection(session) {
             type: 'carousel',
             cards: cards
         },
-        prompt: `目前訂單總價：NT$ ${finalPrice} (含加購)。請選擇需要的服務：`,
+        prompt: `目前訂單總價：NT$ ${finalPrice.toLocaleString()} (含房費及服務費)。請選擇需要的加購服務：`,
         nextStep: 'ask_addons' // 停留在本狀態
     };
 }
@@ -226,16 +282,15 @@ function executeAddonsSelection(session) {
 function validateContactInfo(session) {
     const data = session.bookingData;
 
+    // ... [驗證邏輯不變] ...
     if (!data.contactName || data.contactName.length < 2) {
         return { prompt: '請輸入有效的聯絡人姓名 (至少2個字)。', nextStep: 'ask_contact_info', isHandled: true };
     }
 
-    // 簡單的電話號碼驗證
-    if (!data.contactPhone || !/^\d{10}$/.test(data.contactPhone)) {
-        return { prompt: '請輸入有效的 10 位手機號碼。', nextStep: 'ask_contact_info', isHandled: true };
+    if (!data.contactPhone || !/^\d{8,12}$/.test(data.contactPhone)) {
+        return { prompt: '請輸入有效的聯絡電話 (8-12位數字)。', nextStep: 'ask_contact_info', isHandled: true };
     }
 
-    // 簡單的Email驗證
     if (!data.contactEmail || !/@/.test(data.contactEmail)) {
         return { prompt: '請輸入有效的電子郵件地址。', nextStep: 'ask_contact_info', isHandled: true };
     }
@@ -254,7 +309,6 @@ function handleSpecialRequests(session) {
     
     // 假設特殊要求已儲存到 data.specialRequest 實體中
     const request = data.specialRequest || '無';
-    
     session.bookingData.specialRequest = request; 
 
     // 成功處理後，跳轉到 ask_payment_method
@@ -270,6 +324,15 @@ function generateOrderSummary(session) {
     const data = session.bookingData;
     const details = data.priceDetails;
 
+    // 🏆 確保 details 存在，否則重新計算
+    if (!details || !details.finalPrice) {
+        calculatePrice(session);
+        const updatedDetails = session.bookingData.priceDetails;
+        if (!updatedDetails) {
+            return { prompt: "抱歉，訂單摘要生成失敗，缺少價格資訊。", nextStep: 'check_availability_and_price', isHandled: true };
+        }
+    }
+    
     const summary = `
 **--- 📝 最終訂單摘要 ---**
 **房間資訊：**
@@ -295,7 +358,7 @@ function generateOrderSummary(session) {
     session.bookingData.finalSummary = summary;
     
     return { 
-        prompt: summary, // 將摘要顯示在 confirm_booking 狀態
+        prompt: summary, 
         isHandled: true 
     };
 }
@@ -309,11 +372,12 @@ function submitBooking(session) {
     const data = session.bookingData;
     // 模擬後端 API 呼叫，提交 data
     const orderId = `#${Math.floor(Math.random() * 90000) + 10000}`; 
+    const finalPrice = data.priceDetails ? data.priceDetails.finalPrice.toLocaleString() : 'N/A';
 
     const finalPrompt = `
 **🎉 訂單提交成功！**
 訂單編號：${orderId}
-總價：NT$ ${data.priceDetails.finalPrice.toLocaleString()}
+總價：NT$ ${finalPrice}
 
 您的預訂已確認，詳細資訊已發送到您的電子郵件 **${data.contactEmail}**。
 期待您的光臨！
@@ -328,6 +392,7 @@ function submitBooking(session) {
 
 // --- 匯出所有 Handler ---
 module.exports = {
+    checkDateAndNights, // 新增
     calculatePrice,
     loginMemberAccount,
     executeAddonsSelection,
