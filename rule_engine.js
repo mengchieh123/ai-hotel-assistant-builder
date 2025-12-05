@@ -1,4 +1,5 @@
-// rule_engine.js
+// rule_engine.js - 完整且已修復的最終版本
+
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier');
@@ -53,6 +54,7 @@ function hasExecutedHandler(session, stateKey) {
     if (!session.executedHandlers) {
         session.executedHandlers = {};
     }
+    // ⭐ 修復：這個追蹤標記應僅在 Handler 執行成功後標記。
     return session.executedHandlers[stateKey] === true;
 }
 
@@ -382,6 +384,7 @@ class RuleEngine {
         // B. 實體收集/自動推進檢查
         let currentNextState = nextStateKey;
         if (currentNextState !== currentStateKey || (currentState?.entities)) {
+            // 由於用戶輸入了新實體或意圖，重新檢查推進
             currentNextState = this.autoAdvanceFlow(flow, currentNextState, data, session);
         }
         nextStateKey = currentNextState;
@@ -427,6 +430,7 @@ class RuleEngine {
                 }
                 
                 // 檢查是否能進一步推進
+                // 修正：Handler 執行後必須再次檢查 autoAdvanceFlow，以確保即使 Handler 沒有主動返回 nextStep，流程也能通過 next_state 推進。
                 nextStateKey = this.autoAdvanceFlow(flow, nextStateKey, data, session);
 
                 // 如果 Handler 返回 prompt，覆蓋當前狀態的 prompt
@@ -454,7 +458,9 @@ class RuleEngine {
     }
 
 
-    /** 【內部輔助方法】實體收集自動推進邏輯 */
+    /** 【內部輔助方法】實體收集自動推進邏輯 
+     * 已修復：移除 Handler 執行狀態檢查
+     */
     static autoAdvanceFlow(flow, startStateKey, data, session) {
         let currentIterationKey = startStateKey;
         let nextState = flow.states[currentIterationKey];
@@ -466,12 +472,9 @@ class RuleEngine {
                 break;
             }
             
-            // --- Handler 執行檢查 (如果 Handler 未執行，則必須停止於此) ---
-            if (nextState.handler && !hasExecutedHandler(session, currentIterationKey)) {
-                break; 
-            }
+            // ⭐ 移除舊有的 Handler 執行檢查邏輯，避免流程卡死。
 
-            // --- 實體滿足檢查 ---
+            // --- 實體滿足檢查與推進 (條件跳轉) ---
             if (nextState.entities && nextState.next_state) {
                 const nextEntitiesCollected = nextState.entities.every(
                     entity => data[entity] !== undefined && data[entity] !== null && data[entity] !== ''
@@ -482,7 +485,7 @@ class RuleEngine {
                     currentIterationKey = nextState.next_state;
                     nextState = flow.states[currentIterationKey];
                 } else {
-                    // 實體不滿足，停止
+                    // 實體不滿足，停止於當前狀態
                     break;
                 }
             } else if (nextState.next_state) {
@@ -490,7 +493,7 @@ class RuleEngine {
                 currentIterationKey = nextState.next_state;
                 nextState = flow.states[currentIterationKey];
             } else {
-                // 狀態沒有定義 entities 或 next_state，流程停止推進。
+                // 狀態沒有定義 next_state，流程停止推進。
                 break;
             }
         }
@@ -498,13 +501,13 @@ class RuleEngine {
     }
 
     /** * 【內部輔助方法】執行訂單提交 (Handler) 
-     * ⭐ 修正：接收 session 參數
+     * ⭐ 接收 session 參數
      */
     static executeSubmission(session, flow) { 
         const data = session.collectedData;
         let bookingResult;
         try {
-            // ⭐ 修正：傳入完整的 session 物件給 Handler
+            // ⭐ 傳入完整的 session 物件給 Handler
             // Handler (submitBooking) 會在 session.collectedData 上設置 orderId 和 paymentMessage
             BookingFlowController.submitBooking(session); 
 
