@@ -57,7 +57,7 @@
         .carousel-card { 
             flex-shrink: 0; 
             width: 250px; /* 固定寬度，使其可以滾動 */
-            background-color: #f7f7f7; 
+            background-color: #fff; /* 修正：使其與氣泡背景一致 */
             border: 1px solid #eee; 
             border-radius: 12px; 
             overflow: hidden; 
@@ -69,7 +69,7 @@
         .card-content { padding: 10px; display: flex; flex-direction: column; gap: 5px; flex-grow: 1; }
         .card-content h3 { margin: 0; font-size: 1.1em; color: #333; }
         .card-content p { margin: 0; font-size: 0.9em; color: #666; }
-        .card-section { padding: 5px 10px; font-size: 0.8em; background-color: #fff; border-top: 1px solid #f0f0f0; }
+        .card-section { padding: 5px 10px; font-size: 0.8em; background-color: #f9f9f9; border-top: 1px solid #f0f0f0; }
         .card-actions { padding: 10px; border-top: 1px solid #eee; }
     </style>
 </head>
@@ -120,7 +120,7 @@
             if (sender !== 'user' && richCardData) {
                 
                 // 1. button_list 處理
-                if (richCardData.type === 'button_list') {
+                if (richCardData.type === 'button_list' && richCardData.buttons) {
                     let cardHTML = '<div class="rich-card-wrapper">';
                     if (richCardData.title) {
                         cardHTML += `<p class="rich-card-title">${richCardData.title}</p>`;
@@ -136,17 +136,16 @@
                     messageContent += cardHTML;
                 } 
                 
-                // 2. ⭐️ carousel 處理 (新增邏輯 for ask_addons)
-                else if (richCardData.type === 'carousel' && richCardData.items) {
+                // 2. ⭐️ carousel 處理 (關鍵優化：使用 richCardData.cards)
+                else if (richCardData.type === 'carousel' && richCardData.cards) {
                     let carouselHTML = '<div class="rich-card-wrapper">';
-                    // 注意：這裡將輪播卡片放在一個 div 中，以便在訊息泡泡內滾動
                     carouselHTML += '<div class="carousel-container">'; 
                     
-                    richCardData.items.forEach(card => {
+                    richCardData.cards.forEach(card => { // 遍歷卡片陣列
                         // 單個卡片
                         carouselHTML += `<div class="carousel-card">`;
-                        if (card.imageUrl) {
-                            carouselHTML += `<img src="${card.imageUrl}" alt="${card.title}" class="card-image" />`;
+                        if (card.image) { // 使用 card.image 鍵 (與後端約定一致)
+                            carouselHTML += `<img src="${card.image}" alt="${card.title}" class="card-image" />`;
                         }
                         carouselHTML += `<div class="card-content">`;
                         carouselHTML += `<h3>${card.title}</h3>`;
@@ -154,20 +153,19 @@
                             carouselHTML += `<p>${card.description}</p>`;
                         }
                         
-                        // Sections
-                        if (card.sections) {
-                            card.sections.forEach(section => {
-                                carouselHTML += `<div class="card-section"><strong>${section.title}:</strong> ${section.text}</div>`;
-                            });
+                        // Footer 作為價格區
+                        if (card.footer) {
+                            carouselHTML += `<div class="card-section"><strong>價格:</strong> ${card.footer}</div>`;
                         }
+
                         carouselHTML += `</div>`; // .card-content end
 
                         // Buttons
                         if (card.buttons) {
                             carouselHTML += `<div class="card-actions">`;
                             card.buttons.forEach(button => {
-                                // ⭐️ 關鍵：將 JSON 數據 (例如 {addonId: '...', addonAction: 'add'}) 或純文字存儲在 data-value 中
-                                let dataToSend = button.data || button.value; 
+                                // 傳遞按鈕值 (例如 add:meal_breakfast)
+                                let dataToSend = button.value; 
                                 carouselHTML += `<button class="rich-card-btn" type="button" data-value='${dataToSend}' data-intent='${button.intent || ''}'>${button.text}</button>`;
                             });
                             carouselHTML += `</div>`; // .card-actions end
@@ -217,7 +215,7 @@
                         JSON.parse(customMessage); 
                         displayMessage = `[已點擊選項]`; 
                     } catch (e) {
-                        // 正常文字，繼續使用 message
+                        // 正常文字或指令字串，繼續使用 message
                     }
                 }
                 
@@ -285,11 +283,10 @@
                 const buttonValue = e.target.getAttribute('data-value');
                 if (buttonValue) {
                     // 禁用當前訊息泡泡中的所有按鈕，防止重複點擊
-                    // 注意：這會禁用 button_list 和 carousel 內卡片的所有按鈕
                     const buttons = e.target.closest('.message').querySelectorAll('.rich-card-btn');
                     buttons.forEach(btn => btn.disabled = true);
                     
-                    // 將按鈕的值 (可能是純文字或 JSON 字串) 視為用戶輸入發送
+                    // 將按鈕的值 (例如 add:meal_breakfast) 視為用戶輸入發送
                     sendMessage(buttonValue, true);
                 }
             }
