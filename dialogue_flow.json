@@ -1,6 +1,6 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.9 (Optimized Structure V3)",
+    "version": "1.9 (Optimized Structure V4)",
     "initial_state": "init",
     "states": {
         "init": {
@@ -74,6 +74,7 @@
         },
         "check_availability_and_price": {
             "type": "logic_exec",
+            // ⭐️ Handler 職責：檢查 isLoggedIn 標記。若已登入，強制返回 nextStep: 'ask_addons'
             "handler": "calculatePrice",
             "prompt": "已確認 {roomCount} 間 {roomType} 在 {checkInDate} 入住 {nights} 晚有空房。房費總價為 NT$ {totalPrice}。\n\n**您是否為會員？登入可享有額外折扣！**",
             "richCard": {
@@ -94,24 +95,21 @@
                 "member_login": "login_member_account",
                 "deny": "ask_addons"
             },
-            // ⭐️ 移除 next_state: 讓 Handler 決定下一步或停留在本狀態。
             "fallback": "請回答您是否是會員，以便為您計算折扣。"
         },
         "login_member_account": {
             "prompt": "請輸入您的【會員帳號】或【手機號碼】。",
-            // ⭐️ 移除 type: "logic_exec" (狀態機預設會執行 Handler)
             "handler": "loginMemberAccount",
             "entities": ["memberAccount"],
-            "next_state": "ask_addons", // 登入成功後跳轉至 ask_addons
+            "next_state": "ask_addons", // Handler 成功執行後應跳轉至此
             "fallback": "請輸入有效的會員帳號或手機號碼，以便我們查詢您的會員等級。"
         },
         "ask_addons": {
-            // ⭐️ 移除 type: "logic_exec" (狀態機預設會執行 Handler)
+            // ⭐️ Handler 職責：動態生成包含圖片、價格和按鈕的 Carousel/List Rich Card。
             "entities": ["addonId", "addonAction"],
             "handler": "executeAddonsSelection",
             "next_state": "ask_contact_info",
-            "prompt": "請問您還需要加購其他服務或票券嗎？接送機服務已整合在下方選項中。請選擇。",
-            // ⭐️ 強化 fallback：引導用戶
+            "prompt": "請問您還需要加購其他服務或票券嗎？請選擇您想要的項目或直接回覆「完成」。",
             "fallback": "請輸入您想加購的項目，或輸入「完成」跳過。"
         },
         "ask_contact_info": {
@@ -209,12 +207,14 @@
         "paused_waiting_for_resume": {
             "prompt": "流程已暫停，請回覆『繼續』或點擊按鈕恢復訂房。",
             "allow_gemini_call": true,
-            // ⭐️ 新增意圖：將流程從暫停點恢復到下一步
             "intents": {
-                "resume": "ask_addons"
+                // ⭐️ 恢復點優化：回到加購/聯絡資訊階段，而不是登入
+                "resume": "ask_addons",
+                "booking": "ask_addons",
+                "correction": "select_correction_target"
             },
             "fallback": "抱歉，無法恢復流程。請重新輸入『預訂房間』或『查詢資訊』。",
-            "next_state": "end_conversation" // 最終仍無法處理，則終止對話
+            "next_state": "end_conversation" 
         }
     }
 }
