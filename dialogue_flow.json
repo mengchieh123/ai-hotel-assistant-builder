@@ -1,6 +1,6 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.14 (Fixed JSON & Optimized Member/Addons)",
+    "version": "1.15 (整合庫存鎖定與 API 結構)",
     "initial_state": "init",
     "states": {
         "init": {
@@ -9,7 +9,8 @@
             "clear_entities": [
                 "roomType", "roomCount", "checkInDate", "nights", "memberAccount", 
                 "contactName", "contactPhone", "contactEmail", "specialRequest", 
-                "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons", "memberPassword"
+                "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons", "memberPassword",
+                "inventoryLockId"  // 🚨 新增：清除庫存鎖定 ID
             ],
             "entities": ["adultCount", "childCount", "roomCount"],
             "fallback": "您可以直接告訴我預計入住日期，例如：『我想訂明天兩晚的房間』。"
@@ -53,8 +54,18 @@
         "check_essentials_before_price": {
             "type": "logic_exec",
             "handler": "checkBookingEssentials",
-            "next_state": "check_availability_and_price",
+            "next_state": "lock_inventory",  // 🚀 修正：導向新的鎖定狀態
             "fallback": "訂房資訊不完整，請從頭開始。"
+        },
+        
+        // 🚀 新增狀態：庫存鎖定 (階段 2)
+        "lock_inventory": {
+            "type": "logic_exec",
+            "handler": "lockInventory",
+            "prompt": "正在為您鎖定房型庫存，請稍候...",
+            "next_state": "check_availability_and_price", // 鎖定成功後進入價格/會員檢查
+            "fallback": "房型鎖定失敗，請從頭開始。",
+            "allow_gemini_call": false // 確保系統執行鎖定，不被 AI 干擾
         },
         
         "check_availability_and_price": {
@@ -209,7 +220,7 @@
             },
             "allow_gemini_call": true,
             "intents": {
-                "resume": "check_availability_and_price",
+                "resume": "lock_inventory", // 🚀 修正：恢復流程應導向庫存鎖定，確保房間仍然有庫存
                 "booking": "init",
                 "correction": "select_correction_target"
             },
