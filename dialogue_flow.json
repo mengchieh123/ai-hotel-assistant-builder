@@ -94,18 +94,15 @@
                 "member_login": "login_member_account",
                 "deny": "ask_addons"
             },
-            // ⭐️ 修正 3：加入 next_state 確保邏輯執行後能正確停留在本狀態等待用戶操作。
-            // 讓 handler (calculatePrice) 成功時，返回此 next_state
-            "next_state": "check_availability_and_price", 
+            "next_state": "check_availability_and_price",
             "fallback": "請回答您是否是會員，以便為您計算折扣。"
         },
         "login_member_account": {
             "prompt": "請輸入您的【會員帳號】或【手機號碼】。",
             "type": "logic_exec",
-            // ⭐️ 優化 2：handler 正確，會使用 next_state 導航
-            "handler": "loginMemberAccount", 
+            "handler": "loginMemberAccount",
             "entities": ["memberAccount"],
-            "next_state": "ask_addons", // 登入成功後跳轉至 ask_addons (正確)
+            "next_state": "ask_addons",
             "fallback": "請輸入有效的會員帳號或手機號碼，以便我們查詢您的會員等級。"
         },
         "ask_addons": {
@@ -153,8 +150,7 @@
         },
         "confirm_booking": {
             "type": "logic_exec",
-            // ⭐️ 優化 1：handler 產生詳細價格列表 (generateOrderSummary)
-            "handler": "generateOrderSummary", 
+            "handler": "generateOrderSummary",
             "prompt": "【最終確認】請檢視您的訂單：\n\n{finalSummary}\n\n若資料正確，請回覆『確認』；若要修改，請回覆『修改』。",
             "intents": {
                 "affirm": "booking_complete",
