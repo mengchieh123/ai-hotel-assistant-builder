@@ -1,11 +1,11 @@
-// rule_engine.js (V1.20 - 最終確認版)
+// rule_engine.js (V2.0 - 最終完整版)
 
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier');
-const BookingFlowController = require('./booking_controller'); // 確保這裡導入了 controller
+const BookingFlowController = require('./booking_controller'); 
 const GeminiGenerator = require('./gemini_generator');
-const flowConfig = require('./dialogue_flow.json'); // 確保這裡指向正確的 JSON 配置
+const flowConfig = require('./dialogue_flow.json'); 
 
 // 優先級常量定義 (清晰化)
 const PRIORITY = {
@@ -16,7 +16,7 @@ const PRIORITY = {
         AVAILABILITY_CHECK: 102, // 價格/空房檢查錯誤或修正
         CONFIRMATION: 101, // 最終確認狀態
         PAUSE_RESUME: { PAUSE: 98, RESUME: 99 },
-        SUBMIT: 96, // 訂單提交
+        SUBMIT: 96, // 訂單提交 (執行 Handler)
         BASE: 95 // 一般流程推進
     },
     GENERAL: 1
@@ -111,7 +111,6 @@ class RuleEngine {
             let finalResponse = result.response;
             if (result.allowGeminiCall) {
                 try {
-                    // ⭐ 修正：確保 GeminiGenerator.getResponse 是非同步的
                     const geminiResponse = await GeminiGenerator.getResponse(session, cleanedMessage);
                     if (geminiResponse) {
                         finalResponse = this.formatGeminiResponse(geminiResponse, result.response, session.currentStep);
@@ -150,7 +149,7 @@ class RuleEngine {
     static sanitizeEntities(extractedEntities) {
         const cleanedEntities = {};
         // 修正並擴充關鍵字列表，避免將流程關鍵字誤判為 name
-        const suspiciousNameKeywords = ['我要', '我想', '改日', '吸菸', '加價', '多加', '繼續', '訂接', '確認', '行政套房', '豪華客房', '標準雙人房', '家庭四人房', '不客氣'];
+        const suspiciousNameKeywords = ['我要', '我想', '改日', '吸菸', '加價', '多加', '繼續', '訂接', '確認', '行政套房', '豪華客房', '標準雙人房', '家庭四人房', '不客氣', '共住', '我要改', '間入住人', '查看加購'];
         
         for (const key in extractedEntities) {
             const value = String(extractedEntities[key]);
@@ -198,7 +197,7 @@ class RuleEngine {
         rules.sort((a, b) => b.priority - a.priority);
 
         for (const rule of rules) {
-            // ⭐ 確保所有規則的呼叫使用 await
+            // 確保所有規則的呼叫使用 await
             const result = await rule.fn.call(this, intents, session, message, extractedEntities); 
             if (result.shouldProcess) {
                 console.log(`🎯 規則觸發: ${rule.name} (P:${result.priority})`);
@@ -231,10 +230,8 @@ class RuleEngine {
     static roomLimitRule(intents, session) {
         const data = session.collectedData;
         if (data.roomType && data.roomCount > MAX_ROOM_LIMIT) {
-            // ⭐ 假設 sessionManager.clearBookingEssentials 存在並能清除核心預訂數據
-            // sessionManager.clearBookingEssentials(session.id); 
             
-            const nextStateKey = 'show_room_types';
+            const nextStateKey = 'show_room_types'; // 導回房型選擇，提示用戶修正
             const flow = flowConfig;
             
             return {
@@ -280,7 +277,7 @@ class RuleEngine {
     }
 
     /** 規則 2: 流程暫停與恢復規則 (P:98/99) */
-    static pauseResumeRule(intents, session, message) {
+    static pauseResumeRule(intents, session, message, extractedEntities) {
         const currentStateKey = session.currentStep;
         const flow = flowConfig;
         
@@ -365,7 +362,6 @@ class RuleEngine {
 
         // 1. 處理訂單提交邏輯 (P:96) - 只有在確認狀態且用戶同意時執行
         if (currentStateKey === 'confirm_booking' && isAffirm) {
-            // ⭐ 修正調用：傳入整個 session 物件
             return this.executeSubmission(session, flow); 
         }
 
@@ -376,6 +372,18 @@ class RuleEngine {
         // A. 意圖轉移檢查
         if (currentState?.intents) {
             for (const intent of intents) {
+                
+                // ⭐ [修正點 A] 處理 check_availability_and_price 狀態下，詢問加購的意圖
+                if (currentStateKey === 'check_availability_and_price' && intent === 'addon_selection') {
+                    nextStateKey = 'ask_addons'; // 強制轉移到加購狀態
+                    break;
+                }
+                // ⭐ [修正點 B] 處理 check_availability_and_price 狀態下，確認價格的意圖
+                if (currentStateKey === 'check_availability_and_price' && intent === 'affirm') {
+                    nextStateKey = 'ask_addons'; // 確認價格，也轉移到加購狀態
+                    break;
+                }
+
                 if (currentState.intents[intent]) {
                     nextStateKey = currentState.intents[intent];
                     break;
@@ -403,7 +411,6 @@ class RuleEngine {
                 const handlerFunction = BookingFlowController[handlerName];
 
                 if (typeof handlerFunction === 'function') {
-                    // 由於 Handler 內部可能包含異步操作 (例如 lockInventory, calculatePrice)
                     handlerResult = await handlerFunction(session); 
                 } else {
                     console.error(`💥 找不到或無法執行 Handler: ${handlerName}。`);
@@ -443,8 +450,6 @@ class RuleEngine {
                     return this.generateStateResponse(flow, nextStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.richCard);
                 }
             }
-            
-            // 如果 Handler 執行但沒有返回 prompt (isHandled: false)，則流程會繼續往下執行到步驟 4
         }
 
 
@@ -454,13 +459,13 @@ class RuleEngine {
             return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
         }
 
-        // 5. 未匹配任何規則 (例如用戶在收集房型時輸入閒聊)
+        // 5. 未匹配任何規則 
         return { shouldProcess: false, priority: 0 };
     }
 
 
     /** 【內部輔助方法】實體收集自動推進邏輯 
-     */
+      */
     static autoAdvanceFlow(flow, startStateKey, data, session) {
         let currentIterationKey = startStateKey;
         let nextState = flow.states[currentIterationKey];
@@ -499,14 +504,11 @@ class RuleEngine {
     }
 
     /** * 【內部輔助方法】執行訂單提交 (Handler) 
-     * ⭐ 接收 session 參數
-     */
+      */
     static async executeSubmission(session, flow) { 
         const data = session.collectedData;
         let bookingResult;
         try {
-            // ⭐ 確保 submitBooking 是非同步的 (Async/Await)
-            // Handler (submitBooking) 會在 session.collectedData 上設置 orderId 和 paymentMessage
             const handlerResult = await BookingFlowController.submitBooking(session); 
 
             bookingResult = {
