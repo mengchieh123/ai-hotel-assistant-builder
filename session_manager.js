@@ -40,8 +40,8 @@ class SessionManager {
             finalPrice: 0, 
             totalPrice: 0,
             childCost: 0,
-            serviceFee: 0,    // 服務費
-            transferFee: 0,   // 接送費/加購費
+            serviceFee: 0,    // 服務費
+            transferFee: 0,   // 接送費/加購費
             
             // 預訂實體
             roomType: null,
@@ -154,11 +154,11 @@ class SessionManager {
     /** 🏆 清除特定 Handler 的執行狀態 (用於強制重新計算) */
     clearHandlerExecution(sessionId, handlerName) {
         if (this.sessions.has(sessionId)) {
-             const session = this.sessions.get(sessionId);
-             if (session.executedHandlers && session.executedHandlers[handlerName]) {
-                 delete session.executedHandlers[handlerName];
-                 console.log(`♻️ 清除 Handler 追蹤：${handlerName}`);
-             }
+            const session = this.sessions.get(sessionId);
+            if (session.executedHandlers && session.executedHandlers[handlerName]) {
+                delete session.executedHandlers[handlerName];
+                console.log(`♻️ 清除 Handler 追蹤：${handlerName}`);
+            }
         }
     }
     
