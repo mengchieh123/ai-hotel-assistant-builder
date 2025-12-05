@@ -187,12 +187,12 @@ class RuleEngine {
     /** 執行規則集 (從高優先級到低優先級) */
     static async executeRules(intents, session, message, extractedEntities) {
         const rules = [
-            { fn: this.emergencyRule, name: '緊急事件規則', priority: PRIORITY.EMERGENCY },
-            { fn: this.roomLimitRule, name: '房間數量上限規則', priority: PRIORITY.BOOKING_FLOW.ROOM_LIMIT }, 
-            { fn: this.pauseResumeRule, name: '流程暫停/恢復規則', priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE }, 
-            { fn: this.generalInquiryOverrideRule, name: '通用查詢覆蓋規則', priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE }, 
-            { fn: this.bookingFlowRule, name: '訂房流程核心規則', priority: PRIORITY.BOOKING_FLOW.BASE },
-        ];
+    { fn: this.emergencyRule, name: '緊急事件規則', priority: PRIORITY.EMERGENCY },
+    { fn: this.roomLimitRule, name: '房間數量上限規則', priority: PRIORITY.BOOKING_FLOW.ROOM_LIMIT },
+    { fn: this.generalInquiryOverrideRule, name: '通用查詢覆蓋規則', priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE }, // P:104
+    { fn: this.pauseResumeRule, name: '流程暫停/恢復規則', priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE }, // P:98/99
+    { fn: this.bookingFlowRule, name: '訂房流程核心規則', priority: PRIORITY.BOOKING_FLOW.BASE }, // P:95
+];
 
         // 規則按優先級排序，確保高優先級先執行
         rules.sort((a, b) => b.priority - a.priority);
