@@ -1,6 +1,6 @@
 /**
  * booking_controller.js
- * 核心訂房流程 Handler 實現 (V1.10.1 - 修正登入驗證與RichCard主動推送)
+ * 核心訂房流程 Handler 實現 (V1.11 - 最終穩定版，加入 checkBookingEssentials)
  */
 
 // --- 模擬服務層數據 ---
@@ -23,9 +23,6 @@ const CHILD_SURCHARGE = 500;
 
 // --- 輔助函數 (Helper Functions) ---
 
-/**
- * 計算價格細節。
- */
 function getPriceDetails(data) {
     if (!data.nights || !data.roomType || !ROOM_PRICING[data.roomType]) {
         console.warn("getPriceDetails 缺少必要的實體 (nights 或 roomType)。");
@@ -86,10 +83,6 @@ function getPriceDetails(data) {
     };
 }
 
-
-/**
- * 內部函數：生成加購項目 Carousel Rich Card。
- */
 function generateAddonsCarousel(data) {
     const { finalPrice } = getPriceDetails(data); 
 
@@ -140,18 +133,50 @@ function checkDateAndNights(session) {
     return { isHandled: false };
 }
 
-
 /**
- * 1. 處理價格計算和庫存檢查，並處理會員登入的條件式跳轉。
+ * 🏆 V1.11 新增：強制檢查關鍵實體，解決 nights 丟失問題。
  */
+function checkBookingEssentials(session) {
+    const data = session.bookingData;
+    
+    // 檢查日期和晚數
+    if (!data.nights || !data.checkInDate) {
+        console.error("checkBookingEssentials: 日期或晚數丟失，導回 ask_nights_and_dates");
+        return {
+            prompt: "抱歉，訂房日期或晚數資訊丟失，請重新提供入住日期和住宿晚數。",
+            nextStep: 'ask_nights_and_dates', 
+            isHandled: true
+        };
+    }
+    
+    // 檢查房型和間數
+    if (!data.roomType || !data.roomCount) {
+        console.error("checkBookingEssentials: 房型或間數丟失，導回 show_room_types");
+        return {
+            prompt: "房型或間數資訊不完整，請重新選擇房型。",
+            nextStep: 'show_room_types', 
+            isHandled: true
+        };
+    }
+    
+    // 所有必要資訊齊全，自動推進
+    return { 
+        isHandled: true, 
+        nextStep: 'check_availability_and_price' 
+    };
+}
+
 function calculatePrice(session) {
     const data = session.bookingData;
 
+    // 這裡我們不再需要嚴格的防呆，因為 checkBookingEssentials 已經處理了實體缺失
+    // 但為了安全，還是保留 log 提醒
     if (!data.nights || !data.checkInDate || !data.roomType) {
-        console.error("calculatePrice 缺少關鍵實體，導回 ask_nights_and_dates");
+        console.warn("calculatePrice: 仍缺少關鍵實體，請檢查流程邏輯。");
+        // 雖然理論上不該發生，但如果發生，還是導回檢查點
         return { 
-            prompt: "抱歉，計算價格需要完整的日期、晚數和房型資訊。請重新提供入住日期和住宿晚數。", 
-            nextStep: 'ask_nights_and_dates', 
+            prompt: "訂單信息不完整，請重新提供。 (Debug: 導回檢查點)", 
+            nextStep: 'check_essentials_before_price', 
             isHandled: true 
         };
     }
@@ -167,15 +192,13 @@ function calculatePrice(session) {
         return { prompt: `抱歉，${data.roomType} 在該日期庫存不足。請修改房間數或日期。`, nextStep: 'ask_room_count', isHandled: true };
     }
 
-    // 處理 ask_payment_method 狀態的重新計算
     if (session.currentState === 'ask_payment_method') {
          let prompt = `好的，所有費用已確認，最終總價為 **NT$ ${finalPrice.toLocaleString()}**。請選擇您的付款方式：`;
          return { prompt: prompt, isHandled: true };
     }
 
-    // 處理跳轉到 ask_addons 的情況
     if (session.bookingData.isLoggedIn) {
-        const carouselResult = generateAddonsCarousel(data); // 🏆 成功登入，主動生成 Rich Card
+        const carouselResult = generateAddonsCarousel(data);
         
         return { 
             prompt: `🎉 您已登入【${data.memberAccount}】。已為您套用 5% 會員折扣。當前總價 NT$ ${finalPrice.toLocaleString()}。現在為您準備加購服務。`, 
@@ -185,20 +208,14 @@ function calculatePrice(session) {
         };
     }
     
-    // 停留在原狀態 (check_availability_and_price)，等待用戶點擊登入按鈕
     return { isHandled: true }; 
 }
 
-/**
- * 2. 處理會員登入邏輯 (含驗證)。
- */
 function loginMemberAccount(session) {
     const data = session.bookingData;
     const account = session.entities.memberAccount || data.memberAccount;
 
-    // 🏆 關鍵修正：檢查帳號是否存在且符合格式
     if (!account || account.length < 5) {
-        // 登入失敗，停留在當前狀態 (login_member_account)
         return { 
             prompt: '抱歉，請輸入有效的會員帳號 (至少5位)。請重新輸入，或輸入「跳過」進入下一步。', 
             nextStep: 'login_member_account', 
@@ -206,30 +223,25 @@ function loginMemberAccount(session) {
         };
     }
 
-    // 模擬驗證成功
     session.bookingData.memberAccount = account.toUpperCase();
     session.bookingData.isLoggedIn = true; 
     
     const { finalPrice } = getPriceDetails(session.bookingData);
-    const carouselResult = generateAddonsCarousel(data); // 🏆 登入成功，主動生成 Rich Card
+    const carouselResult = generateAddonsCarousel(data);
 
     const prompt = `🎉 恭喜！會員【${account.toUpperCase()}】登入成功，已為您套用 5% 專屬折扣！\n當前總價為 NT$ ${finalPrice.toLocaleString()}。現在進入加購步驟。`;
 
     return { 
         prompt: prompt,
-        richCard: carouselResult.richCard, // 🏆 主動推送 Rich Card
+        richCard: carouselResult.richCard,
         nextStep: 'ask_addons', 
         isHandled: true 
     };
 }
 
-/**
- * 3. 處理加購項目選擇，動態生成 Rich Card Carousel。
- */
 function executeAddonsSelection(session) {
     const data = session.bookingData;
     
-    // 1. 處理用戶點擊加購動作 (addonAction)
     const action = session.entities.addonAction;
     const addonId = session.entities.addonId;
 
@@ -242,11 +254,9 @@ function executeAddonsSelection(session) {
                 data.addons.push({ id: addonId, count: 1 });
             }
 
-            // 清理本次操作實體
             delete session.entities.addonAction;
             delete session.entities.addonId;
             
-            // 處理完畢後，流程需停留在本狀態並重新渲染卡片
             const result = generateAddonsCarousel(data);
             return { 
                 prompt: '✅ 已成功加入加購服務。請繼續選擇或點擊「完成」。', 
@@ -257,31 +267,24 @@ function executeAddonsSelection(session) {
         }
     }
     
-    // 2. 檢查是否有「完成」指令，若有則跳轉
     const userMessage = session.userMessage || '';
     if (userMessage.includes('完成') || userMessage.includes('跳過') || userMessage.includes('下一步')) {
-        // 重新計算最終價格，以便在下一步 ask_contact_info 中使用
         const { finalPrice, addonsCost } = getPriceDetails(data); 
         let prompt = `您已選擇完成加購，加購總費用為 NT$ ${addonsCost.toLocaleString()}。`;
         session.bookingData.finalPrice = finalPrice;
         return { prompt: prompt, nextStep: 'ask_contact_info', isHandled: true };
     }
     
-    // 3. 🏆 首次進入或無操作時，主動生成 Rich Card
     const result = generateAddonsCarousel(data);
 
     return {
         isHandled: true,
         richCard: result.richCard,
         prompt: result.prompt,
-        nextStep: 'ask_addons' // 停留在本狀態
+        nextStep: 'ask_addons'
     };
 }
 
-
-/**
- * 其他 Handler 保持不變...
- */
 function validateContactInfo(session) {
     const data = session.bookingData;
 
@@ -315,7 +318,7 @@ function generateOrderSummary(session) {
         calculatePrice(session);
         const updatedDetails = session.bookingData.priceDetails;
         if (!updatedDetails) {
-            return { prompt: "抱歉，訂單摘要生成失敗，缺少價格資訊。", nextStep: 'check_availability_and_price', isHandled: true };
+            return { prompt: "抱歉，訂單摘要生成失敗，缺少價格資訊。", nextStep: 'check_essentials_before_price', isHandled: true };
         }
     }
     
@@ -372,6 +375,7 @@ function submitBooking(session) {
 // --- 匯出所有 Handler ---
 module.exports = {
     checkDateAndNights, 
+    checkBookingEssentials, // 🏆 新增匯出
     calculatePrice,
     loginMemberAccount,
     executeAddonsSelection,
