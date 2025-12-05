@@ -5,7 +5,7 @@ const flowLoader = new FlowConfigLoader('dialogue_flow.json'); // 確保實例�
 
 class SessionManager {
     constructor() {
-        // 🏆 修正：移除了多餘的 'new' 關鍵字
+        // 🏆 修正：移除了多餘的 'new' 關鍵字，確保能正確實例化 Map
         this.sessions = new Map(); 
         
         // 定期清理過期的 session (每 30 分鐘)
@@ -33,7 +33,7 @@ class SessionManager {
         return session;
     }
     
-    /** 內部方法：初始化 CollectedData */
+    /** 內部方法：初始化 CollectedData (包含會員密碼/addons) */
     initializeCollectedData() {
         return {
             // 初始化核心數據結構
@@ -60,7 +60,8 @@ class SessionManager {
             
             // 會員/折扣
             memberAccount: null,
-            isLoggedIn: false,
+            isLoggedIn: false, // 關鍵：預設未登入
+            memberPassword: null, // 新增：模擬密碼
             
             // 價格詳情 (由 calculatePrice Handler 填充的結構)
             priceDetails: null, 
@@ -69,7 +70,7 @@ class SessionManager {
             CUSTOM_PROMPT: null,
             
             // 儲存已選擇的 addons
-            addons: []
+            addons: [] // 確保這個陣列存在
         };
     }
 
