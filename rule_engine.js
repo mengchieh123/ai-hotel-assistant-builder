@@ -257,8 +257,8 @@ class RuleEngine {
         
         // 只有在非流程中或暫停狀態下才允許跳過並進行通用查詢
         const isSafeToOverride = session.currentStep === 'init' || 
-                                 session.currentStep === 'handle_general_inquiry' ||
-                                 session.currentStep === 'paused_waiting_for_resume';
+                                     session.currentStep === 'handle_general_inquiry' ||
+                                     session.currentStep === 'paused_waiting_for_resume';
 
         if (isGeneralQueryIntent && hasNoBookingEntities && isSafeToOverride) {
             return {
@@ -361,7 +361,8 @@ class RuleEngine {
 
         // 1. 處理訂單提交邏輯 (P:96) - 只有在確認狀態且用戶同意時執行
         if (currentStateKey === 'confirm_booking' && isAffirm) {
-            return this.executeSubmission(data, flow);
+            // ⭐ 修正調用：傳入整個 session 物件
+            return this.executeSubmission(session, flow); 
         }
 
         // 2. 意圖或實體推進
@@ -386,6 +387,7 @@ class RuleEngine {
         nextStateKey = currentNextState;
         
         // 3. 🏆 處理 Handler 邏輯 (通用執行器)
+        // 檢查：Handler 存在 且 Handler 未執行過
         if (flow.states[nextStateKey]?.handler && !hasExecutedHandler(session, nextStateKey)) {
             const handlerName = flow.states[nextStateKey].handler;
             console.log(`💲 觸發 Handler: ${handlerName} 於狀態: ${nextStateKey}`);
@@ -396,7 +398,8 @@ class RuleEngine {
                 const handlerFunction = BookingFlowController[handlerName];
 
                 if (typeof handlerFunction === 'function') {
-                    handlerResult = await handlerFunction(session);
+                    // 由於 Handler 內部可能包含異步操作 (例如 loginMemberAccount)
+                    handlerResult = await handlerFunction(session); 
                 } else {
                     console.error(`💥 找不到或無法執行 Handler: ${handlerName}。`);
                     throw new Error(`找不到 Handler: ${handlerName}`);
@@ -494,20 +497,31 @@ class RuleEngine {
         return currentIterationKey;
     }
 
-    /** 【內部輔助方法】執行訂單提交 (Handler) */
-    static executeSubmission(data, flow) {
+    /** * 【內部輔助方法】執行訂單提交 (Handler) 
+     * ⭐ 修正：接收 session 參數
+     */
+    static executeSubmission(session, flow) { 
+        const data = session.collectedData;
         let bookingResult;
         try {
-            // 這裡直接調用 submitBooking Handler，但由於是核心規則，我們讓它保持同步調用，確保高優先級
-            bookingResult = BookingFlowController.submitBooking({ bookingData: data }); // 傳入 Session 結構
+            // ⭐ 修正：傳入完整的 session 物件給 Handler
+            // Handler (submitBooking) 會在 session.collectedData 上設置 orderId 和 paymentMessage
+            BookingFlowController.submitBooking(session); 
+
+            // 重新定義 bookingResult，以符合 rule_engine.js 後續邏輯的預期
+            bookingResult = {
+                success: true, 
+                id: data.orderId,
+                paymentMessage: data.paymentMessage
+            };
+            
         } catch (e) {
             console.error(`💥 submitBooking 發生錯誤: ${e.message}`);
             bookingResult = { success: false, errorMessage: '提交服務發生無法預期的錯誤。' };
         }
 
         if (bookingResult.success) {
-            data.orderId = bookingResult.id;
-            data.paymentMessage = bookingResult.paymentMessage;
+            // data.orderId 和 data.paymentMessage 已經由 Handler 設置在 session.collectedData 上
 
             const nextState = flow.states['booking_complete'];
             const finalPrompt = interpolatePrompt(nextState.prompt, data);
