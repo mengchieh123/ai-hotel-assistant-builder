@@ -1,12 +1,12 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.9 (Optimized Structure V5)",
+    "version": "1.11 (Final Stable - Checkpoint)",
     "initial_state": "init",
     "states": {
         "init": {
             "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間？",
             "next_state": "ask_nights_and_dates",
-            "clear_entities": ["roomType", "roomCount", "adultCount", "childCount", "checkInDate", "nights", "memberAccount", "contactName", "contactPhone", "contactEmail", "specialRequest", "paymentMethod", "addonAction", "addonId"],
+            "clear_entities": ["roomType", "roomCount", "checkInDate", "nights", "memberAccount", "contactName", "contactPhone", "contactEmail", "specialRequest", "paymentMethod", "addonAction", "addonId"],
             "entities": ["adultCount", "childCount", "roomCount"],
             "fallback": "您可以直接告訴我預計入住日期，例如：『我想訂明天兩晚的房間』。"
         },
@@ -16,6 +16,7 @@
             "prompt": "請提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
             "entities": ["checkInDate", "nights"],
             "next_state": "ask_guest_count",
+            "persist_entities": ["checkInDate", "nights"],
             "fallback": "請提供入住日期及住宿晚數，我會為您查詢空房與價格。"
         },
         "ask_guest_count": {
@@ -42,8 +43,14 @@
         "ask_room_count": {
             "prompt": "好的，您選擇了 {roomType}。請問您需要預訂【幾間】呢？",
             "entities": ["roomCount"],
-            "next_state": "check_availability_and_price",
+            "next_state": "check_essentials_before_price",
             "fallback": "請提供您需要的房間間數，例如：2間。"
+        },
+        "check_essentials_before_price": {
+            "type": "logic_exec",
+            "handler": "checkBookingEssentials",
+            "next_state": "check_availability_and_price",
+            "fallback": "訂房資訊不完整，請從頭開始。"
         },
         "check_availability_and_price": {
             "type": "logic_exec",
@@ -61,7 +68,7 @@
                 "skip": "ask_addons"
             },
             "fallback": "請點擊按鈕或回覆『登入』或『跳過』。",
-            "next_state": "login_member_account" 
+            "next_state": "login_member_account"
         },
         "login_member_account": {
             "type": "logic_exec",
@@ -178,7 +185,7 @@
             },
             "allow_gemini_call": true,
             "intents": {
-                "resume": "ask_addons",
+                "resume": "check_availability_and_price",
                 "booking": "init",
                 "correction": "select_correction_target"
             },
