@@ -1,4 +1,4 @@
-// booking_controller.js - 負責業務計算與訂單模擬 (優化版)
+// booking_controller.js - 負責業務計算與訂單模擬 (優化版 - 已修正 V1.9 錯誤)
 
 // 導入依賴
 const config = require('./config');
@@ -54,48 +54,80 @@ class BookingFlowController {
         // 核心數據初始化
         session.bookingData.addons = session.bookingData.addons || [];
         session.bookingData.nightlyDetails = session.bookingData.nightlyDetails || [];
-        // ⭐️ 新增：確保所有數字相關屬性有預設值，避免 NaN
+        // 確保所有數字相關屬性有預設值，避免 NaN
         session.bookingData.petCount = session.bookingData.petCount || 0;
     }
 
+    // 將原有的純驗證邏輯改為內部輔助函數
+    static _performValidation(data) {
+        const { contactName, contactPhone, contactEmail } = data;
+
+        if (!contactName || contactName.length < 2) {
+            return { success: false, errorMessage: "請輸入有效的聯絡人姓名 (至少2個字)。" };
+        }
+        if (!contactPhone || !/^\d{10}$/.test(contactPhone)) {
+             return { success: false, errorMessage: "請輸入有效的 10 位手機號碼，僅限數字。" };
+        }
+        if (!contactEmail || !/\S+@\S+\.\S+/.test(contactEmail)) {
+            return { success: false, errorMessage: "請輸入有效的電子郵件地址。" };
+        }
+
+        return { success: true };
+    }
+
+
     /**
-     * 聯絡資訊驗證
+     * 聯絡資訊驗證 (重構為 Handler 簽名)
+     * 這是 Flow 狀態機調用的主要驗證入口
      */
-    static validateContactInfo(data) {
-        const { contactName, contactPhone, contactEmail } = data;
+    static validateContactInfo(session, flow, nextStep, extractedEntities) {
+        BookingFlowController.initializeBookingData(session);
 
-        if (!contactName || contactName.length < 2) {
-            return { success: false, errorMessage: "請輸入有效的聯絡人姓名 (至少2個字)。" };
-        }
-        if (!contactPhone || !/^\d{10}$/.test(contactPhone)) {
-             return { success: false, errorMessage: "請輸入有效的 10 位手機號碼，僅限數字。" };
-        }
-        if (!contactEmail || !/\S+@\S+\.\S+/.test(contactEmail)) {
-            return { success: false, errorMessage: "請輸入有效的電子郵件地址。" };
-        }
+        const { contactName, contactPhone, contactEmail } = extractedEntities;
 
-        return { success: true };
-    }
-    
+        // 更新 session.bookingData
+        session.bookingData.contactName = contactName;
+        session.bookingData.contactPhone = contactPhone;
+        session.bookingData.contactEmail = contactEmail;
+        
+        // 執行內部的純驗證邏輯
+        const validationResult = BookingFlowController._performValidation({ contactName, contactPhone, contactEmail });
+
+        if (validationResult.success) {
+            return {
+                nextStep: nextStep, // 成功則跳轉到 next_state (ask_special_requests)
+                isHandled: true
+            };
+        } else {
+            return {
+                nextStep: 'ask_contact_info', // 驗證失敗則停留在當前狀態
+                isHandled: true,
+                prompt: validationResult.errorMessage // 提示錯誤訊息
+            };
+        }
+    }
+
     /**
      * ⭐️ 新增：處理會員登入邏輯 (用於 login_member_account 狀態)
      */
     static loginMemberAccount(session, flow, nextStep, extractedEntities) {
         const memberAccount = extractedEntities.memberAccount || session.bookingData.memberAccount;
         const memberInfo = VIRTUAL_MEMBERS[memberAccount];
-        const defaultNextStep = 'show_price_and_confirm'; // 假設成功後的下一個狀態
+        
+        // ⭐️ 修正：不再使用硬編碼的 nextStep，直接使用傳入的 nextStep 參數
+        const successfulNextStep = nextStep; 
 
         if (memberInfo) {
             session.bookingData.memberAccount = memberAccount;
             // 重新計算價格以應用新會員折扣
-            BookingFlowController.calculatePrice(session.bookingData, defaultNextStep); 
-            
+            BookingFlowController.calculatePrice(session.bookingData, successfulNextStep); 
+            
             const memberDiscountText = session.bookingData.memberDiscountValue > 0
                 ? `已成功登入 Gold 會員，並為您套用 ${BookingFlowController.formatCurrency(session.bookingData.memberDiscountValue)} 折扣！`
                 : '已成功登入 Gold 會員，但因您已使用更優惠的促銷代碼，會員折扣未生效。';
 
             return {
-                nextStep: defaultNextStep,
+                nextStep: successfulNextStep,
                 isHandled: true,
                 prompt: `${memberDiscountText}\n\n請確認您的最終價格：${BookingFlowController.formatCurrency(session.bookingData.finalPrice)}`
             };
@@ -109,12 +141,12 @@ class BookingFlowController {
     }
 
     /**
-     * 【動態價格計算和庫存檢查】 - 修正回傳結構
+     * 【動態價格計算和庫存檢查】 
      * @param {object} data - 預訂數據 (session.bookingData)
      * @param {string} nextState - 成功後的預設下一步狀態
      */
-    static calculatePrice(data, nextState) { // ⭐️ 修正 1：加入 nextState 參數
-        // ... (參數解構和初始化邏輯不變) ...
+    static calculatePrice(data, nextState) {
+        // 修正 1：確保 addons 在解構時，如果 data.addons 不存在，預設為空陣列 []，解決 reduce 錯誤
         const {
             roomType,
             checkInDate,
@@ -125,7 +157,7 @@ class BookingFlowController {
             memberAccount,
             promoCode,
             petCount = 0,
-            addons = [] 
+            addons = [] // ⭐️ 修正點：設置預設值為空陣列
         } = data;
         
         // 核心參數的數值轉換
@@ -136,7 +168,7 @@ class BookingFlowController {
         
         // 1. 基本安全與數據檢查
         if (!roomType || !ROOM_RATES[roomType] || parsedNights <= 0 || parsedRoomCount <= 0) {
-            return { success: false, nextStep: 'ask_new_room_or_date', errorMessage: `價格計算所需的數據不完整或無效。` }; // ⭐️ 修正：返回 nextStep
+            return { success: false, nextStep: 'ask_new_room_or_date', errorMessage: `價格計算所需的數據不完整或無效。` };
         }
 
         let currentDate = dayjs(checkInDate, 'YYYY/MM/DD');
@@ -158,11 +190,10 @@ class BookingFlowController {
                     success: false,
                     errorMessage: `抱歉，${roomType} 在 ${currentDate.format('YYYY/MM/DD')} 僅剩 ${availableRooms} 間。`,
                     oos: true,
-                    nextStep: 'ask_new_room_or_date' // ⭐️ 修正：庫存不足時的下一步
+                    nextStep: 'ask_new_room_or_date'
                 };
             }
-            
-            // ... (房價計算邏輯不變) ...
+            
             let baseRate = ROOM_RATES[roomType];
             let priceMultiplier = (dayOfWeek === 5 || dayOfWeek === 6) ? WEEKEND_MULTIPLIER : 1;
             const isWeekend = priceMultiplier > 1;
@@ -181,12 +212,13 @@ class BookingFlowController {
             currentDate = currentDate.add(1, 'day');
         }
 
-        // 3. 計算附加費用 (邏輯不變)
+        // 3. 計算附加費用 (使用解構出來的 addons 變數)
         const totalChildFee = parsedChildCount * CHILD_FEE_PER_NIGHT * parsedNights;
         data.childCost = Math.round(totalChildFee);
         const totalPetFee = parsedPetCount * PET_FEE_PER_PET_PER_NIGHT * parsedNights;
         data.petFee = Math.round(totalPetFee);
-        let totalAddonsPrice = data.addons.reduce((sum, addon) => sum + addon.price, 0);
+        // ⭐️ 修正點：直接使用 addons 局部變數 (保證是陣列)
+        let totalAddonsPrice = addons.reduce((sum, addon) => sum + addon.price, 0); 
         data.totalAddonsCost = Math.round(totalAddonsPrice);
 
         let subtotal = totalRoomPrice + data.childCost + data.petFee + data.totalAddonsCost;
@@ -196,21 +228,19 @@ class BookingFlowController {
         let discountedPrice = totalBeforeDiscount;
         
         // --- 4. 應用折扣 (邏輯不變) ---
-        // ... (折扣計算邏輯不變) ...
         let memberInfo = VIRTUAL_MEMBERS[memberAccount];
         data.memberLevel = memberInfo ? memberInfo.level : '無';
         let memberDiscountRate = memberInfo ? (memberInfo.discount || 0.9) : 1;
         
         if (promoCode && VIRTUAL_PROMO_CODES[promoCode.toUpperCase()]) {
-            // ... (促銷碼邏輯) ...
             const promo = VIRTUAL_PROMO_CODES[promoCode.toUpperCase()];
             let discountValue = 0;
-            if (typeof promo === 'number') { 
+            if (typeof promo === 'number') { 
                 discountValue = totalBeforeDiscount * (1 - promo);
-            } else if (promo.type === 'fixed') { 
+            } else if (promo.type === 'fixed') { 
                 discountValue = promo.value;
             }
-            data.promoDiscountValue = Math.round(discountValue); 
+            data.promoDiscountValue = Math.round(discountValue); 
             data.appliedPromoCode = promoCode.toUpperCase();
             data.discountApplied = true;
             discountedPrice -= data.promoDiscountValue;
@@ -229,15 +259,15 @@ class BookingFlowController {
         data.totalDiscount = data.promoDiscountValue + data.memberDiscountValue;
         data.totalBeforeDiscount = Math.round(totalBeforeDiscount);
 
-        return { 
-            success: true, 
+        return { 
+            success: true, 
             totalPrice: finalPrice,
-            nextStep: nextState // ⭐️ 修正 1：返回下一個狀態
+            nextStep: nextState
         };
     }
 
     /**
-     * ⭐️ 修正 2：執行通用加購選單邏輯 (確保 Handler 結構正確)
+     * 執行通用加購選單邏輯 (Handler 結構正確)
      */
     static executeAddonsSelection(session, flow, nextStep, extractedEntities) {
         // 確保 bookingData 存在
@@ -268,13 +298,10 @@ class BookingFlowController {
 
         // 2. 處理 '加購' 按鈕的回饋 (addonAction === 'add')
         if (extractedEntities.addonId && extractedEntities.addonAction === 'add') {
-            // ... (加購邏輯不變) ...
             const addon = AddonsService.getAddonById(extractedEntities.addonId);
             if (addon) {
-                // ... (價格計算和存入 data.addons 邏輯不變) ...
                 let calculatedPrice = 0;
                 // 價格計算邏輯
-                // ... (計算邏輯) ...
                 if (addon.type === 'package' && addon.priceFixed) {
                     calculatedPrice = addon.priceFixed;
                 } else if (addon.type === 'meal' || addon.type === 'ticket' || addon.id === 'transfer') {
@@ -285,7 +312,7 @@ class BookingFlowController {
                         calculatedPrice = ((data.adultCount || 0) * (addon.priceAdult || 0) + (data.childCount || 0) * (addon.priceChild || 0)) * (addon.type === 'meal' ? nights : 1);
                     }
                 }
-                
+                
                 data.addons.push({
                     id: addon.id,
                     name: addon.name,
@@ -298,20 +325,19 @@ class BookingFlowController {
 
                 session.prompt = `✅ 已為您加入 ${addon.name} (費用 ${BookingFlowController.formatCurrency(Math.round(calculatedPrice))})。總加購費用目前為 ${BookingFlowController.formatCurrency(data.totalAddonsCost)}。`;
             }
-            // ⭐️ 修正：在加購操作後，返回 isHandled: true 以保持在當前狀態
+            // 在加購操作後，返回 isHandled: true 以保持在當前狀態
             return { 
                 nextStep: 'ask_addons', 
                 isHandled: true, 
                 endFlow: false,
-                // 提示語和卡片會在後續的 Rich Card 邏輯中生成
             };
         }
         
         // 3. 動態生成 Rich Card (輪播卡片) - 邏輯不變
-        // ... (Rich Card 生成邏輯不變) ...
         const availableAddons = AddonsService.getAvailableAddons(data.adultCount, data.childCount);
-        const addonCards = availableAddons.map(addon => { /* ... */ });
-        const finishCard = { /* ... */ };
+        // 為了程式碼完整性，假設這裡有生成卡片的邏輯
+        const addonCards = availableAddons.map(addon => ({ id: addon.id, title: addon.name, description: `NT$ ${addon.priceFixed || '依人數/晚計算'}` }));
+        const finishCard = { id: 'finish', title: '完成加購', description: '進入下一步聯絡資訊填寫', action: { type: 'postback', text: '完成加購', payload: { addonAction: 'finish' } } };
         const finalRichCard = { type: 'carousel', items: [...addonCards, finishCard] };
 
         // 返回結果 (這是 Handler 的最終返回結構)
@@ -323,6 +349,29 @@ class BookingFlowController {
             prompt: session.prompt || currentPrompt 
         };
     }
+    
+    /**
+     * ⭐️ 新增：處理特殊需求 (用於 ask_special_requests 狀態)
+     */
+    static handleSpecialRequests(session, flow, nextStep, extractedEntities) {
+        BookingFlowController.initializeBookingData(session);
+        // 使用從 NLU 提取的 specialRequest 實體
+        const specialRequest = extractedEntities.specialRequest || session.bookingData.specialRequest || "無特殊要求";
+
+        // 儲存特殊需求
+        session.bookingData.specialRequest = specialRequest;
+        session.bookingData.notes = specialRequest; // 存入備註欄
+
+        const promptText = specialRequest.toLowerCase().includes("無特殊要求") || specialRequest.length < 2
+            ? "好的，沒有特殊要求。現在將進入付款方式選擇步驟。"
+            : `已紀錄您的特殊要求：**${specialRequest}**。現在將進入付款方式選擇步驟。`;
+
+        return {
+            nextStep: nextStep, // 導向 next_state (ask_payment_method)
+            isHandled: true,
+            prompt: promptText
+        };
+    }
 
     // ... (generateOrderSummary 和 submitBooking 邏輯不變) ...
     static generateOrderSummary(data, orderId, paymentMessage) { /* ... */ }
