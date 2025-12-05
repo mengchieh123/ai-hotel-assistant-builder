@@ -181,6 +181,23 @@ class SmartIntentClassifier {
             data.roomCount = parseInt(roomCountMatch[1], 10);
         }
 
+        // 7. ⭐️ 關鍵新增：加購實體解析 (從 Rich Card 按鈕數據中提取)
+        try {
+            // 嘗試將整個訊息解析為 JSON。
+            // 這是處理 Rich Card 按鈕點擊的標準方法，因為按鈕通常會傳送一個 JSON 字串。
+            const buttonData = JSON.parse(message);
+            
+            // 檢查是否包含我們在 BookingController 中定義的加購實體
+            if (buttonData.addonId) {
+                data.addonId = buttonData.addonId;
+            }
+            if (buttonData.addonAction) {
+                data.addonAction = buttonData.addonAction;
+            }
+        } catch (e) {
+            // 如果解析失敗，說明這是一條普通文字訊息，無需動作
+        }
+
         // 預設值
         if (data.adultCount === undefined) data.adultCount = 1;
         if (data.childCount === undefined) data.childCount = 0;
