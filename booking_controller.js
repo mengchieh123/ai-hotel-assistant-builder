@@ -1,6 +1,7 @@
 // booking_controller.js
 /**
  * 核心訂房流程 Handler 實現 (V1.14 - 會員/加購/驗證優化版)
+ * 假設流程圖已採用包含 login_member_account, ask_member_password, ask_addons 的優化結構。
  */
 
 const sessionManager = require('./session_manager');
@@ -13,7 +14,6 @@ const MEMBER_DISCOUNT_RATE = 0.05; // 5% 折扣
 
 // --- 模擬服務層數據 ---
 const ROOM_PRICING = {
-    // ... (與前一版相同)
     '標準雙人房': { price: 2200, weekendMultiplier: 1.2, capacity: 2 },
     '豪華客房': { price: 3200, weekendMultiplier: 1.2, capacity: 4 },
     '行政套房': { price: 4800, weekendMultiplier: 1.2, capacity: 4 },
@@ -50,9 +50,7 @@ const ADDONS_SERVICE = {
 // --- 輔助函數 (Helper Functions) ---
 
 /**
- * 計算詳細價格明細。 (邏輯不變，僅確保使用了 isLoggedIn 判斷折扣)
- * @param {object} data - collectedData
- * @returns {object} 價格詳情
+ * 計算詳細價格明細。 (此函數邏輯已在優化中確認可用，確保使用了 isLoggedIn 判斷折扣)
  */
 function getPriceDetails(data) {
     if (!data.nights || !data.roomType || !ROOM_PRICING[data.roomType]) {
@@ -63,11 +61,10 @@ function getPriceDetails(data) {
     const totalNights = data.nights || 1;
     const roomDetails = ROOM_PRICING[data.roomType];
 
-    // 1. 房間基礎費用
-    // ... (與前一版相同)
+    // 1. 房間基礎費用 (包含週末加成)
     if (roomDetails) {
         const checkInDate = data.checkInDate ? new Date(data.checkInDate) : null;
-        let isWeekend = checkInDate ? (checkInDate.getDay() === 6) : false;
+        let isWeekend = checkInDate ? (checkInDate.getDay() === 6 || checkInDate.getDay() === 0) : false; // 修正：週末為週六和週日
         let multiplier = isWeekend ? roomDetails.weekendMultiplier : 1;
         
         let basePrice = roomDetails.price * multiplier;
@@ -77,10 +74,7 @@ function getPriceDetails(data) {
     // 2. 兒童附加費
     const childCost = (data.childCount || 0) * CHILD_SURCHARGE * totalNights;
 
-    // 3. 初始總價 (房費 + 兒童費 + 加購費)
-    let totalPriceBeforeFee = roomCost + childCost;
-    
-    // 4. 加購服務費用
+    // 3. 加購服務費用
     let addonsCost = 0;
     if (data.addons && data.addons.length > 0) {
         data.addons.forEach(addon => {
@@ -88,7 +82,7 @@ function getPriceDetails(data) {
             if (item) {
                 let cost = item.price;
                 if (item.type === 'per_person') {
-                    // 以總人數 (大人+小孩) 或只算大人? 這裡假設只算大人
+                    // 假設 per_person 是按成人數計算
                     cost *= (data.adultCount || 1); 
                 }
                 if (item.isPerNight) {
@@ -98,7 +92,9 @@ function getPriceDetails(data) {
             }
         });
     }
-    totalPriceBeforeFee += addonsCost;
+    
+    // 4. 初始總價 (房費 + 兒童費 + 加購費)
+    let totalPriceBeforeFee = roomCost + childCost + addonsCost;
 
     // 5. 會員折扣 - 僅在 isLoggedIn 為 true 時應用
     const memberDiscountValue = data.isLoggedIn ? totalPriceBeforeFee * MEMBER_DISCOUNT_RATE : 0;
@@ -123,31 +119,28 @@ function getPriceDetails(data) {
 
 /**
  * 產生加購服務的 RichCard 輪播圖。
- * @param {object} data - collectedData
- * @returns {object} RichCard 物件和 Prompt
  */
 function generateAddonsCarousel(data) {
     const details = getPriceDetails(data);
     
     const cards = Object.keys(ADDONS_SERVICE).map(key => {
         const item = ADDONS_SERVICE[key];
-        // 顯示基本價格或費率
-        const priceLabel = `${item.price.toLocaleString()} / ${item.type === 'per_person' ? '人' : '趟'}`;
+        const priceLabel = `TWD ${item.price.toLocaleString()} / ${item.type === 'per_person' ? '人' : '趟'}${item.isPerNight ? ' / 晚' : ''}`;
         const isAdded = data.addons.some(a => a.id === key);
 
         return {
-            title: item.name + (isAdded ? ' ✅' : ''), // 已選的加註標記
+            title: item.name + (isAdded ? ' ✅' : ''), 
             description: item.description,
             image: item.image,
-            footer: `TWD ${priceLabel}`,
+            footer: priceLabel,
             buttons: isAdded ? 
                 [ { text: '取消加購', value: `remove:${key}` } ] :
                 [ { text: '新增至訂單', value: `add:${key}` } ]
         };
     });
     
-    // 總價中包含已選擇的加購費
-    const prompt = `💳 目前訂單總價：NT$ ${details.finalPrice.toLocaleString()} (含房費、加購及服務費)。請選擇需要的加購服務或點擊「完成」。`;
+    // 價格提示：強調已包含的項目
+    const prompt = `💳 目前訂單總價：NT$ **${details.finalPrice.toLocaleString()}** (含房費、加購及服務費)。\n請選擇需要的加購服務或點擊「完成」。`;
 
     return {
         richCard: {
@@ -161,58 +154,118 @@ function generateAddonsCarousel(data) {
 
 // --- Handler 實現區 ---
 
-// ... (checkDateAndNights, checkBookingEssentials, calculatePrice 保持不變)
-// 確保 calculatePrice 負責計算價格並將結果存入 data.priceDetails
+/**
+ * 檢查日期與晚數 (checkDateAndNights) - (假設與舊版邏輯相同，用於 ask_nights_and_dates 狀態)
+ */
+function checkDateAndNights(session) {
+    const data = session.collectedData;
+    
+    if (!data.checkInDate) {
+        data.CUSTOM_PROMPT = '請提供有效的【入住日期】。';
+        return { isHandled: false };
+    }
+    
+    if (!data.nights || data.nights <= 0 || data.nights > MAX_NIGHTS) {
+        data.CUSTOM_PROMPT = `請提供有效的【住宿晚數】(1-${MAX_NIGHTS}晚)。`;
+        return { isHandled: false };
+    }
+    
+    // 檢查通過
+    delete data.CUSTOM_PROMPT;
+    return { isHandled: true }; 
+}
 
 /**
- * 🏆 新增/修改：模擬會員登入驗證 Handler。
- * 狀態: login_member_account
- * @param {object} session - 當前 Session 物件
- * @returns {object} Handler 處理結果
+ * 檢查訂房核心資訊 (checkBookingEssentials) - (用於 check_essentials_before_price 狀態)
+ */
+function checkBookingEssentials(session) {
+    const data = session.collectedData;
+    
+    if (!data.roomType || !ROOM_PRICING[data.roomType]) {
+        data.CUSTOM_PROMPT = '請選擇有效的【房型】。';
+        return { nextStep: 'show_room_types', isHandled: true };
+    }
+    if (!data.roomCount || data.roomCount <= 0) {
+        data.CUSTOM_PROMPT = '請輸入正確的【房間數】。';
+        return { nextStep: 'ask_guest_count', isHandled: true };
+    }
+    if (!data.adultCount || data.adultCount <= 0) {
+        data.CUSTOM_PROMPT = '請輸入正確的【大人】人數。';
+        return { nextStep: 'ask_guest_count', isHandled: true };
+    }
+    // 檢查通過
+    delete data.CUSTOM_PROMPT;
+    return { isHandled: false }; // 讓流程繼續到 check_availability_and_price
+}
+
+/**
+ * 計算價格 (calculatePrice) - (用於 check_availability_and_price 狀態)
+ */
+function calculatePrice(session) {
+    const data = session.collectedData;
+    
+    // 如果價格已經計算過且沒有變更，則跳過
+    if (session.executedHandlers.calculatePrice) {
+        return { isHandled: false }; 
+    }
+
+    const details = getPriceDetails(data);
+    data.finalPrice = details.finalPrice;
+    data.priceDetails = details;
+
+    session.executedHandlers.calculatePrice = true;
+    
+    // 由於 prompt 中使用了 {finalPrice} 變數，這裡不返回 prompt，讓 RuleEngine 使用流程定義的 prompt
+    return { isHandled: false }; 
+}
+
+
+/**
+ * 🏆 模擬會員登入驗證 Handler。
+ * 狀態: login_member_account, ask_member_password
  */
 async function loginMemberAccount(session) {
     const data = session.collectedData; 
     const account = data.memberAccount;
-    const password = data.memberPassword; // 從實體收集的密碼/用戶輸入
+    const password = data.memberPassword; 
 
-    // 1. 檢查帳號
+    // 1. 檢查帳號 (用於 login_member_account 狀態)
     if (!account || account.length < 3) {
         return { 
-            prompt: '請輸入有效的會員帳號 (至少3位)。', 
+            prompt: data.CUSTOM_PROMPT || '請輸入有效的【會員帳號】(至少3位)。若無需登入，請輸入「跳過」。', 
             nextStep: 'login_member_account', 
             isHandled: true 
         };
     }
     
-    // 2. 檢查密碼/第二次輸入
+    // 2. 檢查密碼 (用於 ask_member_password 狀態)
     if (!password || password.length < 4) {
-        // 如果還沒有密碼，推進到下一步，讓流程配置去問密碼
-        // 清理本次輸入的實體，避免下次誤判
-        delete data.memberPassword; 
+        // 如果已經在問密碼的狀態，但密碼無效，給予錯誤提示
+        if (session.currentStep === 'ask_member_password') {
+            data.CUSTOM_PROMPT = '請輸入有效的【會員密碼】(至少4位)。';
+        }
         
-        // 為了讓流程能問密碼，需要確保流程圖中有一個 next_state
-        return { isHandled: false }; // 讓 RuleEngine 繼續推進或詢問密體
+        // 清理本次輸入的實體，讓流程能問密碼
+        delete data.memberPassword; 
+        return { isHandled: false }; // 讓 RuleEngine 根據流程配置推進到問密碼狀態
     }
 
     // 3. 模擬登入驗證
-    // 假設帳號必須是 "VIP" 且密碼必須是 "1234" 才成功
     const isLoginSuccessful = (account.toUpperCase() === 'VIP' && password === '1234');
     
-    // 清理本次輸入的實體
-    delete data.memberPassword;
+    delete data.memberPassword; // 清理密碼實體
     
     if (isLoginSuccessful) {
-        // 登入成功
         data.isLoggedIn = true;
         
-        // 🚨 登入成功後，需要強制重新計算價格 (通過清除 Handler 追蹤)
-        sessionManager.clearHandlerExecution(session.id, 'check_availability_and_price');
-        sessionManager.clearHandlerExecution(session.id, 'check_essentials_before_price');
+        // 🚨 登入成功後，強制清除價格計算追蹤，讓 calculatePrice 重新執行
+        sessionManager.clearHandlerExecution(session.id, 'calculatePrice');
         
-        // 立即計算更新後的價格 (這將在 calculatePrice Handler 再次執行時完成，這裡僅供 prompt 參考)
+        // 立即計算更新後的價格並取得詳情
         const details = getPriceDetails(data); 
-        
-        const prompt = `🎉 恭喜！會員【${account.toUpperCase()}】登入成功，已為您套用 ${MEMBER_DISCOUNT_RATE * 100}% 專屬折扣！\n當前總價為 NT$ ${details.finalPrice.toLocaleString()}。現在進入加購步驟。`;
+        data.finalPrice = details.finalPrice; // 更新 session 總價
+
+        const prompt = `🎉 恭喜！會員【${account.toUpperCase()}】登入成功，已為您套用 ${MEMBER_DISCOUNT_RATE * 100}% 專屬折扣！\n當前總價為 NT$ **${details.finalPrice.toLocaleString()}**。現在進入加購步驟。`;
 
         // 推進到加購選單
         const carouselResult = generateAddonsCarousel(data);
@@ -225,8 +278,9 @@ async function loginMemberAccount(session) {
         };
         
     } else {
-        // 登入失敗
+        // 登入失敗：要求重新輸入帳號，流程回退到 login_member_account
         data.isLoggedIn = false;
+        data.memberAccount = null;
         
         return { 
             prompt: '❌ 登入失敗。帳號或密碼錯誤。請重新輸入完整的【會員帳號】。若無需登入，請輸入「跳過」。', 
@@ -238,24 +292,23 @@ async function loginMemberAccount(session) {
 
 
 /**
- * 🏆 修改：處理加購服務的選擇和動作。
+ * 🏆 處理加購服務的選擇和動作。
  * 狀態: ask_addons
- * @param {object} session - 當前 Session 物件
- * @returns {object} Handler 處理結果
  */
 function executeAddonsSelection(session) {
     const data = session.collectedData; 
     
     if (!data.addons) data.addons = [];
     
-    // 處理 RichCard/按鈕點擊傳回的 action 和 id
-    const action = data.addonAction; // 動作：add 或 remove
-    const addonId = data.addonId;    // 服務ID：meal_breakfast, transfer 等
+    // 處理 RichCard/按鈕點擊傳回的 action 和 id (假設這些實體已在 RuleEngine 內處理)
+    const action = data.addonAction; 
+    const addonId = data.addonId;    
 
     let isModified = false;
     let message = '';
 
     if (action && addonId) {
+        // ... (省略 Add/Remove 邏輯，與前一版相同)
         if (action.toLowerCase() === 'add') {
             const exists = data.addons.some(a => a.id === addonId);
             if (!exists) {
@@ -272,38 +325,24 @@ function executeAddonsSelection(session) {
             }
         }
         
-        // 清理本次輸入的 action 和 id
         delete data.addonAction;
         delete data.addonId;
     }
     
     if (isModified) {
-        // 🚨 只要加購項目有變動，就強制重新計算價格
-        sessionManager.clearHandlerExecution(session.id, 'check_availability_and_price');
-        sessionManager.clearHandlerExecution(session.id, 'check_essentials_before_price');
+        // 🚨 只要加購項目有變動，強制重新計算價格
+        sessionManager.clearHandlerExecution(session.id, 'calculatePrice');
         
-        // 重新計算價格並回饋
         const result = generateAddonsCarousel(data);
         return { 
-            prompt: message + result.prompt, // 顯示操作結果 + 輪播圖提示
+            prompt: message + result.prompt, 
             richCard: result.richCard,
             nextStep: 'ask_addons', 
             isHandled: true 
         };
     }
 
-    // 處理文字指令 (例如用戶輸入「完成」、「跳過」)
-    const userMessage = session.userMessage || '';
-    if (session.intents.includes('affirm') || userMessage.includes('完成') || userMessage.includes('跳過') || userMessage.includes('不用了')) {
-        const { finalPrice, addonsCost } = getPriceDetails(data); 
-        let prompt = `您已選擇完成加購。加購總費用為 NT$ ${addonsCost.toLocaleString()}。現在進入下一步。`;
-        data.finalPrice = finalPrice;
-        
-        // 推進到下一狀態
-        return { prompt: prompt, nextStep: 'ask_contact_info', isHandled: true };
-    }
-    
-    // 如果沒有動作，或用戶輸入閒聊，則保持狀態並顯示選單
+    // 如果沒有動作，則顯示選單
     const result = generateAddonsCarousel(data);
     return {
         isHandled: true,
@@ -314,52 +353,51 @@ function executeAddonsSelection(session) {
 }
 
 /**
- * 🏆 修改：驗證聯絡資訊的有效性。
+ * 🏆 驗證聯絡資訊的有效性。
  * 狀態: ask_contact_info
- * @param {object} session - 當前 Session 物件
- * @returns {object} Handler 處理結果
  */
 function validateContactInfo(session) {
     const data = session.collectedData; 
 
-    // 姓名檢查：至少2個字，不包含數字或特殊符號
+    // 姓名檢查
     if (!data.contactName || data.contactName.length < 2 || !/^[\u4e00-\u9fa5a-zA-Z\s]{2,}$/.test(data.contactName)) {
-        // 提示用戶缺失的資訊
-        data.CUSTOM_PROMPT = '請輸入有效的【聯絡人姓名】 (至少2個字，不可包含數字)。'; 
+        data.CUSTOM_PROMPT = '請輸入有效的【聯絡人姓名】 (至少2個字)。'; 
         return { nextStep: 'ask_contact_info', isHandled: true };
     }
 
-    // 電話檢查：8-12位數字，接受常見格式 (例如 09xx-xxx-xxx)
+    // 電話檢查
     if (!data.contactPhone || !/^\d{8,12}$/.test(data.contactPhone.replace(/[\s-]/g, ''))) {
         data.CUSTOM_PROMPT = '請輸入有效的【聯絡電話】 (8-12位數字)。';
         return { nextStep: 'ask_contact_info', isHandled: true };
     }
-    // 清理電話格式
-    data.contactPhone = data.contactPhone.replace(/[\s-]/g, '');
+    data.contactPhone = data.contactPhone.replace(/[\s-]/g, ''); // 清理電話格式
 
-    // 郵件檢查：標準郵件格式
+    // 郵件檢查
     if (!data.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.contactEmail)) {
         data.CUSTOM_PROMPT = '請輸入有效的【電子郵件地址】。';
         return { nextStep: 'ask_contact_info', isHandled: true };
     }
 
-    // 所有檢查通過，推進到下一狀態
-    return { nextStep: 'ask_special_requests', isHandled: true };
+    // 所有檢查通過，清除自訂 Prompt 並推進
+    delete data.CUSTOM_PROMPT;
+    return { isHandled: false };
 }
 
 
-// ... (handleSpecialRequests, generateOrderSummary, submitBooking 保持不變)
-
 // --- 匯出所有 Handler ---
 module.exports = {
-    // ... (所有舊 Handler)
     checkDateAndNights, 
     checkBookingEssentials,
     calculatePrice,
-    loginMemberAccount, // 🏆 新/改
-    executeAddonsSelection, // 🏆 新/改
-    validateContactInfo, // 🏆 新/改
-    handleSpecialRequests,
-    generateOrderSummary,
-    submitBooking
+    loginMemberAccount, 
+    executeAddonsSelection, 
+    validateContactInfo, 
+    // ... 假設其他未列出的 Handler 仍然存在
+    handleSpecialRequests: (session) => ({ isHandled: false }), // 模擬簡單通過
+    generateOrderSummary: (session) => ({ isHandled: false }), // 模擬簡單通過
+    submitBooking: (session) => { 
+        session.collectedData.orderId = Math.random().toString(36).substring(2, 10).toUpperCase();
+        session.collectedData.paymentMessage = `您的訂單已保留，請於 48 小時內完成 ${session.collectedData.paymentMethod} 付款。`;
+        return { isHandled: false };
+    }
 };
