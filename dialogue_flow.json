@@ -1,6 +1,6 @@
 {
   "name": "HotelBookingFlow",
-  "version": "1.6 (Fixed Logic)",
+  "version": "1.7 (Addons Integrated)",
   "initial_state": "init",
   "states": {
     "init": {
@@ -92,7 +92,7 @@
       },
       "intents": {
         "member_login": "login_member_account",
-        "deny": "ask_meal_option"
+        "deny": "ask_transfer_service"
       },
       "fallback": "請回答您是否是會員，以便為您計算折扣。"
     },
@@ -105,76 +105,31 @@
     "apply_member_discount": {
       "type": "logic_exec",
       "handler": "calculatePrice",
-      "prompt": "{memberLevel} 會員 {memberAccount}，恭喜您享有 {discountRate}% 折扣！原價 NT$ {totalPrice}，折扣後總價為 NT$ {newTotalPrice}。是否需要加購早餐？",
-      "richCard": {
-        "type": "button_list",
-        "title": "早餐加購 (NT$350/人/天)：",
-        "buttons": [
-          {
-            "text": "我要加購早餐",
-            "value": "是"
-          },
-          {
-            "text": "不用，謝謝",
-            "value": "否"
-          }
-        ]
-      },
-      "entities": ["needsMeal"],
+      "prompt": "{memberLevel} 會員 {memberAccount}，恭喜您享有 {discountRate}% 折扣！原價 NT$ {totalPrice}，折扣後總價為 NT$ {newTotalPrice}。現在將進入加購流程。",
+      "entities": [],
       "next_state": "ask_transfer_service",
-      "fallback": "請選擇是否加購早餐。"
+      "fallback": "資訊處理中，請稍候。"
     },
-    "ask_meal_option": {
-      "prompt": "確認您不是會員，總價為 NT$ {totalPrice}。是否需要加購早餐？",
-      "richCard": {
-        "type": "button_list",
-        "title": "早餐加購 (NT$350/人/天)：",
-        "buttons": [
-          {
-            "text": "我要加購早餐",
-            "value": "是"
-          },
-          {
-            "text": "不用，謝謝",
-            "value": "否"
-          }
-        ]
-      },
-      "entities": ["needsMeal"],
-      "next_state": "ask_transfer_service",
-      "fallback": "請選擇是否加購早餐。"
-    },
+    
+    // 註解：已移除舊的 ask_meal_option 狀態
+    
     "ask_transfer_service": {
-      "prompt": "接下來，請問您是否需要額外的接送機服務？(單程 NT$ 1,000，來回 NT$ 1,800)",
-      "richCard": {
-        "type": "button_list",
-        "title": "是否需要接送機服務？",
-        "buttons": [
-          {
-            "text": "✅ 需要接送",
-            "value": "需要接送"
-          },
-          {
-            "text": "❌ 不需要",
-            "value": "不需要接送"
-          }
-        ]
-      },
-      "intents": {
-        "affirm": "collect_transfer_details",
-        "deny": "ask_contact_info"
-      },
-      "fallback": "請告訴我您是否需要接送機服務，如果不需要，請回覆『不需要』。"
+      "entities": ["needsTransfer"],
+      "handler": "executeTransferService",
+      "next_state": "ask_addons",
+      "prompt": "請問是否需要加購接送服務？"
     },
-    "collect_transfer_details": {
-      "prompt": "好的，請提供您的【航班資訊】（航班號、抵達/起飛時間）以及【單程或來回】。",
-      "entities": ["flightNumber", "transferType"],
+    
+    "ask_addons": {
+      "entities": ["addonId", "addonAction"],
+      "handler": "executeAddonsSelection",
       "next_state": "ask_contact_info",
-      "fallback": "請務必提供完整的航班和接送類型資訊（例如：CI102，單程）。"
+      "prompt": "請問您還需要加購其他服務或票券嗎？請從下方選項中選擇。"
     },
+    
     "ask_contact_info": {
       "prompt": "好的，請提供您的【訂房人姓名】、【聯絡電話】和【電子郵件】。這些資訊將用於訂單通知。",
-      "entities": ["contactName", "contactPhone", "contactEmail"],
+      "entities": ["name", "memberAccount", "email"],
       "next_state": "ask_payment_method",
       "fallback": "請提供訂房人姓名、聯絡電話和電子郵件。"
     },
