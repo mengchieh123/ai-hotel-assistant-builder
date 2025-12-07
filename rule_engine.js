@@ -1,4 +1,4 @@
-// rule_engine.js (V2.3 - 流程強勢推進優化版)
+// rule_engine.js (V2.4 - 強制流程推進版)
 
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
@@ -34,7 +34,7 @@ const FORCED_BREAK_STATES = [
     'confirm_booking',
     'check_availability_and_price',
     'ask_addons',
-    'show_room_types', // 🚨 強制等待用戶選擇房型
+    'show_room_types', // 🚨 強制等待用戶選擇房型 (修正邏輯後，現在會在實體收集不完整時才停止)
 ];
 
 // 實用函數：替換 Prompt 中的變數
@@ -255,6 +255,7 @@ class RuleEngine {
             session.currentStep = 'init'; // 導回 init 讓 P:95 規則重新啟動流程
             
             const startStateKey = 'ask_nights_and_dates';
+            const flow = flowConfig;
             const nextStateKey = this.autoAdvanceFlow(flow, startStateKey, session.collectedData, session);
 
             return {
@@ -263,7 +264,7 @@ class RuleEngine {
                 response: '已偵測到新的訂房資訊，重新啟動流程。',
                 nextStep: nextStateKey,
                 allowGeminiCall: false,
-                richCard: flowConfig.states[nextStateKey]?.richCard || null
+                richCard: flow.states[nextStateKey]?.richCard || null
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -490,8 +491,7 @@ class RuleEngine {
                 }
                 
                 // 🚨 關鍵修正點：
-                // 1. 移除 Handler 成功後立即進行的 autoAdvanceFlow (避免跳過 Rich Card)
-                // 2. 只要 Handler 有返回 Prompt 或 Rich Card，或者下一狀態是強制中斷點，就應立即回傳。
+                // 只要 Handler 有返回 Prompt 或 Rich Card，或者下一狀態是強制中斷點，就應立即回傳。
                 if (FORCED_BREAK_STATES.includes(nextStateKey) || handlerResult.prompt || handlerResult.richCard) {
                     // 這裡會處理如 lockInventory 成功後的回覆/prompt，並停在 nextStateKey (例如 ask_addons)
                     return this.generateStateResponse(flow, nextStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.prompt, handlerResult.richCard);
@@ -521,6 +521,7 @@ class RuleEngine {
     }
 
     /** 【內部輔助方法】實體收集自動推進邏輯 
+      * 🚨 V2.4 核心修正：調整了強制中斷點的檢查邏輯
       */
     static autoAdvanceFlow(flow, startStateKey, data, session) {
         let currentIterationKey = startStateKey;
@@ -528,30 +529,37 @@ class RuleEngine {
 
         while (currentIterationKey && nextState) {
             
-            if (FORCED_BREAK_STATES.includes(currentIterationKey)) {
-                break;
-            }
-
-            // 如果下一個狀態有 Handler 且尚未執行，則必須停止，讓 Handler 迴圈處理
-            if (nextState.handler && !hasExecutedHandler(session, currentIterationKey)) {
-                break;
-            }
-            
+            // 1. 檢查是否具備實體要求 (Entities)
             if (nextState.entities && nextState.next_state) {
                 const nextEntitiesCollected = nextState.entities.every(
                     entity => data[entity] !== undefined && data[entity] !== null && data[entity] !== ''
                 );
 
                 if (nextEntitiesCollected) {
+                    // 實體已收集，繼續推進
                     currentIterationKey = nextState.next_state;
                     nextState = flow.states[currentIterationKey];
+                    continue; // 立即檢查下一狀態
+                } else if (FORCED_BREAK_STATES.includes(currentIterationKey)) {
+                    // 實體尚未收集完畢，且是強制中斷點 (Rich Card 畫面)，必須停止等待用戶輸入。
+                    break;
                 } else {
+                    // 實體尚未收集完畢，且非強制中斷點，停止於此狀態等待實體。
                     break;
                 }
-            } else if (nextState.next_state) {
+            } 
+            
+            // 2. 如果沒有實體要求，且有 next_state，則無條件推進
+            else if (nextState.next_state) {
                 currentIterationKey = nextState.next_state;
                 nextState = flow.states[currentIterationKey];
             } else {
+                // 最終狀態或沒有 next_state
+                break;
+            }
+            
+            // 3. 檢查下一個 Handler 是否需要執行 (如果需要，則退出 autoAdvanceFlow 讓主迴圈處理)
+            if (nextState && nextState.handler && !hasExecutedHandler(session, currentIterationKey)) {
                 break;
             }
         }
