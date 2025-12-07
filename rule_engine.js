@@ -1,4 +1,4 @@
-// rule_engine.js (V2.3 - 流程強勢推進最終版)
+// rule_engine.js (V2.3 - 流程強勢推進優化版)
 
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
@@ -15,7 +15,7 @@ const PRIORITY = {
     GENERAL_INQUIRY_OVERRIDE: 104,
     BOOKING_FLOW: {
         ROOM_LIMIT: 103, // 房間數量硬性上限檢查
-        AVAILABILITY_CHECK: 102, // 價格/空房檢查錯誤或修正
+        AVAILABILITY_CHECK: 102, // 價格/空房檢查錯誤或修正 (Handler 錯誤導引)
         CONFIRMATION: 101, // 最終確認狀態
         PAUSE_RESUME: { PAUSE: 98, RESUME: 99 },
         SUBMIT: 96, // 訂單提交 (執行 Handler)
@@ -34,7 +34,7 @@ const FORCED_BREAK_STATES = [
     'confirm_booking',
     'check_availability_and_price',
     'ask_addons',
-    'show_room_types', // 🚨 強制等待用戶選擇房型
+    'show_room_types', // 🚨 強制等待用戶選擇房型
 ];
 
 // 實用函數：替換 Prompt 中的變數
@@ -68,7 +68,7 @@ function markHandlerExecuted(session, stateKey) {
 
 // 🚨 新增：清除 Handler 執行紀錄
 function resetHandlerExecution(session) {
-    session.executedHandlers = {};
+    session.executedHandlers = {};
 }
 
 
@@ -177,7 +177,7 @@ class RuleEngine {
     /** 實體清理邏輯 */
     static sanitizeEntities(extractedEntities) {
         const cleanedEntities = {};
-        const suspiciousNameKeywords = ['我要', '我想', '改日', '吸菸', '加價', '多加', '繼續', '訂接', '確認', '行政套房', '豪華客房', '標準雙人房', '家庭四人房', '不客氣', '共住', '我要改', '間入住人', '查看加購', '跳過', '登入', '修改', '幫我訂', '訂房']; 
+        const suspiciousNameKeywords = ['我要', '我想', '改日', '吸菸', '加價', '多加', '繼續', '訂接', '確認', '行政套房', '豪華客房', '標準雙人房', '家庭四人房', '不客氣', '共住', '我要改', '間入住人', '查看加購', '跳過', '登入', '修改', '幫我訂', '訂房']; 
         
         for (const key in extractedEntities) {
             const value = String(extractedEntities[key]);
@@ -209,7 +209,7 @@ class RuleEngine {
     /** 執行規則集 (從高優先級到低優先級) */
     static async executeRules(intents, session, message, extractedEntities) {
         const rules = [
-            // 🚨 新增最高優先級：強制流程重啟
+            // 🚨 新增最高優先級：強制流程重啟
             { fn: this.resetFlowRule, name: '強制流程重啟規則', priority: PRIORITY.FLOW_RESET_OVERRIDE }, // P:106
             { fn: this.emergencyRule, name: '緊急事件規則', priority: PRIORITY.EMERGENCY },
             { fn: this.roomLimitRule, name: '房間數量上限規則', priority: PRIORITY.BOOKING_FLOW.ROOM_LIMIT },
@@ -233,41 +233,41 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // --- 核心規則實現 ---
+    // --- 核心規則實現 ---
 
-    /** 規則 0: 強制流程重啟/覆蓋規則 (P:106) */
-    static resetFlowRule(intents, session, message, extractedEntities) {
-        // 條件：當前在暫停狀態，且用戶輸入了強烈的訂房意圖或關鍵實體
-        const isPaused = session.currentStep === 'paused_waiting_for_resume';
-        const isStrongBookingIntent = intents.includes('booking') || intents.includes('new_booking');
-        const hasCoreEntities = extractedEntities.checkInDate || extractedEntities.roomType || extractedEntities.nights;
+    /** 規則 0: 強制流程重啟/覆蓋規則 (P:106) */
+    static resetFlowRule(intents, session, message, extractedEntities) {
+        // 條件：當前在暫停狀態，且用戶輸入了強烈的訂房意圖或關鍵實體
+        const isPaused = session.currentStep === 'paused_waiting_for_resume';
+        const isStrongBookingIntent = intents.includes('booking') || intents.includes('new_booking');
+        const hasCoreEntities = extractedEntities.checkInDate || extractedEntities.roomType || extractedEntities.nights;
 
-        if (isPaused && (isStrongBookingIntent || hasCoreEntities)) {
-            console.log("🚨 P:106 強制流程重啟：從暫停中啟動新流程或覆蓋！");
-            // 清理暫停狀態和已執行的 Handler 紀錄
-            session.pausedState = null;
-            resetHandlerExecution(session); 
-            
-            // 清理所有流程數據，只保留當前輸入的實體
-            const tempEntities = { ...session.collectedData, ...extractedEntities };
-            sessionManager.resetSession(session.id);
-            Object.assign(session.collectedData, tempEntities);
-            session.currentStep = 'init'; // 導回 init 讓 P:95 規則重新啟動流程
-            
-            const startStateKey = 'ask_nights_and_dates';
-            const nextStateKey = this.autoAdvanceFlow(flowConfig, startStateKey, session.collectedData, session);
+        if (isPaused && (isStrongBookingIntent || hasCoreEntities)) {
+            console.log("🚨 P:106 強制流程重啟：從暫停中啟動新流程或覆蓋！");
+            // 清理暫停狀態和已執行的 Handler 紀錄
+            session.pausedState = null;
+            resetHandlerExecution(session); 
+            
+            // 清理所有流程數據，只保留當前輸入的實體
+            const tempEntities = { ...session.collectedData, ...extractedEntities };
+            sessionManager.resetSession(session.id);
+            Object.assign(session.collectedData, tempEntities);
+            session.currentStep = 'init'; // 導回 init 讓 P:95 規則重新啟動流程
+            
+            const startStateKey = 'ask_nights_and_dates';
+            const nextStateKey = this.autoAdvanceFlow(flow, startStateKey, session.collectedData, session);
 
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.FLOW_RESET_OVERRIDE,
-                response: '已偵測到新的訂房資訊，重新啟動流程。',
-                nextStep: nextStateKey,
-                allowGeminiCall: false,
-                richCard: flowConfig.states[nextStateKey]?.richCard || null
-            };
-        }
-        return { shouldProcess: false, priority: 0 };
-    }
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.FLOW_RESET_OVERRIDE,
+                response: '已偵測到新的訂房資訊，重新啟動流程。',
+                nextStep: nextStateKey,
+                allowGeminiCall: false,
+                richCard: flowConfig.states[nextStateKey]?.richCard || null
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
 
 
     /** 規則 1: 緊急事件處理 (P:105) */
@@ -350,8 +350,8 @@ class RuleEngine {
             if (isAffirm) {
                 const resumedStateKey = session.pausedState;
                 session.pausedState = null; // 清除暫停狀態
-                // 🚨 重設 Handler 執行紀錄，確保恢復後 Handler 能重新執行
-                resetHandlerExecution(session); 
+                // 🚨 重設 Handler 執行紀錄，確保恢復後 Handler 能重新執行
+                resetHandlerExecution(session); 
                 
                 const stateResponse = this.generateStateResponse(flow, resumedStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
                 
@@ -414,9 +414,9 @@ class RuleEngine {
             // 只要有 booking 意圖或關鍵實體，就啟動流程
             if (intents.includes('booking') || Object.keys(data).some(k => ['checkInDate', 'nights', 'roomType'].includes(k))) {
                 const startStateKey = 'ask_nights_and_dates';
+                // 🚨 修正：確保啟動時的 autoAdvanceFlow 能正確推進
                 const nextStateKey = this.autoAdvanceFlow(flow, startStateKey, data, session);
-                // 🚨 修正：確保狀態轉移到 nextStateKey
-                session.currentStep = nextStateKey; 
+                session.currentStep = nextStateKey; 
                 return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
             }
             return { shouldProcess: false, priority: 0 };
@@ -466,12 +466,16 @@ class RuleEngine {
                 }
             } catch (e) {
                 console.error(`💥 Handler ${handlerName} 發生錯誤: ${e.message}`, e.stack);
+                
+                // 🚨 修正：Handler 發生錯誤時的引導邏輯
+                const safeFallbackState = 'ask_nights_and_dates'; // 導回日期輸入點，這是最安全的重試點
                 return {
                     shouldProcess: true,
                     priority: PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK,
-                    response: `處理錯誤 (Handler: ${handlerName})：${e.message}。請從頭開始。`,
-                    nextStep: 'init',
-                    endFlow: true
+                    response: `🚨 **服務中斷** (Handler: ${handlerName})：${e.message}。請修正您的輸入或稍後再試。`,
+                    nextStep: safeFallbackState, // 導向安全重試點
+                    endFlow: false, // 不結束流程
+                    richCard: flow.states[safeFallbackState]?.richCard || null
                 };
             }
 
@@ -485,17 +489,18 @@ class RuleEngine {
                     nextStateKey = flow.states[nextStateKey].next_state || nextStateKey;
                 }
                 
-                nextStateKey = this.autoAdvanceFlow(flow, nextStateKey, data, session);
-
-                if (FORCED_BREAK_STATES.includes(nextStateKey)) {
+                // 🚨 關鍵修正點：
+                // 1. 移除 Handler 成功後立即進行的 autoAdvanceFlow (避免跳過 Rich Card)
+                // 2. 只要 Handler 有返回 Prompt 或 Rich Card，或者下一狀態是強制中斷點，就應立即回傳。
+                if (FORCED_BREAK_STATES.includes(nextStateKey) || handlerResult.prompt || handlerResult.richCard) {
+                    // 這裡會處理如 lockInventory 成功後的回覆/prompt，並停在 nextStateKey (例如 ask_addons)
                     return this.generateStateResponse(flow, nextStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.prompt, handlerResult.richCard);
                 }
                 
-                if (handlerResult.prompt) {
-                    return this.generateStateResponse(flow, nextStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.prompt, handlerResult.richCard);
-                }
+                // 如果 Handler 處理完畢，沒有 prompt/card 且非中斷點，則讓 WHILE 迴圈繼續檢查下一個 Handler。
+                
             } else {
-                // Handler 處理失敗 (isHandled: false)，保留當前狀態或使用 Handler 提供的 fallback
+                // Handler 處理失敗 (isHandled: false)，使用 Handler 提供的 fallback
                 const fallbackKey = handlerResult.nextStep || nextStateKey;
                 const fallbackPrompt = handlerResult.errorMessage || flow.states[nextStateKey].fallback;
                 return this.generateStateResponse(flow, fallbackKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, fallbackPrompt, handlerResult.richCard);
@@ -503,7 +508,10 @@ class RuleEngine {
 
         }
 
-        // 4. 輸出回應
+        // 4. 輸出回應 - 檢查 Handler 迴圈結束後的最終狀態是否需要自動推進
+        // 這裡使用 autoAdvanceFlow，確保在沒有 Handler 介入或 Handler 推進到非中斷狀態時，流程可以繼續走。
+        nextStateKey = this.autoAdvanceFlow(flow, nextStateKey, data, session);
+
         if (nextStateKey !== currentStateKey || flow.states[nextStateKey]?.entities) {
             return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
         }
@@ -524,6 +532,7 @@ class RuleEngine {
                 break;
             }
 
+            // 如果下一個狀態有 Handler 且尚未執行，則必須停止，讓 Handler 迴圈處理
             if (nextState.handler && !hasExecutedHandler(session, currentIterationKey)) {
                 break;
             }
