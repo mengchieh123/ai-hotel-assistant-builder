@@ -4,12 +4,13 @@ const express = require('express');
 const cors = require('cors'); 
 const path = require('path');
 
+// 設定 Port 和 Host
 const PORT = process.env.PORT || 10000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // --- 導入所有模組 ---
 const config = require('./config'); 
-const RuleEngine = require('./rule_engine'); // 導入規則引擎
+const RuleEngine = require(path.join(__dirname, 'rule_engine')); // 導入規則引擎
 
 // --- 僅保留用於啟動訊息的配置 ---
 const {
@@ -30,11 +31,16 @@ app.use(express.static('public'));
 // 2. API ENDPOINT 和伺服器啟動
 // ---------------------------------------------
 
+// 網站首頁
 app.get('/', (req, res) => {
+    // 假設您的 index.html 位於 public/ 資料夾
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// 主要聊天 API
+/**
+ * 主要聊天 API
+ * 接收 sessionId 和 message，返回 AI 助理的回應。
+ */
 app.post('/api/chat', async (req, res) => {
     const { sessionId, message } = req.body;
     
@@ -43,7 +49,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     try {
-        // 【關鍵修正】：直接傳遞兩個參數 sessionId 和 message
+        // 呼叫 RuleEngine 處理流程
         const result = await RuleEngine.processRules(sessionId, message);
         res.json(result);
     } catch (error) {
@@ -55,5 +61,6 @@ app.post('/api/chat', async (req, res) => {
 // 啟動伺服器
 app.listen(PORT, HOST, () => {
     console.log(`🚀 伺服器運行在 http://${HOST}:${PORT}`);
-    console.log(`Gemini API Key: ${apiUrl ? '已設定' : '未設定 ⚠️'}`);
+    // 檢查 API Key 是否設定，提供啟動提示
+    console.log(`Gemini API Key: ${apiUrl ? '已設定' : '未設定 ⚠️'}`); 
 });
