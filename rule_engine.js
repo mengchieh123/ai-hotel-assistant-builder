@@ -1,27 +1,29 @@
-// rule_engine.js (V2.4 - 強制流程推進版)
+// rule_engine.js (V2.5 - 完整修正版)
 
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier');
-const BookingFlowController = require('./booking_controller'); 
+const BookingFlowController = require('./booking_controller'); 
 const GeminiGenerator = require('./gemini_generator');
-const flowConfig = require('./dialogue_flow.json'); 
+const flowConfig = require('./dialogue_flow.json'); 
 
 // 優先級常量定義 (清晰化)
 const PRIORITY = {
-    // 🚨 新增：強制流程重啟（最高優先級）
-    FLOW_RESET_OVERRIDE: 106,
-    EMERGENCY: 105,
-    GENERAL_INQUIRY_OVERRIDE: 104,
-    BOOKING_FLOW: {
-        ROOM_LIMIT: 103, // 房間數量硬性上限檢查
-        AVAILABILITY_CHECK: 102, // 價格/空房檢查錯誤或修正 (Handler 錯誤導引)
-        CONFIRMATION: 101, // 最終確認狀態
-        PAUSE_RESUME: { PAUSE: 98, RESUME: 99 },
-        SUBMIT: 96, // 訂單提交 (執行 Handler)
-        BASE: 95 // 一般流程推進
-    },
-    GENERAL: 1
+    // 🚨 新增：強制流程重啟（最高優先級）
+    FLOW_RESET_OVERRIDE: 106,
+    EMERGENCY: 105,
+    GENERAL_INQUIRY_OVERRIDE: 104,
+    BOOKING_FLOW: {
+        ROOM_LIMIT: 103, // 房間數量硬性上限檢查
+        AVAILABILITY_CHECK: 102, // 價格/空房檢查錯誤或修正 (Handler 錯誤導引)
+        CONFIRMATION: 101, // 最終確認狀態
+        // 🚨 新增：會員登入規則 (高於暫停規則)
+        MEMBER_LOGIN: 100, 
+        PAUSE_RESUME: { PAUSE: 98, RESUME: 99 },
+        SUBMIT: 96, // 訂單提交 (執行 Handler)
+        BASE: 95 // 一般流程推進
+    },
+    GENERAL: 1
 };
 
 // 最大房間限制
@@ -29,632 +31,652 @@ const MAX_ROOM_LIMIT = 5;
 
 // 【流程強制停止點】: 需等待用戶輸入或決策
 const FORCED_BREAK_STATES = [
-    'ask_contact_info',
-    'ask_payment_method',
-    'confirm_booking',
-    'check_availability_and_price',
-    'ask_addons',
-    'show_room_types', // 🚨 強制等待用戶選擇房型 (修正邏輯後，現在會在實體收集不完整時才停止)
+    'ask_contact_info',
+    'ask_payment_method',
+    'confirm_booking',
+    'check_availability_and_price',
+    'ask_addons',
+    'show_room_types',
 ];
 
 // 實用函數：替換 Prompt 中的變數
 function interpolatePrompt(text, data) {
-    if (!text || typeof text !== 'string') return '';
-    
-    let result = text;
-    for (const key in data) {
-        if (Object.prototype.hasOwnProperty.call(data, key)) {
-            const value = data[key] === undefined || data[key] === null ? '' : String(data[key]);
-            result = result.replace(new RegExp(`\\{${key}\\}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value);
-        }
-    }
-    return result;
+    if (!text || typeof text !== 'string') return '';
+    
+    let result = text;
+    for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+            const value = data[key] === undefined || data[key] === null ? '' : String(data[key]);
+            result = result.replace(new RegExp(`\\{${key}\\}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value);
+        }
+    }
+    return result;
 }
 
 // 輔助方法：Handler 追蹤 (確保計算/處理只執行一次)
 function hasExecutedHandler(session, stateKey) {
-    if (!session.executedHandlers) {
-        session.executedHandlers = {};
-    }
-    return session.executedHandlers[stateKey] === true;
+    if (!session.executedHandlers) {
+        session.executedHandlers = {};
+    }
+    return session.executedHandlers[stateKey] === true;
 }
 
 function markHandlerExecuted(session, stateKey) {
-    if (!session.executedHandlers) {
-        session.executedHandlers = {};
-    }
-    session.executedHandlers[stateKey] = true;
+    if (!session.executedHandlers) {
+        session.executedHandlers = {};
+    }
+    session.executedHandlers[stateKey] = true;
 }
 
-// 🚨 新增：清除 Handler 執行紀錄
+// 🚨 輔助方法：清除 Handler 執行紀錄
 function resetHandlerExecution(session) {
-    session.executedHandlers = {};
+    session.executedHandlers = {};
 }
 
 
 class RuleEngine {
-    
-    /** 錯誤回傳回應 */
-    static getErrorResponse() {
-        return {
-            reply: '抱歉，系統發生錯誤，請稍後再試。',
-            nextStateKey: 'init',
-            data: {},
-            richCard: null,
-            priority: PRIORITY.GENERAL
-        };
-    }
+    
+    /** 錯誤回傳回應 */
+    static getErrorResponse() {
+        return {
+            reply: '抱歉，系統發生錯誤，請稍後再試。',
+            nextStateKey: 'init',
+            data: {},
+            richCard: null,
+            priority: PRIORITY.GENERAL
+        };
+    }
 
-    /** 備用回傳回應 */
-    static getFallbackResponse() {
-        return {
-            reply: '抱歉，我目前無法處理您的請求，請確認您的輸入或稍後再試。',
-            nextStateKey: 'init',
-            data: {},
-            richCard: null,
-            priority: PRIORITY.GENERAL
-        };
-    }
+    /** 備用回傳回應 */
+    static getFallbackResponse() {
+        return {
+            reply: '抱歉，我目前無法處理您的請求，請確認您的輸入或稍後再試。',
+            nextStateKey: 'init',
+            data: {},
+            richCard: null,
+            priority: PRIORITY.GENERAL
+        };
+    }
 
-    /** 主處理函數：接收用戶輸入並返回回應 */
-    static async processRules(sessionId, userMessage) {
-        const cleanedMessage = userMessage || "";
+    /** 主處理函數：接收用戶輸入並返回回應 */
+    static async processRules(sessionId, userMessage) {
+        const cleanedMessage = userMessage || "";
 
-        try {
-            const session = sessionManager.getSession(sessionId);
-            
-            if (!session) {
-                console.error(`❌ 找不到 Session: ${sessionId}`);
-                return this.getFallbackResponse();
-            }
+        try {
+            const session = sessionManager.getSession(sessionId);
+            
+            if (!session) {
+                console.error(`❌ 找不到 Session: ${sessionId}`);
+                return this.getFallbackResponse();
+            }
 
-            // 意圖分類與實體提取
-            const intents = SmartIntentClassifier.classify(cleanedMessage);
-            const extractedEntities = SmartIntentClassifier.extractEntities(cleanedMessage);
-            
-            console.log(`🔍 意圖分類結果: ${JSON.stringify(intents)}`);
-            console.log(`📝 實體提取結果: ${JSON.stringify(extractedEntities)}`);
+            // 意圖分類與實體提取
+            const intents = SmartIntentClassifier.classify(cleanedMessage);
+            const extractedEntities = SmartIntentClassifier.extractEntities(cleanedMessage);
+            
+            console.log(`🔍 意圖分類結果: ${JSON.stringify(intents)}`);
+            console.log(`📝 實體提取結果: ${JSON.stringify(extractedEntities)}`);
 
-            // --- 【防禦性修正：實體清理】 ---
-            const cleanedEntities = this.sanitizeEntities(extractedEntities);
-            // --- 結束實體清理 ---
+            // --- 【防禦性修正：實體清理】 ---
+            const cleanedEntities = this.sanitizeEntities(extractedEntities);
+            // --- 結束實體清理 ---
 
-            // 合併提取的實體到 Session 資料 (使用 cleanedEntities)
-            Object.assign(session.collectedData, cleanedEntities);
-            sessionManager.updateSession(sessionId, cleanedMessage, intents);
+            // 合併提取的實體到 Session 資料 (使用 cleanedEntities)
+            Object.assign(session.collectedData, cleanedEntities);
+            sessionManager.updateSession(sessionId, cleanedMessage, intents);
 
-            // 執行規則引擎
-            const result = await RuleEngine.executeRules(intents, session, cleanedMessage, cleanedEntities); 
+            // 執行規則引擎
+            const result = await RuleEngine.executeRules(intents, session, cleanedMessage, cleanedEntities); 
 
-            if (!result.shouldProcess) {
-                // 如果所有規則都未匹配，則退回一般 AI 查詢
-                return this.generalRule(intents, session, cleanedMessage, cleanedEntities);
-            }
+            if (!result.shouldProcess) {
+                // 如果所有規則都未匹配，則退回一般 AI 查詢
+                return this.generalRule(intents, session, cleanedMessage, cleanedEntities);
+            }
 
-            // 處理下一步狀態
-            if (result.nextStep) {
-                session.currentStep = result.nextStep;
-                console.log(`🔄 狀態轉移: ${session.currentStep}`);
-            }
+            // 處理下一步狀態
+            if (result.nextStep) {
+                session.currentStep = result.nextStep;
+                console.log(`🔄 狀態轉移: ${session.currentStep}`);
+            }
 
-            // 處理 Gemini AI 呼叫 (包含 try...catch)
-            let finalResponse = result.response;
-            if (result.allowGeminiCall) {
-                try {
-                    const geminiResponse = await GeminiGenerator.getResponse(session, cleanedMessage);
-                    if (geminiResponse) {
-                        finalResponse = this.formatGeminiResponse(geminiResponse, result.response, session.currentStep);
-                    }
-                } catch (geminiError) {
-                    console.error(`⚠️ Gemini 呼叫失敗，使用預設回應: ${geminiError.message}`);
-                }
-            }
+            // 處理 Gemini AI 呼叫 (包含 try...catch)
+            let finalResponse = result.response;
+            if (result.allowGeminiCall) {
+                try {
+                    const geminiResponse = await GeminiGenerator.getResponse(session, cleanedMessage);
+                    if (geminiResponse) {
+                        finalResponse = this.formatGeminiResponse(geminiResponse, result.response, session.currentStep);
+                    }
+                } catch (geminiError) {
+                    console.error(`⚠️ Gemini 呼叫失敗，使用預設回應: ${geminiError.message}`);
+                }
+            }
 
-            // 處理流程結束
-            if (result.endFlow) {
-                console.log(`🏁 流程結束於狀態: ${session.currentStep}`);
-                sessionManager.resetSession(session.id); 
-                session.currentStep = 'init';
-            }
+            // 處理流程結束
+            if (result.endFlow) {
+                console.log(`🏁 流程結束於狀態: ${session.currentStep}`);
+                sessionManager.resetSession(session.id); 
+                session.currentStep = 'init';
+            }
 
-            // 儲存助理回應
-            sessionManager.addAssistantResponse(sessionId, finalResponse, result.richCard);
+            // 儲存助理回應
+            sessionManager.addAssistantResponse(sessionId, finalResponse, result.richCard);
 
-            return {
-                reply: finalResponse,
-                nextStateKey: session.currentStep,
-                data: session.collectedData,
-                richCard: result.richCard,
-                priority: result.priority
-            };
+            return {
+                reply: finalResponse,
+                nextStateKey: session.currentStep,
+                data: session.collectedData,
+                richCard: result.richCard,
+                priority: result.priority
+            };
 
-        } catch (error) {
-            console.error(`💥 RuleEngine 處理錯誤: ${error.message}`, error.stack);
-            return this.getErrorResponse();
-        }
-    }
+        } catch (error) {
+            console.error(`💥 RuleEngine 處理錯誤: ${error.message}`, error.stack);
+            return this.getErrorResponse();
+        }
+    }
 
-    /** 實體清理邏輯 */
-    static sanitizeEntities(extractedEntities) {
-        const cleanedEntities = {};
-        const suspiciousNameKeywords = ['我要', '我想', '改日', '吸菸', '加價', '多加', '繼續', '訂接', '確認', '行政套房', '豪華客房', '標準雙人房', '家庭四人房', '不客氣', '共住', '我要改', '間入住人', '查看加購', '跳過', '登入', '修改', '幫我訂', '訂房']; 
-        
-        for (const key in extractedEntities) {
-            const value = String(extractedEntities[key]);
+    /** 實體清理邏輯 */
+    static sanitizeEntities(extractedEntities) {
+        const cleanedEntities = {};
+        // 🚨 修正：移除對 '登入' 的過濾，讓 'member_login' 意圖能被 P:100 規則捕獲。
+        // 保留 '完成' 和 '下一步' 在黑名單，防止其誤判為 name 實體
+        const suspiciousNameKeywords = ['我要', '我想', '改日', '吸菸', '加價', '多加', '繼續', '訂接', '確認', '行政套房', '豪華客房', '標準雙人房', '家庭四人房', '不客氣', '共住', '我要改', '間入住人', '查看加購', '跳過', '完成', '下一步', '修改', '幫我訂', '訂房']; 
+        
+        for (const key in extractedEntities) {
+            const value = String(extractedEntities[key]);
 
-            if (key === 'name' && value) {
-                const isSuspicious = suspiciousNameKeywords.some(keyword => value.includes(keyword));
-                
-                if (isSuspicious) {
-                    console.warn(`⚠️ 忽略可疑的 name 實體 (包含流程關鍵字): ${value}`);
-                    continue;
-                }
-            }
-            
-            cleanedEntities[key] = extractedEntities[key];
-        }
-        return cleanedEntities;
-    }
+            if (key === 'name' && value) {
+                const isSuspicious = suspiciousNameKeywords.some(keyword => value.includes(keyword));
+                
+                if (isSuspicious) {
+                    console.warn(`⚠️ 忽略可疑的 name 實體 (包含流程關鍵字): ${value}`);
+                    continue;
+                }
+            }
+            
+            cleanedEntities[key] = extractedEntities[key];
+        }
+        return cleanedEntities;
+    }
 
-    /** 格式化 Gemini 回應 */
-    static formatGeminiResponse(geminiResponse, originalResponse, currentStep) {
-        if (currentStep === 'paused_waiting_for_resume') {
-            return `👉 **AI 助理回覆**：\n${geminiResponse}\n\n---\n**訂房流程引導**：\n${originalResponse}`;
-        } else if (currentStep === 'handle_general_inquiry') { // 🚨 修正點：使用統一狀態
-            return geminiResponse;
-        }
-        return originalResponse; 
-    }
+    /** 格式化 Gemini 回應 */
+    static formatGeminiResponse(geminiResponse, originalResponse, currentStep) {
+        if (currentStep === 'paused_waiting_for_resume') {
+            return `👉 **AI 助理回覆**：\n${geminiResponse}\n\n---\n**訂房流程引導**：\n${originalResponse}`;
+        } else if (currentStep === 'handle_general_inquiry') {
+            return geminiResponse;
+        }
+        return originalResponse; 
+    }
 
-    /** 執行規則集 (從高優先級到低優先級) */
-    static async executeRules(intents, session, message, extractedEntities) {
-        const rules = [
-            // 🚨 新增最高優先級：強制流程重啟
-            { fn: this.resetFlowRule, name: '強制流程重啟規則', priority: PRIORITY.FLOW_RESET_OVERRIDE }, // P:106
-            { fn: this.emergencyRule, name: '緊急事件規則', priority: PRIORITY.EMERGENCY },
-            { fn: this.roomLimitRule, name: '房間數量上限規則', priority: PRIORITY.BOOKING_FLOW.ROOM_LIMIT },
-            { fn: this.generalInquiryOverrideRule, name: '通用查詢覆蓋規則', priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE }, // P:104
-            { fn: this.pauseResumeRule, name: '流程暫停/恢復規則', priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE }, // P:98/99
-            { fn: this.bookingFlowRule, name: '訂房流程核心規則', priority: PRIORITY.BOOKING_FLOW.BASE }, // P:95
-        ];
+    /** 執行規則集 (從高優先級到低優先級) */
+    static async executeRules(intents, session, message, extractedEntities) {
+        const rules = [
+            // 🚨 最高優先級
+            { fn: this.resetFlowRule, name: '強制流程重啟規則', priority: PRIORITY.FLOW_RESET_OVERRIDE }, // P:106
+            { fn: this.emergencyRule, name: '緊急事件規則', priority: PRIORITY.EMERGENCY }, // P:105
+            { fn: this.roomLimitRule, name: '房間數量上限規則', priority: PRIORITY.BOOKING_FLOW.ROOM_LIMIT }, // P:103
+            { fn: this.generalInquiryOverrideRule, name: '通用查詢覆蓋規則', priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE }, // P:104
+            
+            // 🚨 新增會員登入規則 (P:100)，確保流程中斷時能正確處理登入
+            { fn: this.memberLoginRule, name: '會員登入規則', priority: PRIORITY.BOOKING_FLOW.MEMBER_LOGIN }, 
+            
+            { fn: this.pauseResumeRule, name: '流程暫停/恢復規則', priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE }, // P:98/99
+            { fn: this.bookingFlowRule, name: '訂房流程核心規則', priority: PRIORITY.BOOKING_FLOW.BASE }, // P:95
+        ];
 
-        rules.sort((a, b) => b.priority - a.priority);
+        rules.sort((a, b) => b.priority - a.priority);
 
-        for (const rule of rules) {
-            const result = await rule.fn.call(this, intents, session, message, extractedEntities); 
-            if (result.shouldProcess) {
-                const finalPriority = result.priority === PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME ? 99 : rule.priority; 
-                console.log(`🎯 規則觸發: ${rule.name} (P:${finalPriority})`);
-                result.priority = finalPriority;
-                return result;
-            }
-        }
+        for (const rule of rules) {
+            const result = await rule.fn.call(this, intents, session, message, extractedEntities); 
+            if (result.shouldProcess) {
+                const finalPriority = result.priority === PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME ? 99 : rule.priority; 
+                console.log(`🎯 規則觸發: ${rule.name} (P:${finalPriority})`);
+                result.priority = finalPriority;
+                return result;
+            }
+        }
 
-        return { shouldProcess: false, priority: 0 };
-    }
+        return { shouldProcess: false, priority: 0 };
+    }
 
-    // --- 核心規則實現 ---
+    // --- 核心規則實現 ---
 
-    /** 規則 0: 強制流程重啟/覆蓋規則 (P:106) */
-    static resetFlowRule(intents, session, message, extractedEntities) {
-        // 條件：當前在暫停狀態，且用戶輸入了強烈的訂房意圖或關鍵實體
-        const isPaused = session.currentStep === 'paused_waiting_for_resume';
-        const isStrongBookingIntent = intents.includes('booking') || intents.includes('new_booking');
-        const hasCoreEntities = extractedEntities.checkInDate || extractedEntities.roomType || extractedEntities.nights;
+    /** 規則 0: 強制流程重啟/覆蓋規則 (P:106) */
+    static resetFlowRule(intents, session, message, extractedEntities) {
+        // ... (保持不變)
+        const isPaused = session.currentStep === 'paused_waiting_for_resume';
+        const isStrongBookingIntent = intents.includes('booking') || intents.includes('new_booking');
+        const hasCoreEntities = extractedEntities.checkInDate || extractedEntities.roomType || extractedEntities.nights;
 
-        if (isPaused && (isStrongBookingIntent || hasCoreEntities)) {
-            console.log("🚨 P:106 強制流程重啟：從暫停中啟動新流程或覆蓋！");
-            // 清理暫停狀態和已執行的 Handler 紀錄
-            session.pausedState = null;
-            resetHandlerExecution(session); 
-            
-            // 清理所有流程數據，只保留當前輸入的實體
-            const tempEntities = { ...session.collectedData, ...extractedEntities };
-            sessionManager.resetSession(session.id);
-            Object.assign(session.collectedData, tempEntities);
-            session.currentStep = 'init'; // 導回 init 讓 P:95 規則重新啟動流程
-            
-            const startStateKey = 'ask_nights_and_dates';
-            const flow = flowConfig;
-            const nextStateKey = this.autoAdvanceFlow(flow, startStateKey, session.collectedData, session);
+        if (isPaused && (isStrongBookingIntent || hasCoreEntities)) {
+            console.log("🚨 P:106 強制流程重啟：從暫停中啟動新流程或覆蓋！");
+            session.pausedState = null;
+            resetHandlerExecution(session); 
+            
+            const tempEntities = { ...session.collectedData, ...extractedEntities };
+            sessionManager.resetSession(session.id);
+            Object.assign(session.collectedData, tempEntities);
+            session.currentStep = 'init'; 
+            
+            const startStateKey = 'ask_nights_and_dates';
+            const flow = flowConfig;
+            const nextStateKey = this.autoAdvanceFlow(flow, startStateKey, session.collectedData, session);
 
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.FLOW_RESET_OVERRIDE,
-                response: '已偵測到新的訂房資訊，重新啟動流程。',
-                nextStep: nextStateKey,
-                allowGeminiCall: false,
-                richCard: flow.states[nextStateKey]?.richCard || null
-            };
-        }
-        return { shouldProcess: false, priority: 0 };
-    }
-
-
-    /** 規則 1: 緊急事件處理 (P:105) */
-    static emergencyRule(intents) {
-        if (intents.includes('emergency')) {
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.EMERGENCY,
-                response: '🚨 **緊急通知**：請立即撥打 119 或飯店櫃檯 (分機 9)。請提供您的房號及確切情況，我們將在最短時間內提供協助！',
-                nextStep: 'end_conversation',
-                endFlow: true,
-                allowGeminiCall: false,
-                richCard: null
-            };
-        }
-        return { shouldProcess: false, priority: 0 };
-    }
-
-    /** 規則 1.1: 房間數量硬性上限檢查 (P:103) */
-    static roomLimitRule(intents, session) {
-        const data = session.collectedData;
-        if (data.roomCount !== undefined && data.roomCount > MAX_ROOM_LIMIT) {
-            
-            const nextStateKey = 'show_room_types'; 
-            const flow = flowConfig;
-            
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.BOOKING_FLOW.ROOM_LIMIT,
-                response: `抱歉，單次最多僅能預訂 **${MAX_ROOM_LIMIT} 間**。請修正您需要的房間數。`,
-                nextStep: nextStateKey,
-                richCard: flow.states[nextStateKey]?.richCard || null,
-                allowGeminiCall: false,
-                endFlow: false
-            };
-        }
-        return { shouldProcess: false, priority: 0 };
-    }
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.FLOW_RESET_OVERRIDE,
+                response: '已偵測到新的訂房資訊，重新啟動流程。',
+                nextStep: nextStateKey,
+                allowGeminiCall: false,
+                richCard: flow.states[nextStateKey]?.richCard || null
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
 
 
-    /** 規則 1.5: 通用查詢覆蓋規則 (P:104) */
-    static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
-        const isGeneralQueryIntent = intents.some(i => ['general_inquiry', 'inquiry', 'pricing', 'facilities', 'weather', 'restaurant'].includes(i));
-        
-        const hasNoBookingEntities = Object.keys(extractedEntities).every(key => 
-            !['roomType', 'checkInDate', 'nights', 'adultCount', 'roomCount'].includes(key)
-        );
-        
-        const isSafeToOverride = session.currentStep === 'init' || 
-                                 session.currentStep === 'handle_general_inquiry' ||
-                                 session.currentStep === 'paused_waiting_for_resume';
+    /** 規則 1: 緊急事件處理 (P:105) */
+    static emergencyRule(intents) {
+        // ... (保持不變)
+        if (intents.includes('emergency')) {
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.EMERGENCY,
+                response: '🚨 **緊急通知**：請立即撥打 119 或飯店櫃檯 (分機 9)。請提供您的房號及確切情況，我們將在最短時間內提供協助！',
+                nextStep: 'end_conversation',
+                endFlow: true,
+                allowGeminiCall: false,
+                richCard: null
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
 
-        if (isGeneralQueryIntent && hasNoBookingEntities && isSafeToOverride) {
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE,
-                response: '好的，我將為您查詢相關資訊。',
-                nextStep: 'handle_general_inquiry',
-                allowGeminiCall: true,
-                richCard: null,
-                endFlow: false
-            };
-        }
-        return { shouldProcess: false, priority: 0 };
-    }
+    /** 規則 1.1: 房間數量硬性上限檢查 (P:103) */
+    static roomLimitRule(intents, session) {
+        // ... (保持不變)
+        const data = session.collectedData;
+        if (data.roomCount !== undefined && data.roomCount > MAX_ROOM_LIMIT) {
+            
+            const nextStateKey = 'show_room_types'; 
+            const flow = flowConfig;
+            
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.BOOKING_FLOW.ROOM_LIMIT,
+                response: `抱歉，單次最多僅能預訂 **${MAX_ROOM_LIMIT} 間**。請修正您需要的房間數。`,
+                nextStep: nextStateKey,
+                richCard: flow.states[nextStateKey]?.richCard || null,
+                allowGeminiCall: false,
+                endFlow: false
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
 
-    /** 規則 2: 流程暫停與恢復規則 (P:98/99) */
-    static pauseResumeRule(intents, session, message) {
-        const currentStateKey = session.currentStep;
-        const flow = flowConfig;
-        const lowerMessage = message.toLowerCase();
-        
-        const isAffirm = intents.includes('affirm') || lowerMessage.includes('繼續') || lowerMessage.includes('好');
-        const isDeny = intents.includes('deny') || lowerMessage.includes('取消') || lowerMessage.includes('不要');
-        
-        const isQueryIntent = intents.some(i => ['inquiry', 'pricing', 'facilities', 'restaurant', 'general_inquiry'].includes(i));
+    /** 規則 1.2: 會員登入規則 (P:100) */
+    static memberLoginRule(intents, session) {
+        // 🚨 條件：偵測到明確的會員登入意圖 (member_login)
+        if (intents.includes('member_login')) {
+            const nextStateKey = 'handle_member_login';
+            
+            // 強制清除 handler 紀錄，確保登入 Handler (handleLoginAttempt) 會被執行。
+            resetHandlerExecution(session); 
+            
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.BOOKING_FLOW.MEMBER_LOGIN, // P:100
+                response: '正在為您處理會員登入與價格切換...',
+                nextStep: nextStateKey,
+                richCard: null,
+                allowGeminiCall: false
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
 
-        // 1. 恢復處理 (P:99) - 從暫停狀態恢復
-        if (currentStateKey === 'paused_waiting_for_resume' && session.pausedState) {
-            if (isAffirm) {
-                const resumedStateKey = session.pausedState;
-                session.pausedState = null; // 清除暫停狀態
-                // 🚨 重設 Handler 執行紀錄，確保恢復後 Handler 能重新執行
-                resetHandlerExecution(session); 
-                
-                const stateResponse = this.generateStateResponse(flow, resumedStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
-                
-                return {
-                    shouldProcess: true,
-                    priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME, 
-                    response: `已恢復訂房流程。${stateResponse.response}`,
-                    nextStep: resumedStateKey,
-                    richCard: stateResponse.richCard,
-                    allowGeminiCall: false,
-                    endFlow: false
-                };
-            } else if (isDeny) {
-                return {
-                    shouldProcess: true,
-                    priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME,
-                    response: '訂房流程已取消。',
-                    nextStep: 'end_conversation',
-                    endFlow: true,
-                    allowGeminiCall: false,
-                    richCard: null
-                };
-            }
-            // 處於暫停狀態，讓通用規則去處理 AI 查詢 (P:1)
-            return { shouldProcess: false, priority: 0 }; 
-        }
 
-        // 2. 暫停處理 (P:98) - 流程中遇到通用查詢
-        if (isQueryIntent && currentStateKey && 
-            currentStateKey !== 'init' && 
-            currentStateKey !== 'handle_general_inquiry' && 
-            !isAffirm) {
-            
-            session.pausedState = currentStateKey; // 儲存當前狀態
-            
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE,
-                response: '好的，我將為您查詢。**請回覆「繼續」或點選按鈕以恢復訂房流程。**',
-                nextStep: 'paused_waiting_for_resume',
-                allowGeminiCall: true,
-                richCard: flow.states['paused_waiting_for_resume']?.richCard || null,
-                endFlow: false
-            };
-        }
+    /** 規則 1.5: 通用查詢覆蓋規則 (P:104) */
+    static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
+        // ... (保持不變)
+        const isGeneralQueryIntent = intents.some(i => ['general_inquiry', 'inquiry', 'pricing', 'facilities', 'weather', 'restaurant'].includes(i));
+        
+        const hasNoBookingEntities = Object.keys(extractedEntities).every(key => 
+            !['roomType', 'checkInDate', 'nights', 'adultCount', 'roomCount'].includes(key)
+        );
+        
+        const isSafeToOverride = session.currentStep === 'init' || 
+                                 session.currentStep === 'handle_general_inquiry' ||
+                                 session.currentStep === 'paused_waiting_for_resume';
 
-        return { shouldProcess: false, priority: 0 };
-    }
+        if (isGeneralQueryIntent && hasNoBookingEntities && isSafeToOverride) {
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE,
+                response: '好的，我將為您查詢相關資訊。',
+                nextStep: 'handle_general_inquiry',
+                allowGeminiCall: true,
+                richCard: null,
+                endFlow: false
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
 
-    /** 規則 3: 訂房流程規則 (核心邏輯) */
-    static async bookingFlowRule(intents, session, message) {
-        const flow = flowConfig;
-        const data = session.collectedData;
-        let currentStateKey = session.currentStep;
-        
-        const isAffirm = intents.includes('affirm') || message.toLowerCase().includes('確認');
+    /** 規則 2: 流程暫停與恢復規則 (P:98/99) */
+    static pauseResumeRule(intents, session, message) {
+        // ... (保持不變)
+        const currentStateKey = session.currentStep;
+        const flow = flowConfig;
+        const lowerMessage = message.toLowerCase();
+        
+        const isAffirm = intents.includes('affirm') || lowerMessage.includes('繼續') || lowerMessage.includes('好');
+        const isDeny = intents.includes('deny') || lowerMessage.includes('取消') || lowerMessage.includes('不要');
+        
+        const isQueryIntent = intents.some(i => ['inquiry', 'pricing', 'facilities', 'restaurant', 'general_inquiry'].includes(i));
 
-        // 【訂房流程啟動點】
-        if (currentStateKey === 'init') {
-            // 只要有 booking 意圖或關鍵實體，就啟動流程
-            if (intents.includes('booking') || Object.keys(data).some(k => ['checkInDate', 'nights', 'roomType'].includes(k))) {
-                const startStateKey = 'ask_nights_and_dates';
-                // 🚨 修正：確保啟動時的 autoAdvanceFlow 能正確推進
-                const nextStateKey = this.autoAdvanceFlow(flow, startStateKey, data, session);
-                session.currentStep = nextStateKey; 
-                return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
-            }
-            return { shouldProcess: false, priority: 0 };
-        }
+        // 1. 恢復處理 (P:99) - 從暫停狀態恢復
+        if (currentStateKey === 'paused_waiting_for_resume' && session.pausedState) {
+            if (isAffirm) {
+                const resumedStateKey = session.pausedState;
+                session.pausedState = null; // 清除暫停狀態
+                resetHandlerExecution(session); 
+                
+                const stateResponse = this.generateStateResponse(flow, resumedStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
+                
+                return {
+                    shouldProcess: true,
+                    priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME, 
+                    response: `已恢復訂房流程。${stateResponse.response}`,
+                    nextStep: resumedStateKey,
+                    richCard: stateResponse.richCard,
+                    allowGeminiCall: false,
+                    endFlow: false
+                };
+            } else if (isDeny) {
+                return {
+                    shouldProcess: true,
+                    priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME,
+                    response: '訂房流程已取消。',
+                    nextStep: 'end_conversation',
+                    endFlow: true,
+                    allowGeminiCall: false,
+                    richCard: null
+                };
+            }
+            return { shouldProcess: false, priority: 0 }; 
+        }
 
-        // 1. 處理訂單提交邏輯 (P:96) - 只有在確認狀態且用戶同意時執行
-        if (currentStateKey === 'confirm_booking' && isAffirm) {
-            return this.executeSubmission(session, flow); 
-        }
+        // 2. 暫停處理 (P:98) - 流程中遇到通用查詢
+        if (isQueryIntent && currentStateKey && 
+            currentStateKey !== 'init' && 
+            currentStateKey !== 'handle_general_inquiry' && 
+            !isAffirm) {
+            
+            session.pausedState = currentStateKey; // 儲存當前狀態
+            
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE,
+                response: '好的，我將為您查詢。**請回覆「繼續」或點選按鈕以恢復訂房流程。**',
+                nextStep: 'paused_waiting_for_resume',
+                allowGeminiCall: true,
+                richCard: flow.states['paused_waiting_for_resume']?.richCard || null,
+                endFlow: false
+            };
+        }
 
-        // 2. 意圖或實體推進：
-        let nextStateKey = currentStateKey;
-        let currentState = flow.states[currentStateKey];
+        return { shouldProcess: false, priority: 0 };
+    }
 
-        // A. 意圖轉移檢查 (優先處理)
-        if (currentState?.intents) {
-            for (const intent of intents) {
-                if (currentState.intents[intent]) {
-                    nextStateKey = currentState.intents[intent];
-                    break;
-                }
-            }
-        }
-        
-        // B. 實體收集/自動推進檢查
-        let currentNextState = nextStateKey;
-        if (currentNextState !== currentStateKey || (currentState?.entities && intents.length > 0)) {
-            currentNextState = this.autoAdvanceFlow(flow, currentNextState, data, session);
-        }
-        nextStateKey = currentNextState;
-        
-        // 3. 🏆 處理 Handler 邏輯 (迭代執行器)
-        while (flow.states[nextStateKey]?.handler && !hasExecutedHandler(session, nextStateKey)) {
-            
-            const handlerName = flow.states[nextStateKey].handler;
-            console.log(`💲 觸發 Handler: ${handlerName} 於狀態: ${nextStateKey}`);
+    /** 規則 3: 訂房流程規則 (核心邏輯) */
+    static async bookingFlowRule(intents, session, message) {
+        // ... (保持不變)
+        const flow = flowConfig;
+        const data = session.collectedData;
+        let currentStateKey = session.currentStep;
+        
+        const isAffirm = intents.includes('affirm') || message.toLowerCase().includes('確認');
 
-            let handlerResult;
-            try {
-                const handlerFunction = BookingFlowController[handlerName];
+        // 【訂房流程啟動點】
+        if (currentStateKey === 'init') {
+            if (intents.includes('booking') || Object.keys(data).some(k => ['checkInDate', 'nights', 'roomType'].includes(k))) {
+                const startStateKey = 'ask_nights_and_dates';
+                const nextStateKey = this.autoAdvanceFlow(flow, startStateKey, data, session);
+                session.currentStep = nextStateKey; 
+                return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
+            }
+            return { shouldProcess: false, priority: 0 };
+        }
 
-                if (typeof handlerFunction === 'function') {
-                    handlerResult = await handlerFunction(session); 
-                } else {
-                    console.error(`💥 找不到或無法執行 Handler: ${handlerName}。`);
-                    throw new Error(`找不到 Handler: ${handlerName}`);
-                }
-            } catch (e) {
-                console.error(`💥 Handler ${handlerName} 發生錯誤: ${e.message}`, e.stack);
-                
-                // 🚨 修正：Handler 發生錯誤時的引導邏輯
-                const safeFallbackState = 'ask_nights_and_dates'; // 導回日期輸入點，這是最安全的重試點
-                return {
-                    shouldProcess: true,
-                    priority: PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK,
-                    response: `🚨 **服務中斷** (Handler: ${handlerName})：${e.message}。請修正您的輸入或稍後再試。`,
-                    nextStep: safeFallbackState, // 導向安全重試點
-                    endFlow: false, // 不結束流程
-                    richCard: flow.states[safeFallbackState]?.richCard || null
-                };
-            }
+        // 1. 處理訂單提交邏輯 (P:96) - 只有在確認狀態且用戶同意時執行
+        if (currentStateKey === 'confirm_booking' && isAffirm) {
+            return this.executeSubmission(session, flow); 
+        }
+        
+        // 2. 意圖或實體推進：
+        let nextStateKey = currentStateKey;
+        let currentState = flow.states[currentStateKey];
 
-            // 處理 Handler 返回結果
-            if (handlerResult.isHandled) {
-                markHandlerExecuted(session, nextStateKey);
+        // A. 意圖轉移檢查 (優先處理)
+        if (currentState?.intents) {
+            for (const intent of intents) {
+                if (currentState.intents[intent]) {
+                    nextStateKey = currentState.intents[intent];
+                    break;
+                }
+            }
+        }
+        
+        // B. 實體收集/自動推進檢查
+        let currentNextState = nextStateKey;
+        if (currentNextState !== currentStateKey || (currentState?.entities && intents.length > 0)) {
+            currentNextState = this.autoAdvanceFlow(flow, currentNextState, data, session);
+        }
+        nextStateKey = currentNextState;
+        
+        // 3. 🏆 處理 Handler 邏輯 (迭代執行器)
+        while (flow.states[nextStateKey]?.handler && !hasExecutedHandler(session, nextStateKey)) {
+            
+            const handlerName = flow.states[nextStateKey].handler;
+            console.log(`💲 觸發 Handler: ${handlerName} 於狀態: ${nextStateKey}`);
 
-                if (handlerResult.nextStep) {
-                    nextStateKey = handlerResult.nextStep;
-                } else {
-                    nextStateKey = flow.states[nextStateKey].next_state || nextStateKey;
-                }
-                
-                // 🚨 關鍵修正點：
-                // 只要 Handler 有返回 Prompt 或 Rich Card，或者下一狀態是強制中斷點，就應立即回傳。
-                if (FORCED_BREAK_STATES.includes(nextStateKey) || handlerResult.prompt || handlerResult.richCard) {
-                    // 這裡會處理如 lockInventory 成功後的回覆/prompt，並停在 nextStateKey (例如 ask_addons)
-                    return this.generateStateResponse(flow, nextStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.prompt, handlerResult.richCard);
-                }
-                
-                // 如果 Handler 處理完畢，沒有 prompt/card 且非中斷點，則讓 WHILE 迴圈繼續檢查下一個 Handler。
-                
-            } else {
-                // Handler 處理失敗 (isHandled: false)，使用 Handler 提供的 fallback
-                const fallbackKey = handlerResult.nextStep || nextStateKey;
-                const fallbackPrompt = handlerResult.errorMessage || flow.states[nextStateKey].fallback;
-                return this.generateStateResponse(flow, fallbackKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, fallbackPrompt, handlerResult.richCard);
-            }
+            let handlerResult;
+            try {
+                const handlerFunction = BookingFlowController[handlerName];
 
-        }
+                if (typeof handlerFunction === 'function') {
+                    handlerResult = await handlerFunction(session); 
+                } else {
+                    console.error(`💥 找不到或無法執行 Handler: ${handlerName}。`);
+                    throw new Error(`找不到 Handler: ${handlerName}`);
+                }
+            } catch (e) {
+                console.error(`💥 Handler ${handlerName} 發生錯誤: ${e.message}`, e.stack);
+                
+                const safeFallbackState = 'ask_nights_and_dates';
+                return {
+                    shouldProcess: true,
+                    priority: PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK,
+                    response: `🚨 **服務中斷** (Handler: ${handlerName})：${e.message}。請修正您的輸入或稍後再試。`,
+                    nextStep: safeFallbackState,
+                    endFlow: false, 
+                    richCard: flow.states[safeFallbackState]?.richCard || null
+                };
+            }
 
-        // 4. 輸出回應 - 檢查 Handler 迴圈結束後的最終狀態是否需要自動推進
-        // 這裡使用 autoAdvanceFlow，確保在沒有 Handler 介入或 Handler 推進到非中斷狀態時，流程可以繼續走。
-        nextStateKey = this.autoAdvanceFlow(flow, nextStateKey, data, session);
+            // 處理 Handler 返回結果
+            if (handlerResult.isHandled) {
+                markHandlerExecuted(session, nextStateKey);
 
-        if (nextStateKey !== currentStateKey || flow.states[nextStateKey]?.entities) {
-            return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
-        }
+                if (handlerResult.nextStep) {
+                    nextStateKey = handlerResult.nextStep;
+                } else {
+                    nextStateKey = flow.states[nextStateKey].next_state || nextStateKey;
+                }
+                
+                // 🚨 關鍵修正點：鎖定透明化/ Handler 處理完成的回覆 (lockInventory 成功後會在此返回)
+                if (FORCED_BREAK_STATES.includes(nextStateKey) || handlerResult.prompt || handlerResult.richCard) {
+                    return this.generateStateResponse(flow, nextStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.prompt, handlerResult.richCard);
+                }
+                
+            } else {
+                // Handler 處理失敗 (isHandled: false)，使用 Handler 提供的 fallback
+                const fallbackKey = handlerResult.nextStep || nextStateKey;
+                const fallbackPrompt = handlerResult.errorMessage || flow.states[nextStateKey].fallback;
+                return this.generateStateResponse(flow, fallbackKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, fallbackPrompt, handlerResult.richCard);
+            }
 
-        // 5. 未匹配任何規則 
-        return { shouldProcess: false, priority: 0 };
-    }
+        }
 
-    /** 【內部輔助方法】實體收集自動推進邏輯 
-      * 🚨 V2.4 核心修正：調整了強制中斷點的檢查邏輯
-      */
-    static autoAdvanceFlow(flow, startStateKey, data, session) {
-        let currentIterationKey = startStateKey;
-        let nextState = flow.states[currentIterationKey];
+        // 4. 輸出回應 - 檢查 Handler 迴圈結束後的最終狀態是否需要自動推進
+        nextStateKey = this.autoAdvanceFlow(flow, nextStateKey, data, session);
 
-        while (currentIterationKey && nextState) {
-            
-            // 1. 檢查是否具備實體要求 (Entities)
-            if (nextState.entities && nextState.next_state) {
-                const nextEntitiesCollected = nextState.entities.every(
-                    entity => data[entity] !== undefined && data[entity] !== null && data[entity] !== ''
-                );
+        if (nextStateKey !== currentStateKey || flow.states[nextStateKey]?.entities) {
+            return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
+        }
 
-                if (nextEntitiesCollected) {
-                    // 實體已收集，繼續推進
-                    currentIterationKey = nextState.next_state;
-                    nextState = flow.states[currentIterationKey];
-                    continue; // 立即檢查下一狀態
-                } else if (FORCED_BREAK_STATES.includes(currentIterationKey)) {
-                    // 實體尚未收集完畢，且是強制中斷點 (Rich Card 畫面)，必須停止等待用戶輸入。
-                    break;
-                } else {
-                    // 實體尚未收集完畢，且非強制中斷點，停止於此狀態等待實體。
-                    break;
-                }
-            } 
-            
-            // 2. 如果沒有實體要求，且有 next_state，則無條件推進
-            else if (nextState.next_state) {
-                currentIterationKey = nextState.next_state;
-                nextState = flow.states[currentIterationKey];
-            } else {
-                // 最終狀態或沒有 next_state
-                break;
-            }
-            
-            // 3. 檢查下一個 Handler 是否需要執行 (如果需要，則退出 autoAdvanceFlow 讓主迴圈處理)
-            if (nextState && nextState.handler && !hasExecutedHandler(session, currentIterationKey)) {
-                break;
-            }
-        }
-        return currentIterationKey;
-    }
+        // 5. 未匹配任何規則 
+        return { shouldProcess: false, priority: 0 };
+    }
 
-    /** * 【內部輔助方法】執行訂單提交 (Handler) 
-      */
-    static async executeSubmission(session, flow) { 
-        const data = session.collectedData;
-        let bookingResult;
-        try {
-            const handlerResult = await BookingFlowController.submitBooking(session); 
+    /** 【內部輔助方法】實體收集自動推進邏輯 */
+    static autoAdvanceFlow(flow, startStateKey, data, session) {
+        // ... (保持不變)
+        let currentIterationKey = startStateKey;
+        let nextState = flow.states[currentIterationKey];
 
-            bookingResult = {
-                success: handlerResult.isHandled, 
-                id: data.orderId,
-                paymentMessage: data.paymentMessage,
-                errorMessage: handlerResult.errorMessage || 'Unknown submission error'
-            };
-            
-        } catch (e) {
-            console.error(`💥 submitBooking 發生錯誤: ${e.message}`);
-            bookingResult = { success: false, errorMessage: '提交服務發生無法預期的錯誤。' };
-        }
+        while (currentIterationKey && nextState) {
+            
+            // 1. 檢查是否具備實體要求 (Entities)
+            if (nextState.entities && nextState.next_state) {
+                const nextEntitiesCollected = nextState.entities.every(
+                    entity => data[entity] !== undefined && data[entity] !== null && data[entity] !== ''
+                );
 
-        if (bookingResult.success) {
-            const nextState = flow.states['booking_complete'];
-            const finalPrompt = interpolatePrompt(nextState.prompt, data);
+                if (nextEntitiesCollected) {
+                    currentIterationKey = nextState.next_state;
+                    nextState = flow.states[currentIterationKey];
+                    continue; // 立即檢查下一狀態
+                } else if (FORCED_BREAK_STATES.includes(currentIterationKey)) {
+                    // 實體尚未收集完畢，且是強制中斷點 (Rich Card 畫面)，必須停止等待用戶輸入。
+                    break;
+                } else {
+                    // 實體尚未收集完畢，且非強制中斷點，停止於此狀態等待實體。
+                    break;
+                }
+            } 
+            
+            // 2. 如果沒有實體要求，且有 next_state，則無條件推進
+            else if (nextState.next_state) {
+                currentIterationKey = nextState.next_state;
+                nextState = flow.states[currentIterationKey];
+            } else {
+                // 最終狀態或沒有 next_state
+                break;
+            }
+            
+            // 3. 檢查下一個 Handler 是否需要執行 (如果需要，則退出 autoAdvanceFlow 讓主迴圈處理)
+            if (nextState && nextState.handler && !hasExecutedHandler(session, currentIterationKey)) {
+                break;
+            }
+        }
+        return currentIterationKey;
+    }
 
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.BOOKING_FLOW.SUBMIT,
-                response: finalPrompt,
-                nextStep: 'booking_complete',
-                endFlow: true,
-                richCard: nextState.richCard || null,
-                allowGeminiCall: false
-            };
-        } else {
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.BOOKING_FLOW.SUBMIT,
-                response: `訂單提交失敗：${bookingResult.errorMessage}。請確認您的資訊後再試一次。`,
-                nextStep: 'confirm_booking', 
-                richCard: flow.states['confirm_booking']?.richCard || null,
-                allowGeminiCall: false,
-                endFlow: false
-            };
-        }
-    }
+    /** * 【內部輔助方法】執行訂單提交 (Handler) */
+    static async executeSubmission(session, flow) { 
+        // ... (保持不變)
+        const data = session.collectedData;
+        let bookingResult;
+        try {
+            const handlerResult = await BookingFlowController.submitBooking(session); 
 
-    /** 通用 AI 規則 (P:1) */
-    static generalRule(intents, session, message, extractedEntities) {
-        session.currentStep = 'handle_general_inquiry'; // 🚨 統一狀態
-        return {
-            shouldProcess: true,
-            priority: PRIORITY.GENERAL,
-            response: '好的，我會嘗試用 AI 處理您的非訂房相關問題。',
-            nextStep: 'handle_general_inquiry',
-            allowGeminiCall: true, 
-            richCard: null,
-            endFlow: false
-        };
-    }
+            bookingResult = {
+                success: handlerResult.isHandled, 
+                id: data.orderId,
+                paymentMessage: data.paymentMessage,
+                errorMessage: handlerResult.errorMessage || 'Unknown submission error'
+            };
+            
+        } catch (e) {
+            console.error(`💥 submitBooking 發生錯誤: ${e.message}`);
+            bookingResult = { success: false, errorMessage: '提交服務發生無法預期的錯誤。' };
+        }
 
-    /** 生成狀態回應 (新增 promptOverride 和 richCardOverride 參數) */
-    static generateStateResponse(flow, stateKey, data, priority, promptOverride = null, richCardOverride = null) {
-        const state = flow.states[stateKey];
-        
-        if (!state) {
-            console.error(`❌ 無效的狀態鍵: ${stateKey}`);
-            return {
-                shouldProcess: true,
-                priority: priority,
-                response: '系統狀態錯誤，請重新開始。',
-                nextStep: 'init',
-                richCard: null,
-                allowGeminiCall: false
-            };
-        }
+        if (bookingResult.success) {
+            const nextState = flow.states['booking_complete'];
+            const finalPrompt = interpolatePrompt(nextState.prompt, data);
 
-        const finalPrompt = promptOverride 
-            ? interpolatePrompt(promptOverride, data) 
-            : interpolatePrompt(state.prompt, data);
-        
-        return {
-            shouldProcess: true,
-            priority: priority,
-            response: finalPrompt,
-            nextStep: stateKey,
-            richCard: richCardOverride || state.richCard || null,
-            allowGeminiCall: state.allowGeminiCall || false
-        };
-    }
-} 
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.BOOKING_FLOW.SUBMIT,
+                response: finalPrompt,
+                nextStep: 'booking_complete',
+                endFlow: true,
+                richCard: nextState.richCard || null,
+                allowGeminiCall: false
+            };
+        } else {
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.BOOKING_FLOW.SUBMIT,
+                response: `訂單提交失敗：${bookingResult.errorMessage}。請確認您的資訊後再試一次。`,
+                nextStep: 'confirm_booking', 
+                richCard: flow.states['confirm_booking']?.richCard || null,
+                allowGeminiCall: false,
+                endFlow: false
+            };
+        }
+    }
+
+    /** 通用 AI 規則 (P:1) */
+    static generalRule(intents, session, message, extractedEntities) {
+        // ... (保持不變)
+        session.currentStep = 'handle_general_inquiry';
+        return {
+            shouldProcess: true,
+            priority: PRIORITY.GENERAL,
+            response: '好的，我會嘗試用 AI 處理您的非訂房相關問題。',
+            nextStep: 'handle_general_inquiry',
+            allowGeminiCall: true, 
+            richCard: null,
+            endFlow: false
+        };
+    }
+
+    /** 生成狀態回應 (新增 promptOverride 和 richCardOverride 參數) */
+    static generateStateResponse(flow, stateKey, data, priority, promptOverride = null, richCardOverride = null) {
+        // ... (保持不變)
+        const state = flow.states[stateKey];
+        
+        if (!state) {
+            console.error(`❌ 無效的狀態鍵: ${stateKey}`);
+            return {
+                shouldProcess: true,
+                priority: priority,
+                response: '系統狀態錯誤，請重新開始。',
+                nextStep: 'init',
+                richCard: null,
+                allowGeminiCall: false
+            };
+        }
+
+        const finalPrompt = promptOverride 
+            ? interpolatePrompt(promptOverride, data) 
+            : interpolatePrompt(state.prompt, data);
+        
+        return {
+            shouldProcess: true,
+            priority: priority,
+            response: finalPrompt,
+            nextStep: stateKey,
+            richCard: richCardOverride || state.richCard || null,
+            allowGeminiCall: state.allowGeminiCall || false
+        };
+    }
+} 
 
 module.exports = RuleEngine;
