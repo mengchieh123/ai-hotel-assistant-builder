@@ -1,3 +1,5 @@
+// SmartIntentClassifier.js (V3.0 - 意圖/實體優化版)
+
 // 導入 Day.js 及其插件
 const dayjs = require('dayjs');
 const customParseFormat = require('dayjs/plugin/customParseFormat');
@@ -8,6 +10,10 @@ dayjs.extend(weekday);
 dayjs.extend(isSameOrAfter);
 
 class SmartIntentClassifier {
+    
+    /**
+     * 核心意圖分類函式
+     */
     static classify(message) {
         const lowerMessage = message.toLowerCase();
         const intents = new Set();
@@ -15,7 +21,8 @@ class SmartIntentClassifier {
         // --- I. 核心意圖和狀態檢查 ---
         
         // 核心訂房意圖 (Booking)
-        if (/(訂房|預訂|入住|幫我訂|想要訂|預約房間|我要訂房|book|訂幾晚)/.test(lowerMessage)) { 
+        // 擴充關鍵詞，涵蓋更廣泛的訂房/入住表達
+        if (/(訂房|預訂|入住|幫我訂|想要訂|預約房間|我要訂房|book|訂幾晚|住一晚|預定|房間|要住|訂一個|我想訂)/.test(lowerMessage)) { 
             intents.add('booking');
         }
         // 日期如果包含在內，也視為強烈訂房意圖
@@ -23,27 +30,27 @@ class SmartIntentClassifier {
              intents.add('booking');
         }
 
-        // 確認/拒絕意圖
-        if (/(是|對|好|確認|願意|繼續|訂|繼續訂房|yes)/.test(lowerMessage)) intents.add('affirm');
+        // 確認/拒絕意圖 (Affirm/Deny)
+        // 移除「訂」和「繼續訂房」避免與 booking 衝突
+        if (/(是|對|好|確認|願意|繼續|可以|沒問題|yes)/.test(lowerMessage)) intents.add('affirm');
         if (/(否|不|取消|不要|不願意|算了|不訂|no)/.test(lowerMessage)) intents.add('deny');
 
         // 會員意圖
         if (lowerMessage.includes('我要登入會員')) intents.add('member_login');
 
-        // ⭐️ 新增：加購/附加項目意圖 (addon_selection)
-        // 此意圖主要用於處理 Rich Card 按鈕點擊的回饋
+        // 加購/附加項目意圖 (addon_selection)
         if (lowerMessage.includes('加購') || lowerMessage.includes('票券') || lowerMessage.includes('下午茶') || lowerMessage.includes('早餐')) {
             intents.add('addon_selection');
         }
 
-        // ⭐️ 查詢/介紹意圖 (Inquiry)
-        if (/(介紹|說明|什麼樣|怎麼樣|細節|環境|特色|如何|查詢|是什麼)/.test(lowerMessage)) {
+        // 查詢/介紹意圖 (Inquiry) - 基礎查詢
+        if (/(介紹|說明|什麼樣|怎麼樣|細節|環境|特色|如何|查詢|是什麼|看一下)/.test(lowerMessage)) {
              intents.add('inquiry');
         }
         
-        // 房型關鍵字
-        if (/(豪華客房|標準雙人房|行政套房|家庭四人房)/.test(lowerMessage)) {
-            intents.add('roomType_keyword'); // 作為標記，用於 P:98 規則
+        // 房型關鍵字 (用於流程中的精確跳轉)
+        if (/(豪華客房|標準雙人房|行政套房|家庭四人房|海景房)/.test(lowerMessage)) {
+            intents.add('roomType_keyword'); 
         }
         
         // 資訊意圖 (Pricing)
@@ -51,8 +58,8 @@ class SmartIntentClassifier {
 
         // 非訂房意圖（會觸發流程暫停/轉向 AI 處理）
         const nonBookingIntentsMap = {
-            'transfer': /(接送|機場|高鐵|交通)/,
-            'restaurant': /(餐廳|用餐|午餐|晚餐|美食|吃)/,
+            'transfer': /(接送|機場|高鐵|交通|怎麼去)/,
+            'restaurant': /(餐廳|用餐|午餐|晚餐|美食|吃|下午茶)/,
             'attractions': /(景點|逛街|導覽|玩|旅遊)/,
             'facilities': /(設施|泳池|健身房|spa|按摩)/,
             'weather': /(天氣|氣溫|下雨|溫度)/,
@@ -66,9 +73,13 @@ class SmartIntentClassifier {
             }
         }
 
+        // 結尾邏輯：如果沒有匹配到任何意圖，則視為 general_inquiry
         return intents.size > 0 ? Array.from(intents) : ['general_inquiry'];
     }
 
+    /**
+     * 輔助函式：檢查訊息是否包含日期模式
+     */
     static containsDatePatterns(message) {
         // 簡化日期判斷，防止誤判
         const datePatterns = [
@@ -79,60 +90,9 @@ class SmartIntentClassifier {
         return datePatterns.some(pattern => pattern.test(message));
     }
 
-    // 簡化並優化日期解析 (O1)
-    static parseDate(text) {
-        const now = dayjs().startOf('day');
-        let targetDate = null;
-        let nights = null;
-
-        // 1. 處理相對日期
-        if (text.includes('今天') || text.includes('今晚') || text.includes('今夜')) {
-            targetDate = now;
-        } else if (text.includes('明天')) {
-            targetDate = now.add(1, 'day');
-        } else if (text.includes('後天')) {
-            targetDate = now.add(2, 'day');
-        }
-
-        // 2. 處理絕對日期 (例如 12月25日)
-        const dateMatch = text.match(/(\d{1,2})月(\d{1,2})日?/);
-        if (dateMatch) {
-            const month = parseInt(dateMatch[1], 10);
-            const day = parseInt(dateMatch[2], 10);
-            let checkYear = now.year();
-
-            // 跨年處理：如果月份在當前月份之前，則設為下一年 (例如 12月，但現在是 1月，則視為當年 12 月)
-            if (month < now.month() + 1) {
-                checkYear = now.year() + 1;
-            } else if (month === now.month() + 1 && day < now.date()) {
-                 // 當月但在今天之前，也設為下一年
-                 checkYear = now.year() + 1;
-            }
-
-            targetDate = dayjs(`${checkYear}-${month}-${day}`, 'YYYY-M-D').startOf('day');
-        }
-
-        // 3. 解析住宿晚數
-        const nightsMatch = text.match(/(\d+)[晚夜天]|住.*(\d+)[晚夜天]/);
-        if (nightsMatch) {
-            nights = parseInt(nightsMatch[1] || nightsMatch[2], 10);
-        }
-
-        // 預設住 1 晚
-        if (targetDate && targetDate.isValid() && !nights) {
-            nights = 1;
-        }
-
-        // 確保日期有效且在今天或之後
-        if (targetDate && targetDate.isValid() && targetDate.isSameOrAfter(now)) {
-            return {
-                checkInDate: targetDate.format('YYYY/MM/DD'),
-                nights: nights
-            };
-        }
-        return {};
-    }
-
+    /**
+     * 實體提取函式
+     */
     static extractEntities(message) {
         const data = {};
         const lowerMessage = message.toLowerCase();
@@ -157,21 +117,24 @@ class SmartIntentClassifier {
         }
 
         // 4. 聯絡方式 - NAME & EMAIL
-        const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})|([\u4e00-\u9fa5]{2,4})/);
-        if (nameMatch) {
-            let extractedName = nameMatch[1] || nameMatch[2];
-            // 避免提取到不相關的詞語，例如 '訂房' 或 '助理'
-            if (extractedName && extractedName.length >= 2 && !/(訂房|本人|我是|查詢|價格|預訂|訂房助理)/.test(extractedName)) {
+        // 修正：收緊 Name 提取邏輯，必須有引導詞或只提取純粹的 2-4 字中文，避免誤判
+        const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})/);
+        const pureNameMatch = !nameMatch && message.match(/^[\u4e00-\u9fa5]{2,4}$/); // 只有當訊息是純粹的 2-4 個中文字時才提取
+
+        if (nameMatch || pureNameMatch) {
+            let extractedName = nameMatch ? nameMatch[1] : pureNameMatch[0];
+            // 避免提取到流程或房型關鍵字
+            if (extractedName && !/(訂房|本人|我是|查詢|價格|預訂|行政套房|豪華客房|標準雙人房)/.test(extractedName)) {
                 data.name = extractedName.trim();
             }
         }
+        
         const emailMatch = message.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
         if (emailMatch) {
             data.email = emailMatch[0];
         }
 
         // 5. 會員帳號/手機號碼
-        // 匹配 8-12 位數字（手機/帳號）或 5-10 位英數混和（帳號）
         const memberMatch = message.match(/(\d{8,12})|([A-Za-z0-9]{5,10})/);
         if (memberMatch) {
             data.memberAccount = memberMatch[0];
@@ -183,12 +146,9 @@ class SmartIntentClassifier {
             data.roomCount = parseInt(roomCountMatch[1], 10);
         }
 
-        // 7. ⭐️ 關鍵新增：加購實體解析 (從 Rich Card 按鈕數據中提取 JSON)
+        // 7. 加購實體解析 (來自 Rich Card JSON)
         try {
-            // 嘗試將整個訊息解析為 JSON。
             const buttonData = JSON.parse(message);
-            
-            // 檢查是否包含我們在 BookingController 中定義的加購實體
             if (buttonData.addonId) {
                 data.addonId = buttonData.addonId;
             }
@@ -196,15 +156,75 @@ class SmartIntentClassifier {
                 data.addonAction = buttonData.addonAction;
             }
         } catch (e) {
-            // 如果解析失敗，說明這是一條普通文字訊息，無需動作
+            // 如果解析失敗，說明這是一條普通文字訊息
         }
 
-        // 預設值 (確保在沒有明確提及時，它們有數值)
+        // 預設值
         if (data.adultCount === undefined) data.adultCount = 1;
         if (data.childCount === undefined) data.childCount = 0;
         if (data.roomCount === undefined) data.roomCount = 1;
 
         return data;
+    }
+    
+    /**
+     * 輔助函式：解析日期和晚數
+     */
+    static parseDate(text) {
+        const now = dayjs().startOf('day');
+        let targetDate = null;
+        let nights = null;
+
+        // 1. 處理相對日期
+        if (text.includes('今天') || text.includes('今晚') || text.includes('今夜')) {
+            targetDate = now;
+        } else if (text.includes('明天')) {
+            targetDate = now.add(1, 'day');
+        } else if (text.includes('後天')) {
+            targetDate = now.add(2, 'day');
+        }
+
+        // 2. 處理絕對日期 (例如 12月25日)
+        const dateMatch = text.match(/(\d{1,2})月(\d{1,2})日?/);
+        if (dateMatch) {
+            const month = parseInt(dateMatch[1], 10);
+            const day = parseInt(dateMatch[2], 10);
+            let checkYear = now.year();
+
+            // 跨年處理邏輯：如果月份在當前月份之前，則設為下一年
+            if (month < now.month() + 1) {
+                checkYear = now.year() + 1;
+            } else if (month === now.month() + 1 && day < now.date()) {
+                 // 當月但在今天之前，也設為下一年
+                 checkYear = now.year() + 1;
+            }
+
+            // 確保日期有效
+            const potentialDate = dayjs(`${checkYear}-${month}-${day}`, 'YYYY-M-D').startOf('day');
+            if (potentialDate.isValid()) {
+                targetDate = potentialDate;
+            }
+        }
+
+        // 3. 解析住宿晚數
+        const nightsMatch = text.match(/(\d+)[晚夜天]|住.*(\d+)[晚夜天]/);
+        if (nightsMatch) {
+            nights = parseInt(nightsMatch[1] || nightsMatch[2], 10);
+        }
+
+        // 預設住 1 晚
+        if (targetDate && targetDate.isValid() && !nights) {
+            nights = 1;
+        }
+
+        // 確保日期有效且在今天或之後
+        if (targetDate && targetDate.isValid() && targetDate.isSameOrAfter(now)) {
+            return {
+                checkInDate: targetDate.format('YYYY/MM/DD'),
+                nights: nights
+            };
+        }
+        return {};
     }
 }
 
