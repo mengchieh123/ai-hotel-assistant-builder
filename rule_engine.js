@@ -1,4 +1,4 @@
-// rule_engine.js (V2.2 - 流程恢復最終修復版)
+// rule_engine.js (V2.3 - 流程強勢推進最終版)
 
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
@@ -9,6 +9,8 @@ const flowConfig = require('./dialogue_flow.json'); 
 
 // 優先級常量定義 (清晰化)
 const PRIORITY = {
+    // 🚨 新增：強制流程重啟（最高優先級）
+    FLOW_RESET_OVERRIDE: 106,
     EMERGENCY: 105,
     GENERAL_INQUIRY_OVERRIDE: 104,
     BOOKING_FLOW: {
@@ -31,7 +33,8 @@ const FORCED_BREAK_STATES = [
     'ask_payment_method',
     'confirm_booking',
     'check_availability_and_price',
-    'ask_addons', // 需等待用戶選擇加購服務或確認完成
+    'ask_addons',
+    'show_room_types', // 🚨 強制等待用戶選擇房型
 ];
 
 // 實用函數：替換 Prompt 中的變數
@@ -61,6 +64,11 @@ function markHandlerExecuted(session, stateKey) {
         session.executedHandlers = {};
     }
     session.executedHandlers[stateKey] = true;
+}
+
+// 🚨 新增：清除 Handler 執行紀錄
+function resetHandlerExecution(session) {
+    session.executedHandlers = {};
 }
 
 
@@ -169,14 +177,12 @@ class RuleEngine {
     /** 實體清理邏輯 */
     static sanitizeEntities(extractedEntities) {
         const cleanedEntities = {};
-        // 修正並擴充關鍵字列表，避免將流程關鍵字誤判為 name
-        const suspiciousNameKeywords = ['我要', '我想', '改日', '吸菸', '加價', '多加', '繼續', '訂接', '確認', '行政套房', '豪華客房', '標準雙人房', '家庭四人房', '不客氣', '共住', '我要改', '間入住人', '查看加購', '跳過', '登入', '修改', '幫我訂', '訂房']; // 新增幫我訂, 訂房
+        const suspiciousNameKeywords = ['我要', '我想', '改日', '吸菸', '加價', '多加', '繼續', '訂接', '確認', '行政套房', '豪華客房', '標準雙人房', '家庭四人房', '不客氣', '共住', '我要改', '間入住人', '查看加購', '跳過', '登入', '修改', '幫我訂', '訂房']; 
         
         for (const key in extractedEntities) {
             const value = String(extractedEntities[key]);
 
             if (key === 'name' && value) {
-                // 忽略包含流程關鍵字的 name 實體
                 const isSuspicious = suspiciousNameKeywords.some(keyword => value.includes(keyword));
                 
                 if (isSuspicious) {
@@ -185,7 +191,6 @@ class RuleEngine {
                 }
             }
             
-            // 保留有效實體
             cleanedEntities[key] = extractedEntities[key];
         }
         return cleanedEntities;
@@ -194,19 +199,18 @@ class RuleEngine {
     /** 格式化 Gemini 回應 */
     static formatGeminiResponse(geminiResponse, originalResponse, currentStep) {
         if (currentStep === 'paused_waiting_for_resume') {
-            // 在暫停狀態下，提供 AI 回覆，並提醒恢復流程
             return `👉 **AI 助理回覆**：\n${geminiResponse}\n\n---\n**訂房流程引導**：\n${originalResponse}`;
-        } else if (['handle_general_inquiry', 'general_rule_fallback'].includes(currentStep)) {
-            // 在純通用查詢狀態下，只輸出 AI 內容
+        } else if (currentStep === 'handle_general_inquiry') { // 🚨 修正點：使用統一狀態
             return geminiResponse;
         }
-        // 在其他狀態下 (如流程推進中)，保留流程提示
         return originalResponse; 
     }
 
     /** 執行規則集 (從高優先級到低優先級) */
     static async executeRules(intents, session, message, extractedEntities) {
         const rules = [
+            // 🚨 新增最高優先級：強制流程重啟
+            { fn: this.resetFlowRule, name: '強制流程重啟規則', priority: PRIORITY.FLOW_RESET_OVERRIDE }, // P:106
             { fn: this.emergencyRule, name: '緊急事件規則', priority: PRIORITY.EMERGENCY },
             { fn: this.roomLimitRule, name: '房間數量上限規則', priority: PRIORITY.BOOKING_FLOW.ROOM_LIMIT },
             { fn: this.generalInquiryOverrideRule, name: '通用查詢覆蓋規則', priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE }, // P:104
@@ -214,14 +218,12 @@ class RuleEngine {
             { fn: this.bookingFlowRule, name: '訂房流程核心規則', priority: PRIORITY.BOOKING_FLOW.BASE }, // P:95
         ];
 
-        // 規則按優先級排序，確保高優先級先執行
         rules.sort((a, b) => b.priority - a.priority);
 
         for (const rule of rules) {
             const result = await rule.fn.call(this, intents, session, message, extractedEntities); 
             if (result.shouldProcess) {
-                // P:99 的 priority 是 RESUME: 99，P:98 的 priority 是 PAUSE: 98
-                const finalPriority = result.priority === PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME ? 99 : rule.priority; 
+                const finalPriority = result.priority === PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME ? 99 : rule.priority; 
                 console.log(`🎯 規則觸發: ${rule.name} (P:${finalPriority})`);
                 result.priority = finalPriority;
                 return result;
@@ -231,11 +233,45 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // --- 核心規則實現 ---
+    // --- 核心規則實現 ---
+
+    /** 規則 0: 強制流程重啟/覆蓋規則 (P:106) */
+    static resetFlowRule(intents, session, message, extractedEntities) {
+        // 條件：當前在暫停狀態，且用戶輸入了強烈的訂房意圖或關鍵實體
+        const isPaused = session.currentStep === 'paused_waiting_for_resume';
+        const isStrongBookingIntent = intents.includes('booking') || intents.includes('new_booking');
+        const hasCoreEntities = extractedEntities.checkInDate || extractedEntities.roomType || extractedEntities.nights;
+
+        if (isPaused && (isStrongBookingIntent || hasCoreEntities)) {
+            console.log("🚨 P:106 強制流程重啟：從暫停中啟動新流程或覆蓋！");
+            // 清理暫停狀態和已執行的 Handler 紀錄
+            session.pausedState = null;
+            resetHandlerExecution(session); 
+            
+            // 清理所有流程數據，只保留當前輸入的實體
+            const tempEntities = { ...session.collectedData, ...extractedEntities };
+            sessionManager.resetSession(session.id);
+            Object.assign(session.collectedData, tempEntities);
+            session.currentStep = 'init'; // 導回 init 讓 P:95 規則重新啟動流程
+            
+            const startStateKey = 'ask_nights_and_dates';
+            const nextStateKey = this.autoAdvanceFlow(flowConfig, startStateKey, session.collectedData, session);
+
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.FLOW_RESET_OVERRIDE,
+                response: '已偵測到新的訂房資訊，重新啟動流程。',
+                nextStep: nextStateKey,
+                allowGeminiCall: false,
+                richCard: flowConfig.states[nextStateKey]?.richCard || null
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
 
     /** 規則 1: 緊急事件處理 (P:105) */
     static emergencyRule(intents) {
-        // ... (邏輯不變)
         if (intents.includes('emergency')) {
             return {
                 shouldProcess: true,
@@ -252,11 +288,10 @@ class RuleEngine {
 
     /** 規則 1.1: 房間數量硬性上限檢查 (P:103) */
     static roomLimitRule(intents, session) {
-        // ... (邏輯不變)
         const data = session.collectedData;
         if (data.roomCount !== undefined && data.roomCount > MAX_ROOM_LIMIT) {
             
-            const nextStateKey = 'show_room_types'; 
+            const nextStateKey = 'show_room_types'; 
             const flow = flowConfig;
             
             return {
@@ -275,7 +310,6 @@ class RuleEngine {
 
     /** 規則 1.5: 通用查詢覆蓋規則 (P:104) */
     static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
-        // ... (邏輯不變)
         const isGeneralQueryIntent = intents.some(i => ['general_inquiry', 'inquiry', 'pricing', 'facilities', 'weather', 'restaurant'].includes(i));
         
         const hasNoBookingEntities = Object.keys(extractedEntities).every(key => 
@@ -306,7 +340,6 @@ class RuleEngine {
         const flow = flowConfig;
         const lowerMessage = message.toLowerCase();
         
-        // 【修復點】：確保 isAffirm 即使在沒有意圖的情況下，也能透過關鍵字觸發
         const isAffirm = intents.includes('affirm') || lowerMessage.includes('繼續') || lowerMessage.includes('好');
         const isDeny = intents.includes('deny') || lowerMessage.includes('取消') || lowerMessage.includes('不要');
         
@@ -317,13 +350,14 @@ class RuleEngine {
             if (isAffirm) {
                 const resumedStateKey = session.pausedState;
                 session.pausedState = null; // 清除暫停狀態
+                // 🚨 重設 Handler 執行紀錄，確保恢復後 Handler 能重新執行
+                resetHandlerExecution(session); 
                 
                 const stateResponse = this.generateStateResponse(flow, resumedStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
                 
                 return {
                     shouldProcess: true,
-                    // 返回 P:99 的優先級
-                    priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME, 
+                    priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME, 
                     response: `已恢復訂房流程。${stateResponse.response}`,
                     nextStep: resumedStateKey,
                     richCard: stateResponse.richCard,
@@ -341,7 +375,7 @@ class RuleEngine {
                     richCard: null
                 };
             }
-            // 處於暫停狀態，但不是繼續/取消，讓通用規則去處理 AI 查詢
+            // 處於暫停狀態，讓通用規則去處理 AI 查詢 (P:1)
             return { shouldProcess: false, priority: 0 }; 
         }
 
@@ -358,7 +392,7 @@ class RuleEngine {
                 priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE,
                 response: '好的，我將為您查詢。**請回覆「繼續」或點選按鈕以恢復訂房流程。**',
                 nextStep: 'paused_waiting_for_resume',
-                allowGeminiCall: true, // 允許 Gemini 處理這個查詢
+                allowGeminiCall: true,
                 richCard: flow.states['paused_waiting_for_resume']?.richCard || null,
                 endFlow: false
             };
@@ -377,9 +411,12 @@ class RuleEngine {
 
         // 【訂房流程啟動點】
         if (currentStateKey === 'init') {
+            // 只要有 booking 意圖或關鍵實體，就啟動流程
             if (intents.includes('booking') || Object.keys(data).some(k => ['checkInDate', 'nights', 'roomType'].includes(k))) {
                 const startStateKey = 'ask_nights_and_dates';
                 const nextStateKey = this.autoAdvanceFlow(flow, startStateKey, data, session);
+                // 🚨 修正：確保狀態轉移到 nextStateKey
+                session.currentStep = nextStateKey; 
                 return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
             }
             return { shouldProcess: false, priority: 0 };
@@ -458,7 +495,10 @@ class RuleEngine {
                     return this.generateStateResponse(flow, nextStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.prompt, handlerResult.richCard);
                 }
             } else {
-                return this.generateStateResponse(flow, nextStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.errorMessage || flow.states[nextStateKey].fallback, handlerResult.richCard);
+                // Handler 處理失敗 (isHandled: false)，保留當前狀態或使用 Handler 提供的 fallback
+                const fallbackKey = handlerResult.nextStep || nextStateKey;
+                const fallbackPrompt = handlerResult.errorMessage || flow.states[nextStateKey].fallback;
+                return this.generateStateResponse(flow, fallbackKey, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, fallbackPrompt, handlerResult.richCard);
             }
 
         }
@@ -475,7 +515,6 @@ class RuleEngine {
     /** 【內部輔助方法】實體收集自動推進邏輯 
       */
     static autoAdvanceFlow(flow, startStateKey, data, session) {
-        // ... (邏輯不變)
         let currentIterationKey = startStateKey;
         let nextState = flow.states[currentIterationKey];
 
@@ -513,7 +552,6 @@ class RuleEngine {
     /** * 【內部輔助方法】執行訂單提交 (Handler) 
       */
     static async executeSubmission(session, flow) { 
-        // ... (邏輯不變)
         const data = session.collectedData;
         let bookingResult;
         try {
@@ -549,7 +587,7 @@ class RuleEngine {
                 shouldProcess: true,
                 priority: PRIORITY.BOOKING_FLOW.SUBMIT,
                 response: `訂單提交失敗：${bookingResult.errorMessage}。請確認您的資訊後再試一次。`,
-                nextStep: 'confirm_booking', 
+                nextStep: 'confirm_booking', 
                 richCard: flow.states['confirm_booking']?.richCard || null,
                 allowGeminiCall: false,
                 endFlow: false
@@ -559,14 +597,13 @@ class RuleEngine {
 
     /** 通用 AI 規則 (P:1) */
     static generalRule(intents, session, message, extractedEntities) {
-        // ... (邏輯不變)
-        session.currentStep = 'general_rule_fallback';
+        session.currentStep = 'handle_general_inquiry'; // 🚨 統一狀態
         return {
             shouldProcess: true,
             priority: PRIORITY.GENERAL,
             response: '好的，我會嘗試用 AI 處理您的非訂房相關問題。',
-            nextStep: 'general_rule_fallback',
-            allowGeminiCall: true, 
+            nextStep: 'handle_general_inquiry',
+            allowGeminiCall: true, 
             richCard: null,
             endFlow: false
         };
@@ -574,7 +611,6 @@ class RuleEngine {
 
     /** 生成狀態回應 (新增 promptOverride 和 richCardOverride 參數) */
     static generateStateResponse(flow, stateKey, data, priority, promptOverride = null, richCardOverride = null) {
-        // ... (邏輯不變)
         const state = flow.states[stateKey];
         
         if (!state) {
@@ -602,6 +638,6 @@ class RuleEngine {
             allowGeminiCall: state.allowGeminiCall || false
         };
     }
-} 
+} 
 
 module.exports = RuleEngine;
