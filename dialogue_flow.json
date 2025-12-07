@@ -1,10 +1,11 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.16 (配合 RuleEngine V2.3 最終整合版 - JSON Error Fixed)",
+    "version": "1.17 (流程穩定測試版 - 移除 ask_nights_and_dates 的 Logic)",
     "initial_state": "init",
     "states": {
         "init": {
-            "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間？",
+            // 簡化 init，直接詢問日期和晚數
+            "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間，以及住宿幾晚？ (例如：明天, 2晚)",
             "next_state": "ask_nights_and_dates",
             "clear_entities": [
                 "roomType",
@@ -27,16 +28,28 @@
                 "priceDetails"
             ],
             "entities": ["adultCount", "childCount", "roomCount"],
-            "fallback": "您可以直接告訴我預計入住日期，例如：『我想訂明天兩晚的房間』。"
+            "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
         },
         "ask_nights_and_dates": {
-            "type": "logic_exec",
-            "handler": "checkDateAndNights",
+            // 移除 Logic Exec，專注於捕捉實體
             "prompt": "請提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
             "entities": ["checkInDate", "nights"],
-            "next_state": "ask_guest_count",
+            "next_state": "check_date_completeness",
             "persist_entities": ["checkInDate", "nights"],
             "fallback": "請提供入住日期及住宿晚數，我會為您查詢空房與價格。"
+        },
+        "check_date_completeness": {
+            // 新增邏輯檢查點，確保日期實體完整
+            "type": "logic_exec",
+            "handler": "checkDateCompleteness", // 您需要在 Rule Engine 中實作此 Handler
+            "next_state": "ask_guest_count",
+            "fallback": "handle_date_not_found" 
+        },
+        "handle_date_not_found": {
+            // 處理日期不完整的狀況，提供明確指導
+            "prompt": "抱歉，我需要明確的【入住日期】和【住宿晚數】才能繼續。請再試一次。 (例如：12月24日, 2晚)",
+            "next_state": "ask_nights_and_dates",
+            "fallback": "請重新輸入完整的日期和晚數。"
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
