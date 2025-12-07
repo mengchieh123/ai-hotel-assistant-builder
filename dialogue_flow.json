@@ -4,7 +4,6 @@
     "initial_state": "init",
     "states": {
         "init": {
-            // 簡化 init，直接詢問日期和晚數
             "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間，以及住宿幾晚？ (例如：明天, 2晚)",
             "next_state": "ask_nights_and_dates",
             "clear_entities": [
