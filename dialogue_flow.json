@@ -30,22 +30,18 @@
             "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
         },
         "ask_nights_and_dates": {
-            // 移除 Logic Exec，專注於捕捉實體
             "prompt": "請提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
             "entities": ["checkInDate", "nights"],
             "next_state": "check_date_completeness",
-            "persist_entities": ["checkInDate", "nights"],
             "fallback": "請提供入住日期及住宿晚數，我會為您查詢空房與價格。"
         },
         "check_date_completeness": {
-            // 新增邏輯檢查點，確保日期實體完整
             "type": "logic_exec",
-            "handler": "checkDateCompleteness", // 您需要在 Rule Engine 中實作此 Handler
+            "handler": "checkDateCompleteness",
             "next_state": "ask_guest_count",
-            "fallback": "handle_date_not_found" 
+            "fallback": "handle_date_not_found"
         },
         "handle_date_not_found": {
-            // 處理日期不完整的狀況，提供明確指導
             "prompt": "抱歉，我需要明確的【入住日期】和【住宿晚數】才能繼續。請再試一次。 (例如：12月24日, 2晚)",
             "next_state": "ask_nights_and_dates",
             "fallback": "請重新輸入完整的日期和晚數。"
@@ -126,10 +122,10 @@
             "prompt": "請輸入您的會員密碼。",
             "entities": ["memberPassword"],
             "fallback": "請輸入有效的會員密碼，或回覆『跳過』。",
+            "next_state": "check_availability_and_price",
             "intents": {
                 "skip": "ask_addons"
-            },
-            "next_state": "check_availability_and_price"
+            }
         },
         "ask_addons": {
             "type": "logic_exec",
@@ -203,22 +199,26 @@
             "richCard": {
                 "type": "button_list",
                 "buttons": [
-                    {"text": "修改日期/晚數", "value": "修改日期", "next_state": "ask_nights_and_dates"},
-                    {"text": "修改房型/間數", "value": "修改房型", "next_state": "show_room_types"},
-                    {"text": "修改加購服務", "value": "修改加購", "next_state": "ask_addons"},
-                    {"text": "修改聯絡資訊", "value": "修改聯絡", "next_state": "ask_contact_info"}
+                    {"text": "修改日期/晚數", "value": "修改日期"},
+                    {"text": "修改房型/間數", "value": "修改房型"},
+                    {"text": "修改加購服務", "value": "修改加購"},
+                    {"text": "修改聯絡資訊", "value": "修改聯絡"}
                 ]
             },
             "intents": {
-                "correction": ""
+                "correction_date": "ask_nights_and_dates",
+                "correction_room": "show_room_types",
+                "correction_addons": "ask_addons",
+                "correction_contact": "ask_contact_info"
             },
-            "fallback": "請選擇您要修改的目標。"
+            "fallback": "請選擇您要修改的目標。",
+            "next_state": "confirm_booking"
         },
         "booking_complete": {
             "type": "logic_exec",
             "handler": "submitBooking",
             "prompt": "🎉 訂房完成！您的訂單號為 **{orderId}**。{paymentMessage}",
-            "next_state": "end_conversation",
+            "end": true,
             "fallback": "訂單已送出，無法修改。"
         },
         "end_conversation": {
@@ -227,7 +227,8 @@
             "intents": {
                 "booking": "init"
             },
-            "fallback": "謝謝，祝您有美好的一天！"
+            "fallback": "謝謝，祝您有美好的一天！",
+            "next_state": "init"
         },
         "handle_general_inquiry": {
             "prompt": "我是一個訂房助理，主要負責預訂服務。關於 {user_query}，您可以直接詢問我：\n\n1. 房價資訊\n2. 飯店設施\n3. 訂房流程問題",
