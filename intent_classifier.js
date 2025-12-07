@@ -21,18 +21,15 @@ class SmartIntentClassifier {
         // --- I. 核心意圖和狀態檢查 ---
         
         // 核心訂房意圖 (Booking)
-        // 擴充關鍵詞，涵蓋更廣泛的訂房/入住表達
         if (/(訂房|預訂|入住|幫我訂|想要訂|預約房間|我要訂房|book|訂幾晚|住一晚|預定|房間|要住|訂一個|我想訂)/.test(lowerMessage)) { 
             intents.add('booking');
         }
-        // 日期如果包含在內，也視為強烈訂房意圖
         if (this.containsDatePatterns(lowerMessage)) { 
              intents.add('booking');
         }
 
-        // 確認/拒絕意圖 (Affirm/Deny)
-        // 移除「訂」和「繼續訂房」避免與 booking 衝突
-        if (/(是|對|好|確認|願意|繼續|可以|沒問題|yes)/.test(lowerMessage)) intents.add('affirm');
+        // 確認/拒絕意圖 (Affirm/Deny) - 包含「繼續」用於流程恢復
+        if (/(是|對|好|確認|願意|繼續|可以|沒問題|yes|行)/.test(lowerMessage)) intents.add('affirm');
         if (/(否|不|取消|不要|不願意|算了|不訂|no)/.test(lowerMessage)) intents.add('deny');
 
         // 會員意圖
@@ -48,7 +45,7 @@ class SmartIntentClassifier {
              intents.add('inquiry');
         }
         
-        // 房型關鍵字 (用於流程中的精確跳轉)
+        // 房型關鍵字
         if (/(豪華客房|標準雙人房|行政套房|家庭四人房|海景房)/.test(lowerMessage)) {
             intents.add('roomType_keyword'); 
         }
@@ -81,7 +78,6 @@ class SmartIntentClassifier {
      * 輔助函式：檢查訊息是否包含日期模式
      */
     static containsDatePatterns(message) {
-        // 簡化日期判斷，防止誤判
         const datePatterns = [
             /\d{1,2}\/\d{1,2}/,
             /\d{1,2}月\d{1,2}日/,
@@ -117,14 +113,13 @@ class SmartIntentClassifier {
         }
 
         // 4. 聯絡方式 - NAME & EMAIL
-        // 修正：收緊 Name 提取邏輯，必須有引導詞或只提取純粹的 2-4 字中文，避免誤判
         const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})/);
         const pureNameMatch = !nameMatch && message.match(/^[\u4e00-\u9fa5]{2,4}$/); // 只有當訊息是純粹的 2-4 個中文字時才提取
 
         if (nameMatch || pureNameMatch) {
             let extractedName = nameMatch ? nameMatch[1] : pureNameMatch[0];
             // 避免提取到流程或房型關鍵字
-            if (extractedName && !/(訂房|本人|我是|查詢|價格|預訂|行政套房|豪華客房|標準雙人房)/.test(extractedName)) {
+            if (extractedName && !/(訂房|本人|我是|查詢|價格|預訂|行政套房|豪華客房|標準雙人房|繼續|確認)/.test(extractedName)) {
                 data.name = extractedName.trim();
             }
         }
@@ -195,11 +190,9 @@ class SmartIntentClassifier {
             if (month < now.month() + 1) {
                 checkYear = now.year() + 1;
             } else if (month === now.month() + 1 && day < now.date()) {
-                 // 當月但在今天之前，也設為下一年
                  checkYear = now.year() + 1;
             }
 
-            // 確保日期有效
             const potentialDate = dayjs(`${checkYear}-${month}-${day}`, 'YYYY-M-D').startOf('day');
             if (potentialDate.isValid()) {
                 targetDate = potentialDate;
@@ -212,12 +205,10 @@ class SmartIntentClassifier {
             nights = parseInt(nightsMatch[1] || nightsMatch[2], 10);
         }
 
-        // 預設住 1 晚
         if (targetDate && targetDate.isValid() && !nights) {
             nights = 1;
         }
 
-        // 確保日期有效且在今天或之後
         if (targetDate && targetDate.isValid() && targetDate.isSameOrAfter(now)) {
             return {
                 checkInDate: targetDate.format('YYYY/MM/DD'),
