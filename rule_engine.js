@@ -3,7 +3,7 @@
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier');
-const BookingFlowController = require require('./booking_controller'); 
+const BookingFlowController = require('./booking_controller'); // ✅ 正確 
 const flowConfig = require('./dialogue_flow.json'); // 移除 GeminiGenerator 依賴 
 
 // ... (PRIORITY, MAX_ROOM_LIMIT, FORCED_BREAK_STATES 保持不變)
