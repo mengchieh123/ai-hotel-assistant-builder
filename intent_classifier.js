@@ -1,190 +1,187 @@
-// SmartIntentClassifier.js - V3.9 修正版 (核心：調降通用查詢優先級)
+const dayjs = require('dayjs');
 
+// --- 模擬數據庫 ---
+const MOCK_ROOM_PRICING = {
+    '標準雙人房': { price: 2200, capacity: 2, weekendMultiplier: 1.2 },
+    '豪華客房': { price: 3200, capacity: 2, weekendMultiplier: 1.3 },
+    '行政套房': { price: 4800, capacity: 2, weekendMultiplier: 1.1 },
+    '家庭四人房': { price: 4500, capacity: 4, weekendMultiplier: 1.2 }
+};
+
+const MOCK_ADDONS_SERVICE = {
+    'ADD001': {
+        name: '機場接送',
+        price: 1200,
+        isPerNight: false,
+        type: 'per_group',
+        description: '單程機場接送服務'
+    },
+    'ADD002': {
+        name: '晚餐券',
+        price: 800,
+        isPerNight: true,
+        type: 'per_person',
+        description: '每晚提供晚餐券'
+    },
+    'ADD003': {
+        name: '迎賓香檳',
+        price: 600,
+        isPerNight: false,
+        type: 'per_group',
+        description: '一次性高級迎賓香檳'
+    }
+};
+
+const MOCK_MEMBER_CREDENTIALS = {
+    'VIP': '1234'
+};
+
+let CURRENT_INVENTORY = {
+    '標準雙人房': 5,
+    '豪華客房': 2,
+    '行政套房': 10,
+    '家庭四人房': 3
+};
+
+let ACTIVE_LOCKS = {}; // 追蹤所有活躍的庫存鎖
+
+// --- 輔助函數 ---
+function simulateDelay(ms = 100) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// --- 核心 API 接口 ---
 /**
- * 意圖分類器 (SmartIntentClassifier.js)
- * 負責根據用戶輸入和當前狀態，判斷最高優先級的下一步 Step/Intent。
- * * 修正歷史：
- * V3.9: 修正 handle_general_inquiry (通用查詢/閒聊) 的優先級，從 104 降至 90，
- * 確保流程推進 (P:97) 或邏輯回退 (P:98/95) 不會被通用查詢打斷。
+ * 取得房價細節和加購服務列表
  */
-
-// 假設這是一個模擬的實體解析器，用於從輸入中提取關鍵資訊
-const entityRecognizer = require('./entity_recognizer'); 
-
-// --- 輔助函數：意圖條件檢查 ---
-
-/**
- * 檢查輸入中是否明確包含否定意圖 (例如: "不要", "取消", "不用了")
- */
-function isExplicitlyNegative(input) {
-    if (!input) return false;
-    const negationKeywords = ['不要', '取消', '不用', '算了', '不訂了'];
-    return negationKeywords.some(keyword => input.includes(keyword));
+async function getPricingDetails(roomType) {
+    await simulateDelay(50);
+    return {
+        roomDetails: MOCK_ROOM_PRICING[roomType],
+        addons: MOCK_ADDONS_SERVICE
+    };
 }
 
 /**
- * 檢查輸入中是否明確包含肯定意圖 (例如: "好", "要", "確認", "繼續")
+ * 取得加購服務列表 (用於 UI 顯示)
  */
-function isExplicitlyAffirmative(input) {
-    if (!input) return false;
-    const affirmationKeywords = ['好', '要', '確認', '繼續', '是的', '訂', '付款'];
-    return affirmationKeywords.some(keyword => input.includes(affirmationKeywords));
+async function getAddonsList() {
+    await simulateDelay(50);
+    return Object.keys(MOCK_ADDONS_SERVICE).map(id => ({
+        id: id,
+        title: MOCK_ADDONS_SERVICE[id].name,
+        description: MOCK_ADDONS_SERVICE[id].description
+    }));
 }
 
-// --- 意圖規則定義 ---
-
-// 規則結構:
-// {
-//     priority: number, 
-//     step: string, 
-//     condition: (session, input) => boolean,
-//     entities: string[] (可選，指示需要解析的實體)
-// }
-
-const intentRules = [
-    // --- 核心流程控制 (最高優先級) ---
+/**
+ * 模擬會員登入驗證
+ */
+async function verifyMember(account, password) {
+    await simulateDelay(200);
+    const storedPassword = MOCK_MEMBER_CREDENTIALS[account.toUpperCase()];
+    const isSuccessful = (storedPassword === password);
     
-    // 1. 強制重置流程 (最高優先級：防止卡死)
-    {
-        priority: 120,
-        step: 'init',
-        condition: (session, input) => input && (input.includes('重設') || input.includes('重新開始') || input.includes('init'))
-    },
-
-    // 2. 訂房修改/更正意圖 (流程中斷，但次於重置)
-    {
-        priority: 110,
-        step: 'handle_correction',
-        condition: (session, input) => input && (input.includes('修改') || input.includes('更正') || input.includes('不對'))
-    },
-    
-    // 3. 通用肯定意圖 (例如：在確認訂單摘要時輸入"確認" 或 "是")
-    {
-        priority: 100,
-        step: 'affirm',
-        condition: (session, input) => isExplicitlyAffirmative(input) && (session.currentStep === 'confirm_summary' || session.currentStep === 'ask_member_login')
-    },
-    
-    // 4. 通用否定意圖 (例如：在詢問是否登入時輸入"否")
-    {
-        priority: 100,
-        step: 'negate',
-        condition: (session, input) => isExplicitlyNegative(input) && (session.currentStep === 'confirm_summary' || session.currentStep === 'ask_member_login' || session.currentStep === 'ask_addons')
-    },
-    
-    // --- 流程特定意圖 (通常在 P:95-98 之間，由 Rule Engine 控制推進) ---
-    
-    // 5. 聯絡資訊收集
-    {
-        priority: 98,
-        step: 'ask_contact_info',
-        condition: (session, input, entities) => session.currentStep === 'ask_contact_info' && entities.contactName && entities.contactPhone
-    },
-    
-    // 6. 會員登入
-    {
-        priority: 98,
-        step: 'login_member_account',
-        condition: (session, input, entities) => session.currentStep === 'login_member_account' && entities.memberAccount && entities.memberPassword
-    },
-    
-    // 7. 處理加購服務選擇
-    {
-        priority: 98,
-        step: 'execute_addons_selection',
-        condition: (session, input, entities) => session.currentStep === 'ask_addons' && entities.addonSelection,
-        entities: ['addonSelection'] // 假設 addonSelection 是一個從 RichCard 回傳的特殊實體
-    },
-    
-    // 8. 收集日期/晚數 (如果只輸入日期或晚數)
-    {
-        priority: 97,
-        step: 'handle_date_not_found',
-        condition: (session, input, entities) => (session.currentStep === 'ask_nights_and_dates' || session.currentStep === 'handle_date_not_found') && (entities.checkInDate || entities.nights)
-    },
-    
-    // 9. 房型選擇
-    {
-        priority: 97,
-        step: 'show_room_types',
-        condition: (session, input, entities) => session.currentStep === 'show_room_types' && entities.roomType,
-        entities: ['roomType']
-    },
-
-    // 10. 房數輸入 (確保是數字)
-    {
-        priority: 97,
-        step: 'ask_room_count',
-        condition: (session, input, entities) => session.currentStep === 'ask_room_count' && entities.roomCount && !isNaN(parseInt(entities.roomCount))
-    },
-
-    // 11. 人數輸入 (確保是數字)
-    {
-        priority: 97,
-        step: 'ask_guest_count',
-        condition: (session, input, entities) => session.currentStep === 'ask_guest_count' && entities.adultCount && !isNaN(parseInt(entities.adultCount))
-    },
-
-    // --- 通用查詢 (Fallback) ---
-    
-    /**
-     * !!! V3.9 關鍵修正 !!!
-     * 12. handle_general_inquiry (通用查詢/閒聊)
-     * 優先級從 P:104 降至 P:90，確保在關鍵流程狀態下不會截斷流程。
-     */
-    {
-        priority: 90, 
-        step: 'handle_general_inquiry',
-        condition: (session, input) => input && input.trim().length > 0
+    if (account.toUpperCase() === 'ERROR') {
+        throw new Error('Member API Service Down: Test Failure');
     }
-];
 
-// --- 核心分類邏輯 ---
+    return {
+        isSuccessful: isSuccessful,
+        memberId: isSuccessful ? 12345 : null
+    };
+}
 
 /**
- * 根據當前狀態和用戶輸入，找出最高優先級的意圖。
- * @param {object} session - 當前 session 數據。
- * @param {string} input - 用戶的原始輸入。
- * @returns {object} 包含最高優先級意圖的 Step 和 Priority。
+ * 鎖定庫存
  */
-function classifyIntent(session, input) {
-    if (!input || input.trim() === '') {
-        return { step: null, priority: 0 };
-    }
-    
-    // 模擬實體解析 (假設 entityRecognizer.extract(input) 返回一個實體物件)
-    const entities = entityRecognizer.extract(input) || {};
+async function lockInventory(roomType, roomCount) {
+    await simulateDelay(150);
+    const currentCount = CURRENT_INVENTORY[roomType] || 0;
 
-    let highestPriority = 0;
-    let bestMatch = null;
+    if (currentCount >= roomCount) {
+        const lockId = `LOCK-${Date.now()}-${roomType.substring(0, 2)}`;
+        ACTIVE_LOCKS[lockId] = {
+            roomType: roomType,
+            roomCount: roomCount,
+            timestamp: Date.now()
+        };
+        CURRENT_INVENTORY[roomType] -= roomCount;
 
-    for (const rule of intentRules) {
-        try {
-            // 檢查規則條件是否滿足
-            if (rule.condition(session, input, entities)) {
-                if (rule.priority > highestPriority) {
-                    highestPriority = rule.priority;
-                    bestMatch = rule;
-                }
+        // 設置 15 秒超時自動解鎖
+        setTimeout(() => {
+            if (ACTIVE_LOCKS[lockId]) {
+                CURRENT_INVENTORY[ACTIVE_LOCKS[lockId].roomType] += ACTIVE_LOCKS[lockId].roomCount;
+                delete ACTIVE_LOCKS[lockId];
             }
-        } catch (e) {
-            console.error(`Error processing rule ${rule.step}: ${e.message}`);
-        }
-    }
+        }, 15000);
 
-    if (bestMatch) {
         return {
-            step: bestMatch.step,
-            priority: bestMatch.priority,
-            // 選擇性地將解析到的實體包含在回傳中，供 RuleEngine 使用
-            entities: entities
+            isLocked: true,
+            lockId: lockId,
+            remaining: CURRENT_INVENTORY[roomType]
+        };
+    } else {
+        return {
+            isLocked: false,
+            message: '庫存不足',
+            remaining: currentCount
+        };
+    }
+}
+
+/**
+ * 解除庫存鎖定
+ */
+async function unlockInventory(lockId) {
+    if (ACTIVE_LOCKS[lockId]) {
+        CURRENT_INVENTORY[ACTIVE_LOCKS[lockId].roomType] += ACTIVE_LOCKS[lockId].roomCount;
+        delete ACTIVE_LOCKS[lockId];
+        return { isUnlocked: true };
+    }
+    return { isUnlocked: false };
+}
+
+/**
+ * 提交最終訂單 (V5.1 優化：強制檢查鎖定狀態)
+ */
+async function submitBooking(bookingData) {
+    await simulateDelay(300);
+    const lockId = bookingData.inventoryLockId;
+
+    // 1. 檢查庫存鎖定是否仍然存在
+    if (!lockId || !ACTIVE_LOCKS[lockId]) {
+        return {
+            success: false,
+            message: '庫存鎖定已失效，請重新預訂以鎖定房型。'
         };
     }
 
-    // 如果沒有任何規則匹配，則返回空
-    return { step: null, priority: 0, entities: entities };
+    // 2. 業務邏輯檢查
+    if (bookingData.contactName && bookingData.finalPrice > 0) {
+        // 3. 提交成功，立即手動解鎖（防止超時機制重複操作）
+        await unlockInventory(lockId);
+        const bookingId = `BOOK-${Date.now()}`;
+        return {
+            success: true,
+            bookingId: bookingId
+        };
+    } else {
+        // 4. 數據不完整，手動解鎖並返回失敗 (不讓庫存被鎖定在失敗的訂單上)
+        await unlockInventory(lockId);
+        return {
+            success: false,
+            message: '預訂資料不完整。'
+        };
+    }
 }
 
 module.exports = {
-    classifyIntent
+    getPricingDetails,
+    getAddonsList,
+    verifyMember,
+    lockInventory,
+    unlockInventory,
+    submitBooking,
+    simulateDelay
 };
