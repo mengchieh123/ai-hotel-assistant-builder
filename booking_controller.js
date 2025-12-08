@@ -198,7 +198,6 @@ async function checkDateCompleteness(session) {
     return { isHandled: true };
 }
 
----
 
 /**
  * 2. checkDateAndNights: 檢查日期和晚數是否有效 (冗餘檢查，確保數值正確)
@@ -221,7 +220,6 @@ async function checkDateAndNights(session) {
     return { isHandled: true }; 
 }
 
----
 
 /**
  * 3. checkBookingEssentials: 檢查房型、房間數、人數是否已收集。
@@ -246,7 +244,6 @@ async function checkBookingEssentials(session) {
     return { isHandled: true }; 
 }
 
----
 
 /**
  * 4. lockInventory: 模擬庫存鎖定 (防止超賣)。
@@ -298,7 +295,6 @@ async function lockInventory(session) {
     }
 }
 
----
 
 /**
  * 5. calculatePrice: 計算最終價格並儲存。
@@ -333,7 +329,6 @@ async function calculatePrice(session) {
     }; 
 }
 
----
 
 /**
  * 6. generateAddonsCarousel: 模擬生成加購服務清單。
@@ -353,7 +348,6 @@ async function generateAddonsCarousel(session) {
     return { isHandled: true, richCard: richCard };
 }
 
----
 
 /**
  * 7. executeAddonsSelection: 處理加購服務選擇。
@@ -388,7 +382,6 @@ async function executeAddonsSelection(session) {
     };
 }
 
----
 
 /**
  * 8. loginMemberAccount: 模擬會員登入 (影響價格)。
@@ -446,7 +439,6 @@ async function loginMemberAccount(session) {
     }
 }
 
----
 
 /**
  * 9. validateContactInfo: 驗證聯絡資訊。
@@ -487,7 +479,6 @@ async function validateContactInfo(session) {
     return { isHandled: true };
 }
 
----
 
 /**
  * 10. handleSpecialRequests: 處理特殊需求 (記錄文本)。
@@ -505,7 +496,6 @@ async function handleSpecialRequests(session) {
     return { isHandled: true };
 }
 
----
 
 /**
  * 11. generateOrderSummary: 生成訂單摘要。
@@ -556,8 +546,6 @@ async function generateOrderSummary(session) {
         richCard: richCard 
     };
 }
-
----
 
 /**
  * 12. submitBooking: 提交訂單 (並釋放庫存鎖定)。
