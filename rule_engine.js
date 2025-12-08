@@ -1,4 +1,4 @@
-// rule_engine.js (V4.3 - 最終運作完整版 - 修正 init 啟動邏輯)
+// rule_engine.js (V4.3 - 最終修正版)
 
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier'); // 假設存在
@@ -28,7 +28,8 @@ const PRIORITY = {
             PAUSE: 98,
             RESUME: 99
         },
-        AVAILABILITY_CHECK: 96 
+        AVAILABILITY_CHECK: 96, 
+        ENTITY_SATISFIED_ADVANCE: 97 // 🎯 優化: 實體滿足後靜默推進的優先級
     },
     GENERAL_RULE: 80
 };
@@ -163,6 +164,9 @@ class RuleEngine {
             
             const collectedData = session.collectedData;
 
+            // 🌟 新增除錯日誌
+            console.log(`[DATA DEBUG] 當前狀態: ${session.currentStep} | 收集實體: ${JSON.stringify(collectedData)}`);
+            
             // 🌟 關鍵修正點：初始化 rulesResults 陣列
             const rulesResults = [];
             
@@ -205,13 +209,13 @@ class RuleEngine {
             const generalResult = this.generalRule(session, flowConfig);
             if (generalResult) {
                 session.currentStep = generalResult.nextStep;
-                // 🎯 修正: 記錄助理回應
-                sessionManager.addAssistantResponse(sessionId, generalResult.response, generalResult.richCard);
+                // 🎯 修正: 記錄助理回應
+                sessionManager.addAssistantResponse(sessionId, generalResult.response, generalResult.richCard);
                 return generalResult;
             }
             
-            // 7. 最終 fallback
-            return {
+            // 7. 最終 fallback (P:0)
+            const finalFallback = {
                 shouldProcess: true,
                 priority: 0,
                 response: "抱歉，我無法理解您的請求。請重新輸入或嘗試其他指令。",
@@ -220,6 +224,11 @@ class RuleEngine {
                 richCard: null,
                 allowGeminiCall: false
             };
+            
+            // 🎯 新增：記錄 P:0 Fallback 回覆
+            sessionManager.addAssistantResponse(sessionId, finalFallback.response, finalFallback.richCard);
+            
+            return finalFallback;
             
         } catch (error) {
             console.error('💥 RuleEngine 執行錯誤:', error);
@@ -229,8 +238,6 @@ class RuleEngine {
 
     // --- 核心規則實現 ---
 
-    // (規則 0, 1, 1.1, 1.2, 1.5, 2 保持不變...)
-    
     /** 規則 0: 重置流程規則 (P:106) */
     static resetFlowRule(intents, session) {
         if (intents.includes('reset_flow')) {
@@ -334,7 +341,7 @@ class RuleEngine {
         const flow = flowConfig;
         const data = session.collectedData || {};
         
-        // 🎯 V4.3 修正啟動點邏輯 (init)
+        // 🎯 V4.3 實體驅動啟動邏輯 (init)
         if (!currentStateKey || currentStateKey === 'init') {
             const hasBookingIntent = intents.includes('booking');
             
@@ -347,9 +354,9 @@ class RuleEngine {
                 // 從 flowConfig 讀取 init 狀態的 next_state
                 const nextStepAfterInit = flow.states['init']?.next_state || 'ask_nights_and_dates'; 
                 
-                console.log(`[DEBUG] 啟動流程：偵測到意圖(${hasBookingIntent}) 或實體(${hasDateOrNights})，推進到 ${nextStepAfterInit}`);
+                console.log(`[DEBUG] 啟動流程：偵測到意圖(${hasBookingIntent}) 或實體(${!!hasDateOrNights})，推進到 ${nextStepAfterInit}`);
                 
-                // 使用更高的優先級確保啟動被選中 (P:96)
+                // 使用 P:96 確保啟動被選中 (AVAILABILITY_CHECK)
                 return this.generateStateResponse(flow, nextStepAfterInit, data, PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK);
             }
             
@@ -376,7 +383,8 @@ class RuleEngine {
             if (hasRequiredEntities && !hasExecutedHandler(session, currentStateKey)) {
                 const nextStateKey = currentState.next_state || currentStateKey;
                 console.log(`[DEBUG] 實體滿足，推進流程到: ${nextStateKey}`);
-                return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE + 2); 
+                // 使用 P:97 (ENTITY_SATISFIED_ADVANCE)
+                return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.ENTITY_SATISFIED_ADVANCE); 
             }
         }
         
@@ -435,9 +443,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    // (其他規則和輔助函數保持不變...)
-    
-    /** 自動靜默推進流程 */
+    /** 自動靜默推進流程 */
     static autoAdvanceFlow(flow, currentStateKey, data, session) {
         let nextStateKey = currentStateKey;
         let state = flow.states[nextStateKey];
