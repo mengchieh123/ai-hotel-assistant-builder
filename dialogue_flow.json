@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
     "version": "1.18",
-    "description": "流程穩定測試版 - 修正價格顯示問題",
+    "description": "流程穩定測試版 - V5.7 最終修正：通用查詢容錯 (CUSTOM_PROMPT)",
     "initial_state": "init",
     "states": {
         "init": {
@@ -233,7 +233,7 @@
             "next_state": "init"
         },
         "handle_general_inquiry": {
-            "prompt": "我是一個訂房助理，主要負責預訂服務。關於 {user_query}，您可以直接詢問我：\n\n1. 房價資訊\n2. 飯店設施\n3. 訂房流程問題",
+            "prompt": "{CUSTOM_PROMPT} 我是一個訂房助理，主要負責預訂服務。關於 {user_query}，您可以直接詢問我：\n\n1. 房價資訊\n2. 飯店設施\n3. 訂房流程問題",
             "allow_gemini_call": true,
             "next_state": "paused_waiting_for_resume",
             "fallback": "請具體說明您的問題。"
