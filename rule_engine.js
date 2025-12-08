@@ -1,11 +1,11 @@
-// rule_engine.js (V4.2 - 專為 session_manager V1.18 單例模式調整的最終兼容版)
+// rule_engine.js (V4.2 - 最終運作完整版)
 
 const sessionManager = require('./session_manager');
-const SmartIntentClassifier = require('./intent_classifier');
-const BookingFlowController = require('./booking_controller'); 
+const SmartIntentClassifier = require('./intent_classifier'); // 假設存在
+const BookingFlowController = require('./booking_controller'); // 假設存在 
 
 // 載入 Flow Config
-const flowConfig = require('./dialogue_flow.json'); 
+const flowConfig = require('./dialogue_flow.json'); // 假設存在 
 
 // 🚨 【除錯日誌 - 確保檔案載入和結構正確】
 if (flowConfig && flowConfig.states) {
@@ -47,7 +47,6 @@ function interpolatePrompt(promptTemplate, data) {
 
 // Handler 執行狀態管理 (直接修改 session 引用)
 function hasExecutedHandler(session, stateKey) {
-    // 兼容 V1.18 的 executedHandlers 結構
     return session.executedHandlers && session.executedHandlers[stateKey];
 }
 
@@ -55,12 +54,10 @@ function markHandlerExecuted(session, stateKey) {
     if (!session.executedHandlers) {
         session.executedHandlers = {};
     }
-    // 🎯 修正: 兼容 V1.18 的 executedHandlers 結構
     session.executedHandlers[stateKey] = true; 
 }
 
 function resetHandlerExecution(session) {
-    // 🎯 修正: 兼容 V1.18 的 executedHandlers 結構
     session.executedHandlers = {};
 }
 
@@ -91,15 +88,18 @@ class RuleEngine {
         };
     }
 
-    /** 獲取 Fallback 回應 */
+    /** 🎯 新增/補齊：獲取 Fallback 回應 (P:80) */
     static getFallbackResponse(currentStep, flowConfig, sessionData) {
         const state = flowConfig.states[currentStep];
         if (!state) return null;
         
+        // 確保 fallback 存在，否則使用 prompt，最後使用通用訊息
+        const responseText = state.fallback || state.prompt || '我不太理解您的意思，請重新輸入。';
+
         return {
             shouldProcess: true,
             priority: PRIORITY.GENERAL_RULE,
-            response: interpolatePrompt(state.fallback || state.prompt || '我不太理解您的意思，請重新輸入。', sessionData),
+            response: interpolatePrompt(responseText, sessionData),
             nextStep: currentStep,
             endFlow: false,
             richCard: state.richCard || null,
@@ -121,13 +121,13 @@ class RuleEngine {
 
     /** 🏆 修正後的清理實體數據 */
     static sanitizeEntities(entities) {
-        // 🏆 關鍵修正：檢查 entities 是否為物件，如果不是則返回空物件
         if (typeof entities !== 'object' || entities === null) {
             return {};
         }
 
         const sanitized = {};
         for (const [key, value] of Object.entries(entities)) { 
+            // 排除 undefined, null, 空字串, 或字串 "null"
             if (value !== undefined && value !== null && value !== '' && String(value).toLowerCase() !== 'null') {
                 sanitized[key] = value;
             }
@@ -148,13 +148,13 @@ class RuleEngine {
             const flow = flowConfig;
             
             // 1. 意圖分類與實體抽取
-            const classificationResult = SmartIntentClassifier.classify(message, flow);
+            const classificationResult = SmartIntentClassifier.classify(message, flow); // 假設 SmartIntentClassifier 存在
             const intents = classificationResult.intents;
             const extractedEntities = classificationResult.extractedEntities || {}; 
             
             const sanitizedEntities = this.sanitizeEntities(extractedEntities);
             
-            // 🎯 修正: 直接合併和更新實體到 session 物件，因為 V1.18 的 updateSession 不處理數據更新
+            // 🎯 修正: 直接合併和更新實體到 session 物件
             Object.assign(session.collectedData, sanitizedEntities);
             session.lastIntent = intents[0] || session.lastIntent;
 
@@ -189,7 +189,6 @@ class RuleEngine {
                 // 更新 session 狀態
                 if (finalResult.nextStep && finalResult.nextStep !== session.currentStep) {
                     session.currentStep = finalResult.nextStep;
-                    // V1.18 的 updateSession 不處理狀態更新，這裡直接修改 session 物件即可
                 }
                 
                 if (finalResult.endFlow) {
@@ -206,7 +205,6 @@ class RuleEngine {
             const generalResult = this.generalRule(session, flowConfig);
             if (generalResult) {
                 session.currentStep = generalResult.nextStep;
-                // V1.18 的 updateSession 不處理狀態更新，這裡直接修改 session 物件即可
                 return generalResult;
             }
             
@@ -232,7 +230,7 @@ class RuleEngine {
     /** 規則 0: 重置流程規則 (P:106) */
     static resetFlowRule(intents, session) {
         if (intents.includes('reset_flow')) {
-            sessionManager.resetSession(session.sessionId); // 🎯 修正: 替換 endSession
+            sessionManager.resetSession(session.sessionId);
             return {
                 shouldProcess: true,
                 priority: PRIORITY.RESET_FLOW,
@@ -249,7 +247,7 @@ class RuleEngine {
     /** 規則 1: 緊急規則 (P:110) */
     static emergencyRule(intents, session) {
         if (intents.includes('emergency_exit')) {
-            sessionManager.resetSession(session.sessionId); // 🎯 修正: 替換 endSession
+            sessionManager.resetSession(session.sessionId);
             return this.getErrorResponse('USER_EXIT', '流程已緊急中斷，謝謝您的使用。');
         }
         return { shouldProcess: false, priority: 0 };
@@ -278,14 +276,8 @@ class RuleEngine {
             const nextStateKey = 'login_member_account';
             resetHandlerExecution(session); 
             
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.MEMBER_LOGIN_OVERRIDE, 
-                response: '偵測到會員登入請求，正在轉移到登入流程...',
-                nextStep: nextStateKey,
-                richCard: null,
-                allowGeminiCall: false
-            };
+            // 🎯 修正: 使用 generateStateResponse 確保輸出結構一致
+            return this.generateStateResponse(flowConfig, nextStateKey, session.collectedData, PRIORITY.MEMBER_LOGIN_OVERRIDE, '偵測到會員登入請求，正在轉移到登入流程...');
         }
         return { shouldProcess: false, priority: 0 };
     }
@@ -294,8 +286,8 @@ class RuleEngine {
     static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
         if (intents.includes('general_inquiry') && session.currentStep !== 'init' && !FORCED_BREAK_STATES.includes(session.currentStep)) {
             // 將當前狀態存入 session，以便恢復
-            session.previousStep = session.currentStep; // 🎯 修正: 直接修改 session
-            session.tempQuery = message; // 🎯 修正: 直接修改 session
+            session.previousStep = session.currentStep;
+            session.tempQuery = message; 
             
             const inquiryResponse = this.generateHardcodedInquiryResponse(intents);
             
@@ -321,12 +313,12 @@ class RuleEngine {
             if (intents.includes('affirm') || message.includes('繼續')) {
                 // 恢復流程
                 const resumeTo = previousStep && flowConfig.states[previousStep] ? previousStep : 'ask_nights_and_dates';
-                session.previousStep = null; // 🎯 修正: 直接修改 session
+                session.previousStep = null; 
                 
                 return this.generateStateResponse(flowConfig, resumeTo, session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
             } else if (intents.includes('booking')) {
                 // 重新開始預訂
-                sessionManager.resetSession(session.sessionId); // 🎯 修正: 替換 endSession
+                sessionManager.resetSession(session.sessionId);
                 return this.generateStateResponse(flowConfig, 'init', {}, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
             }
         }
@@ -342,7 +334,6 @@ class RuleEngine {
         // 1. 啟動點邏輯 (init)
         if (!currentStateKey || currentStateKey === 'init') {
             if (intents.includes('booking')) {
-                // 匹配到訂房意圖，進入第一個狀態
                 return this.generateStateResponse(flow, flow.initial_state, data, PRIORITY.BOOKING_FLOW.BASE);
             }
             return { shouldProcess: false, priority: 0 };
@@ -383,7 +374,7 @@ class RuleEngine {
             try {
                 const handlerFunction = BookingFlowController[handlerName];
                 if (typeof handlerFunction === 'function') {
-                    handlerResult = await handlerFunction(session); 
+                    handlerResult = await handlerFunction(session); // 假設 BookingFlowController 存在
                 } else {
                     throw new Error(`找不到 Handler: ${handlerName}`);
                 }
@@ -391,15 +382,7 @@ class RuleEngine {
                 console.error(`💥 Handler 執行錯誤: ${handlerName}`, e);
                 
                 const safeFallbackState = flow.states[nextStateKey].fallback_state || 'ask_nights_and_dates';
-                return {
-                    shouldProcess: true,
-                    priority: PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK, 
-                    response: `🚨 **服務中斷** (Handler: ${handlerName})：${e.message}。正在導回上一步驟。`,
-                    nextStep: safeFallbackState,
-                    endFlow: false, 
-                    richCard: flow.states[safeFallbackState]?.richCard || null,
-                    allowGeminiCall: false
-                };
+                return this.getErrorResponse('HANDLER_FAIL', `服務中斷 (Handler: ${handlerName})：${e.message}。導回上一步驟。`);
             }
 
             // 處理 Handler 返回結果
@@ -450,7 +433,6 @@ class RuleEngine {
         
         if (changed) {
             session.currentStep = nextStateKey;
-            // 🎯 修正: 移除 updateSession 呼叫，直接修改 session 引用
         }
 
         return nextStateKey;
@@ -462,10 +444,13 @@ class RuleEngine {
         return this.getFallbackResponse(currentStep, flowConfig, session.collectedData);
     }
 
-    /** 生成狀態回應 */
+    /** 🎯 新增/補齊：生成狀態回應 */
     static generateStateResponse(flow, stateKey, data, priority, customPrompt, customRichCard) {
         const state = flow.states[stateKey];
-        if (!state) return null;
+        if (!state) {
+            console.error(`狀態機中找不到狀態: ${stateKey}`);
+            return this.getErrorResponse('FLOW_STATE_NOT_FOUND', `找不到流程狀態: ${stateKey}`);
+        }
         
         const defaultPrompt = `請根據您當前正在處理的步驟，提供資訊或選擇指令 (${stateKey})。`;
         const prompt = customPrompt || state.prompt || defaultPrompt;
@@ -482,10 +467,10 @@ class RuleEngine {
         };
     }
 
-    /** 生成硬編碼的通用查詢回覆 */
+    /** 🎯 新增/補齊：生成硬編碼的通用查詢回覆 */
     static generateHardcodedInquiryResponse(intents) {
         return { 
-            prompt: "好的，我將為您查詢相關資訊。由於系統正專注於訂房流程，請回覆「繼續」或「重新預訂」。", 
+            prompt: "好的，我將為您查詢相關資訊。由於系統正專注於訂房流程，請問您是想「繼續」原來的預訂，還是「重新預訂」？", 
             richCard: { 
                 type: 'quick_replies', 
                 options: ['繼續', '重新預訂'] 
