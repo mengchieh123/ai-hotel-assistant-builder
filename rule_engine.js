@@ -1,4 +1,4 @@
-// rule_engine.js (V3.0 - 語法修正與強化檢查版，兼顧流程魯棒性與通用查詢友善度)
+// rule_engine.js (V3.1 - 流程邏輯強化與通用查詢修正版)
 
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
@@ -24,7 +24,7 @@ const PRIORITY = {
     EMERGENCY: 110,
     RESET_FLOW: 106,
     ROOM_LIMIT: 103,
-    GENERAL_INQUIRY_OVERRIDE: 104,
+    GENERAL_INQUIRY_OVERRIDE: 104, // 保持高優先級，但邏輯更嚴謹
     MEMBER_LOGIN_OVERRIDE: 100,
     BOOKING_FLOW: {
         BASE: 95,
@@ -173,17 +173,19 @@ class RuleEngine {
             const memberLoginResult = this.memberLoginRule(intents, session);
             if (memberLoginResult.shouldProcess) rulesResults.push(memberLoginResult);
             
-            // 規則 1.5: 通用查詢覆蓋規則 (P:104)
-            const inquiryResult = this.generalInquiryOverrideRule(intents, session, message, extractedEntities);
-            if (inquiryResult.shouldProcess) rulesResults.push(inquiryResult);
-            
-            // 規則 2: 流程暫停與恢復規則 (P:98/99)
+            // 規則 2: 流程暫停與恢復規則 (P:98/99) - 在通用查詢覆蓋前檢查恢復指令
             const pauseResumeResult = this.pauseResumeRule(intents, session, message);
             if (pauseResumeResult.shouldProcess) rulesResults.push(pauseResumeResult);
             
-            // 規則 3: 訂房流程規則 (P:95)
+            // 規則 3: 訂房流程規則 (P:95) - 核心流程執行
+            // Booking Flow 優先級較低，但會檢查實體是否收集完成並推進狀態
             const bookingFlowResult = await this.bookingFlowRule(intents, session, message);
             if (bookingFlowResult.shouldProcess) rulesResults.push(bookingFlowResult);
+            
+            // 規則 1.5: 通用查詢覆蓋規則 (P:104) - 在 Booking Flow 之後檢查，以允許實體優先處理
+            // 如果 bookingFlowRule 已經返回結果，這個規則會被忽略。
+            const inquiryResult = this.generalInquiryOverrideRule(intents, session, message, extractedEntities);
+            if (inquiryResult.shouldProcess) rulesResults.push(inquiryResult);
             
             // 6. 處理規則結果
             const finalResult = this.processRules(rulesResults);
@@ -254,7 +256,7 @@ class RuleEngine {
                 response: '✅ 流程已重置，請重新開始預訂。',
                 nextStep: 'init',
                 richCard: null,
-                allowGeminiCall: false // 修正：此處已添加逗號
+                allowGeminiCall: false
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -311,7 +313,7 @@ class RuleEngine {
                 response: '偵測到會員登入請求，正在轉移到登入流程...',
                 nextStep: nextStateKey,
                 richCard: null,
-                allowGeminiCall: false // 修正：此處應有逗號，但前一個是 richCard: null，沒問題
+                allowGeminiCall: false
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -324,20 +326,31 @@ class RuleEngine {
             !['roomType', 'checkInDate', 'nights', 'adultCount', 'roomCount'].includes(key)
         );
         
+        // 修正邏輯：只有在 init 或已經暫停時，才允許通用查詢以 P:104 優先級介入，否則流程可能卡住
         const isSafeToOverride = session.currentStep === 'init' || 
-                                 session.currentStep === 'handle_general_inquiry' ||
                                  session.currentStep === 'paused_waiting_for_resume';
 
-        if (isGeneralQueryIntent && hasNoBookingEntities && isSafeToOverride) {
+        const isMidFlowInquiry = isGeneralQueryIntent && session.currentStep !== 'init' && session.currentStep !== 'paused_waiting_for_resume';
+
+        if (isGeneralQueryIntent && hasNoBookingEntities && (isSafeToOverride || isMidFlowInquiry)) {
             
             const inquiryResponse = this.generateHardcodedInquiryResponse(intents);
+
+            // 如果在流程中途 (不是 init 且不是 paused_waiting_for_resume)，則強制轉入暫停狀態
+            const nextStep = isMidFlowInquiry ? 'paused_waiting_for_resume' : session.currentStep;
+
+            // 如果是中途查詢，我們需要儲存暫停狀態
+            if (isMidFlowInquiry) {
+                session.pausedState = session.currentStep;
+                sessionManager.updateSession(session.sessionId, { pausedState: session.currentStep });
+            }
 
             return {
                 shouldProcess: true,
                 priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE,
                 response: inquiryResponse.prompt,
-                nextStep: 'paused_waiting_for_resume', // 導向暫停狀態
-                allowGeminiCall: false, // 確保不呼叫 Gemini
+                nextStep: nextStep,  // <-- 修正後的下一個狀態
+                allowGeminiCall: false,
                 richCard: inquiryResponse.richCard,
                 endFlow: false
             };
@@ -360,6 +373,7 @@ class RuleEngine {
             if (isAffirm) {
                 const resumedStateKey = session.pausedState;
                 session.pausedState = null; 
+                sessionManager.updateSession(session.sessionId, { pausedState: null });
                 resetHandlerExecution(session); 
                 const stateResponse = this.generateStateResponse(flow, resumedStateKey, session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
                 
@@ -369,7 +383,7 @@ class RuleEngine {
                     response: `✅ 已恢復訂房流程。${stateResponse.response}`,
                     nextStep: resumedStateKey,
                     richCard: stateResponse.richCard,
-                    allowGeminiCall: false, // P:99 保持不呼叫 AI
+                    allowGeminiCall: false,
                     endFlow: false
                 };
             } else if (isDeny) {
@@ -383,18 +397,20 @@ class RuleEngine {
                     richCard: null
                 };
             }
+            // 如果在暫停狀態，但沒有收到肯定或否定指令，則不處理 (等待)
             return { shouldProcess: false, priority: 0 }; 
         }
 
-        // 2. 暫停處理 (P:98) - 流程中遇到通用查詢
+        // 2. 暫停處理 (P:98) - 流程中遇到通用查詢 (此部分已被 generalInquiryOverrideRule P:104 覆蓋，故保留 P:98 作為保險)
         if (isQueryIntent && currentStateKey && 
             currentStateKey !== 'init' && 
             currentStateKey !== 'handle_general_inquiry' && 
             !isAffirm) {
             
+            // 如果 P:104 的 generalInquiryOverrideRule 沒有處理，則 P:98 處理
             session.pausedState = currentStateKey; // 儲存當前狀態
-            
-            // P:98 輸出硬編碼提示
+            sessionManager.updateSession(session.sessionId, { pausedState: currentStateKey });
+
             const inquiryResponse = this.generateHardcodedInquiryResponse(intents);
 
             return {
@@ -402,7 +418,7 @@ class RuleEngine {
                 priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE,
                 response: `⚠️ 流程已暫停。\n${inquiryResponse.prompt}\n\n**請回覆「繼續」或點選按鈕以恢復訂房流程。**`,
                 nextStep: 'paused_waiting_for_resume',
-                allowGeminiCall: false, // 確保不呼叫 Gemini
+                allowGeminiCall: false,
                 richCard: inquiryResponse.richCard || flow.states['paused_waiting_for_resume']?.richCard || null,
                 endFlow: false
             };
@@ -450,7 +466,7 @@ class RuleEngine {
                 data[entity] !== undefined && data[entity] !== null && data[entity] !== ''
             );
             
-            // 如果已有所需實體，自動推進到下一個狀態
+            // 如果已有所需實體，**自動推進**到下一個狀態
             if (hasRequiredEntities && !hasExecutedHandler(session, currentStateKey)) {
                 const nextStateKey = currentState.next_state || currentStateKey;
                 return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
@@ -485,7 +501,7 @@ class RuleEngine {
                     nextStep: safeFallbackState,
                     endFlow: false, 
                     richCard: flow.states[safeFallbackState]?.richCard || null,
-                    allowGeminiCall: false // 錯誤時不呼叫 AI
+                    allowGeminiCall: false
                 };
             }
 
@@ -569,7 +585,7 @@ class RuleEngine {
     /** 通用規則 (P:80) */
     static generalRule(session, flowConfig) {
         const currentStep = session.currentStep || 'init';
-        const state = flowConfig.states ? flowConfig.states[currentStep] : null; // 增加 flowConfig.states 檢查
+        const state = flowConfig.states ? flowConfig.states[currentStep] : null;
         
         if (!state) {
             return {
@@ -583,7 +599,8 @@ class RuleEngine {
             };
         }
         
-        return null;
+        // 通用規則現在將使用 Fallback 機制
+        return this.getFallbackResponse(currentStep, flowConfig, session.collectedData);
     }
 
     /** 生成狀態回應 */
@@ -609,25 +626,25 @@ class RuleEngine {
     static generateHardcodedInquiryResponse(intents) {
         if (intents.includes('pricing')) {
             return { 
-                prompt: "目前價格資訊已在訂單摘要中顯示。請回覆「繼續」回到流程。", 
+                prompt: "價格會根據您選擇的房型、日期和促銷活動變動，最終價格將在確認頁面顯示。請回覆「繼續」回到流程。", 
                 richCard: { type: 'quick_replies', options: ['繼續'] } 
             };
         }
         if (intents.includes('facilities')) {
             return { 
-                prompt: "本飯店提供：SPA 水療、頂樓泳池、24 小時健身房。詳細資訊請諮詢櫃台。", 
+                prompt: "本飯店提供：SPA 水療、頂樓泳池、24 小時健身房。詳細資訊請諮詢櫃台。**請回覆「繼續」恢復訂房**", 
                 richCard: { type: 'quick_replies', options: ['繼續'] } 
             };
         }
         if (intents.includes('weather')) {
             return { 
-                prompt: "由於系統限制，無法提供即時天氣資訊。請使用外部天氣應用程式查詢。", 
+                prompt: "由於系統限制，無法提供即時天氣資訊。請使用外部天氣應用程式查詢。**請回覆「繼續」恢復訂房**", 
                 richCard: { type: 'quick_replies', options: ['繼續'] } 
             };
         }
         // 處理其他通用查詢
         return { 
-            prompt: "好的，我將為您查詢相關資訊。由於系統正專注於訂房流程，請回覆「繼續」以返回。", 
+            prompt: "好的，我將為您查詢相關資訊。由於系統正專注於訂房流程，請回覆「繼續」或「取消訂房」。", 
             richCard: { 
                 type: 'quick_replies', 
                 options: ['繼續', '取消訂房'] 
