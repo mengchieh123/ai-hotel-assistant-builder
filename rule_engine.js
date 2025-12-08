@@ -3,8 +3,8 @@
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier');
-const BookingFlowController = require('./booking_controller'); // ✅ 正確 
-const flowConfig = require('./dialogue_flow.json'); // 移除 GeminiGenerator 依賴 
+const BookingFlowController = require('./booking_controller'); 
+const flowConfig = require('./dialogue_flow.json'); 
 
 // 優先級常量
 const PRIORITY = {
@@ -88,9 +88,10 @@ class RuleEngine {
         };
     }
 
-    /** 處理規則優先級排序 */
+    /** 處理規則優先級排序 (已添加 Array.isArray 檢查，修正 TypeError 潛在錯誤) */
     static processRules(rulesResults) {
-        if (!rulesResults || rulesResults.length === 0) return null;
+        // 🚨 修正：確保 rulesResults 是一個陣列
+        if (!Array.isArray(rulesResults) || rulesResults.length === 0) return null; 
         
         // 過濾掉不應該處理的規則
         const validResults = rulesResults.filter(result => result.shouldProcess);
@@ -118,7 +119,6 @@ class RuleEngine {
     static formatGeminiResponse(geminiResponse, originalResponse, currentStep) {
         // 在 V2.8 中，我們假設外部服務已處理 AI 呼叫或在 RuleEngine 外部處理，
         // 這裡僅用於在 AI 呼叫失敗時，確保我們使用預設的回應。
-        // 由於我們將在 P:104 和 P:98 中使用硬編碼，此函數作用被弱化。
         return originalResponse; // 總是返回預設的 Response
     }
 
@@ -221,9 +221,9 @@ class RuleEngine {
     static resetFlowRule(intents, session) {
         const lowerMessage = session.lastMessage ? session.lastMessage.toLowerCase() : '';
         const isResetIntent = intents.includes('reset') || 
-                             intents.includes('restart') || 
-                             lowerMessage.includes('重新開始') || 
-                             lowerMessage.includes('重來');
+                              intents.includes('restart') || 
+                              lowerMessage.includes('重新開始') || 
+                              lowerMessage.includes('重來');
         
         if (isResetIntent) {
             resetHandlerExecution(session);
@@ -249,9 +249,9 @@ class RuleEngine {
     static emergencyRule(intents, session) {
         const lowerMessage = session.lastMessage ? session.lastMessage.toLowerCase() : '';
         const isEmergency = intents.includes('emergency') || 
-                           intents.includes('help') || 
-                           lowerMessage.includes('救命') || 
-                           lowerMessage.includes('緊急');
+                            intents.includes('help') || 
+                            lowerMessage.includes('救命') || 
+                            lowerMessage.includes('緊急');
         
         if (isEmergency) {
             return {
@@ -296,7 +296,7 @@ class RuleEngine {
                 response: '偵測到會員登入請求，正在轉移到登入流程...',
                 nextStep: nextStateKey,
                 richCard: null,
-                allowGeminiCall: false // 🚨 P:100 不呼叫 Gemini，避免佔用配額
+                allowGeminiCall: false 
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -315,7 +315,7 @@ class RuleEngine {
 
         if (isGeneralQueryIntent && hasNoBookingEntities && isSafeToOverride) {
             
-            // 🚨 呼叫硬編碼回覆函數，解決配額不足導致的友善度問題
+            // 呼叫硬編碼回覆函數，解決配額不足導致的友善度問題
             const inquiryResponse = this.generateHardcodedInquiryResponse(intents);
 
             // 導向暫停狀態，讓用戶可以隨時「繼續」
@@ -324,7 +324,7 @@ class RuleEngine {
                 priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE,
                 response: inquiryResponse.prompt,
                 nextStep: 'paused_waiting_for_resume', // 導向暫停狀態
-                allowGeminiCall: false, // 🚨 確保不呼叫 Gemini
+                allowGeminiCall: false, // 確保不呼叫 Gemini
                 richCard: inquiryResponse.richCard,
                 endFlow: false
             };
@@ -381,7 +381,7 @@ class RuleEngine {
             
             session.pausedState = currentStateKey; // 儲存當前狀態
             
-            // 🚨 P:98 輸出硬編碼提示
+            // P:98 輸出硬編碼提示
             const inquiryResponse = this.generateHardcodedInquiryResponse(intents);
 
             return {
@@ -389,7 +389,7 @@ class RuleEngine {
                 priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE,
                 response: `⚠️ 流程已暫停。\n${inquiryResponse.prompt}\n\n**請回覆「繼續」或點選按鈕以恢復訂房流程。**`,
                 nextStep: 'paused_waiting_for_resume',
-                allowGeminiCall: false, // 🚨 確保不呼叫 Gemini
+                allowGeminiCall: false, // 確保不呼叫 Gemini
                 richCard: inquiryResponse.richCard || flow.states['paused_waiting_for_resume']?.richCard || null,
                 endFlow: false
             };
@@ -482,7 +482,7 @@ class RuleEngine {
 
                 const nextStep = handlerResult.nextStep || flow.states[nextStateKey].next_state || nextStateKey;
                 
-                // 🚨 關鍵優化點：Handler 處理完成後，必須向用戶顯示結果，不能靜默自動推進
+                // 關鍵優化點：Handler 處理完成後，必須向用戶顯示結果，不能靜默自動推進
                 if (handlerResult.prompt || handlerResult.richCard || FORCED_BREAK_STATES.includes(nextStep)) {
                     
                     return this.generateStateResponse(flow, nextStep, session.collectedData, PRIORITY.BOOKING_FLOW.BASE + 1, handlerResult.prompt, handlerResult.richCard);
