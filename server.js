@@ -1,9 +1,10 @@
-// server.js (最終修訂版 - 強化 RuleEngine 結果檢查)
+// server.js (最終修訂版 V1.0 - 強化 RuleEngine 結果檢查與 Session ID 生成)
 
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors'); 
 const path = require('path');
+const { v4: uuidv4 } = require('uuid'); // 引入 UUID 庫
 
 // 設定 Port 和 Host
 const PORT = process.env.PORT || 10000;
@@ -51,15 +52,20 @@ app.get('/health', (req, res) => {
 app.post('/api/chat', async (req, res) => {
     const { sessionId, message } = req.body;
     
-    // 檢查請求體
-    if (!sessionId || !message) {
-        return res.status(400).send({ error: '缺少 sessionId 或 message' });
+    // 檢查 message 是否存在
+    if (!message) {
+        return res.status(400).send({ error: '缺少 message' });
     }
+
+    // 🏆 修正點：Session ID 檢查與生成邏輯
+    const safeSessionId = sessionId && typeof sessionId === 'string' && sessionId.length > 0
+                          ? sessionId
+                          : uuidv4(); // 如果缺少或無效，則生成一個新的 UUID
 
     let engineResult;
     try {
-        // 呼叫 RuleEngine 的主要執行函數
-        engineResult = await RuleEngine.executeRules(message, sessionId);
+        // 呼叫 RuleEngine 的主要執行函數，傳入安全 ID
+        engineResult = await RuleEngine.executeRules(message, safeSessionId);
         
     } catch (error) {
         // 捕獲 RuleEngine 內部拋出的任何錯誤
@@ -69,7 +75,8 @@ app.post('/api/chat', async (req, res) => {
         return res.status(500).json({ 
             reply: `伺服器內部錯誤：規則引擎執行失敗。錯誤訊息: ${error.message}`,
             nextStep: 'init',
-            endFlow: true
+            endFlow: true,
+            sessionId: safeSessionId // 即使出錯，也要返回 ID 讓客戶端可以重試
         });
     }
 
@@ -83,6 +90,8 @@ app.post('/api/chat', async (req, res) => {
         // 構建最終回傳給前端的 JSON 物件
         const finalClientResponse = {
             reply: engineResult.response, 
+            // 確保返回最新的 Session ID
+            sessionId: safeSessionId,
             // 使用安全鏈接操作符 (|| null) 來確保即使屬性不存在也不會導致 undefined
             nextStep: engineResult.nextStep || null,
             richCard: engineResult.richCard || null,
@@ -97,7 +106,8 @@ app.post('/api/chat', async (req, res) => {
         
         return res.status(500).json({ 
             reply: '伺服器內部錯誤：規則引擎未能產生有效回覆或結果結構錯誤。',
-            nextStep: 'init'
+            nextStep: 'init',
+            sessionId: safeSessionId
         });
     }
 });
