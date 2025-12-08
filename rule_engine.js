@@ -1,4 +1,4 @@
-// rule_engine.js (V4.5 - 實體修復穩定版)
+// rule_engine.js (V4.6 - 語法修復版)
 
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier'); 
@@ -131,9 +131,8 @@ class RuleEngine {
         return sanitized;
     }
 
-    /** 🎯 關鍵修復：執行函數 - 修正實體處理邏輯 */
+    /** 🎯 關鍵修復：執行函數 */
     static async executeRules(message, sessionId) {
-        // 🎯 修正: 增加 Session ID 檢查
         if (!sessionId || typeof sessionId !== 'string' || sessionId === 'undefined') {
             console.error("💥 [SECURITY FAIL] 接收到無效的 sessionId，拒絕處理。");
             return this.getErrorResponse('INVALID_SESSION_ID', '會話 ID 無效，請重新初始化。');
@@ -147,34 +146,30 @@ class RuleEngine {
                 session = sessionManager.createSession(sessionId);
             }
             
-            const flow = flowConfig;
-            
             // 2. 意圖分類與實體抽取
             const classificationResult = await SmartIntentClassifier.classify(message, session);
             let intents = classificationResult.intents || [];
             let extractedEntities = classificationResult.entities || {};
 
-            // 🌟🌟🌟 【除錯點 1】查看原始輸出
+            // 🌟 除錯日誌
             console.log(`--- SmartIntentClassifier DEBUG OUTPUT ---`);
             console.log(`Intents: ${JSON.stringify(intents)}`);
-            console.log(`Extracted Entities (incl. Defaults): ${JSON.stringify(extractedEntities)}`);
+            console.log(`Extracted Entities: ${JSON.stringify(extractedEntities)}`);
             console.log(`[RAW ENTITY DEBUG] 原始實體: ${JSON.stringify(extractedEntities)}`);
             
-            // 🎯 關鍵修復：確保實體被正確清理和記錄
+            // 清理實體
             const sanitizedEntities = this.sanitizeEntities(extractedEntities);
             console.log(`[RULE_ENGINE] 清理後實體: ${JSON.stringify(sanitizedEntities)}`);
             
-            // 🎯 關鍵修復：將實體更新到 session 中
+            // 🎯 將實體更新到 session
             if (Object.keys(sanitizedEntities).length > 0) {
                 console.log(`[RULE_ENGINE] 將實體更新到會話:`, sanitizedEntities);
                 
-                // 合併實體到會話數據
                 session.collectedData = { 
                     ...(session.collectedData || {}), 
                     ...sanitizedEntities 
                 };
                 
-                // 更新 session 到 sessionManager
                 sessionManager.updateSession(sessionId, { 
                     collectedData: session.collectedData 
                 });
@@ -185,23 +180,23 @@ class RuleEngine {
             session.lastIntent = intents[0] || session.lastIntent;
             session.lastMessage = message;
 
-            // 🌟 【除錯點 2】查看當前狀態和收集的實體
+            // 🌟 當前狀態和收集的實體
             console.log(`[DATA DEBUG] 當前狀態: ${session.currentStep} | 收集實體: ${JSON.stringify(session.collectedData)}`);
             
-            // 🌟 初始化 rulesResults 陣列
+            // 初始化 rulesResults
             const rulesResults = [];
             
-            // 3. 執行高優先級規則 (P:100+)
+            // 3. 執行高優先級規則
             rulesResults.push(this.emergencyRule(intents, session));
             rulesResults.push(this.resetFlowRule(intents, session));
             rulesResults.push(this.roomLimitRule(session.collectedData));
             rulesResults.push(this.memberLoginRule(intents, session)); 
             rulesResults.push(this.generalInquiryOverrideRule(intents, session, message, extractedEntities)); 
             
-            // 4. 執行流程控制規則 (P:98/99)
+            // 4. 執行流程控制規則
             rulesResults.push(this.pauseResumeRule(intents, session, message));
             
-            // 5. 執行核心訂房流程規則 (P:95+)
+            // 5. 執行核心訂房流程規則
             const bookingResult = await this.bookingFlowRule(intents, session, message);
             rulesResults.push(bookingResult);
             
@@ -226,8 +221,9 @@ class RuleEngine {
                 return finalResult;
             }
             
+            // 🔧 【關鍵修復】這裡的 this 要改為 RuleEngine
             // 7. 通用規則 (P:80) - 最終 Fallback
-            const generalResult = this.generalRule(session, flowConfig);
+            const generalResult = RuleEngine.generalRule(session, flowConfig);
             if (generalResult) {
                 session.currentStep = generalResult.nextStep;
                 sessionManager.updateSession(sessionId, { 
@@ -340,10 +336,9 @@ class RuleEngine {
 
     /** 規則 1.5: 通用查詢覆蓋規則 (P:104) */
     static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
-        const isGeneralQueryIntent = intents.some(i => ['general_inquiry', 'inquiry', 'pricing', 'facilities', 'weather', 'restaurant'].includes(i));
+        const isGeneralQueryIntent = intents.some(i => ['general_inquiry', 'inquiry'].includes(i));
         
         if (isGeneralQueryIntent) {
-            // 將當前狀態存入 session，以便恢復
             session.pausedState = session.currentStep;
             
             return {
@@ -371,9 +366,8 @@ class RuleEngine {
         const lowerMessage = message.toLowerCase();
         
         const isAffirm = intents.includes('affirm') || lowerMessage.includes('繼續') || lowerMessage.includes('好');
-        const isQueryIntent = intents.some(i => ['inquiry', 'pricing', 'facilities', 'general_inquiry'].includes(i));
 
-        // 1. 恢復處理 (P:99) - 從暫停狀態恢復
+        // 恢復處理 - 從暫停狀態恢復
         if (currentStateKey === 'paused_waiting_for_resume' && session.pausedState) {
             if (isAffirm) {
                 const resumedStateKey = session.pausedState;
@@ -438,52 +432,14 @@ class RuleEngine {
             }
         }
         
-        // 3. Handler 邏輯處理
-        if (currentState.handler && !hasExecutedHandler(session, currentStateKey)) {
-            const handlerName = currentState.handler;
-            console.log(`💲 觸發 Handler: ${handlerName} 於狀態: ${currentStateKey}`);
-
-            let handlerResult;
-            try {
-                const handlerFunction = BookingFlowController[handlerName];
-                if (typeof handlerFunction === 'function') {
-                    handlerResult = await handlerFunction(session); 
-                } else {
-                    throw new Error(`找不到 Handler: ${handlerName}`);
-                }
-            } catch (e) {
-                console.error(`💥 Handler 執行錯誤: ${handlerName}`, e);
-                
-                return this.getErrorResponse('HANDLER_FAIL', `服務中斷 (Handler: ${handlerName})：${e.message}。請稍後再試。`);
-            }
-
-            // 處理 Handler 返回結果
-            if (handlerResult.isHandled) {
-                markHandlerExecuted(session, currentStateKey);
-
-                const nextStep = handlerResult.nextStep || currentState.next_state || currentStateKey;
-                
-                // Handler 處理完成後，返回結果
-                if (handlerResult.prompt || handlerResult.richCard || FORCED_BREAK_STATES.includes(nextStep)) {
-                    return this.generateStateResponse(flow, nextStep, session.collectedData, 
-                        PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK, 
-                        handlerResult.prompt, handlerResult.richCard);
-                }
-                
-                // 否則推進到下一步
-                return this.generateStateResponse(flow, nextStep, session.collectedData, PRIORITY.BOOKING_FLOW.BASE);
-                
-            } else {
-                // Handler 處理失敗
-                const fallbackKey = handlerResult.nextStep || currentStateKey;
-                const fallbackPrompt = handlerResult.errorMessage || currentState.fallback;
-                return this.generateStateResponse(flow, fallbackKey, session.collectedData, 
-                    PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK, fallbackPrompt, handlerResult.richCard);
-            }
-        }
-        
-        // 4. 輸出回應 - 如果還在當前狀態，返回狀態提示
+        // 3. 返回當前狀態的提示
         return this.generateStateResponse(flow, currentStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
+    }
+
+    /** 通用規則 (P:80) */
+    static generalRule(session, flowConfig) {
+        const currentStep = session.currentStep || 'init';
+        return RuleEngine.getFallbackResponse(currentStep, flowConfig, session.collectedData);
     }
 
     /** 生成狀態回應 */
