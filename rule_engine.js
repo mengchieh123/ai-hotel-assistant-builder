@@ -1,4 +1,4 @@
-// rule_engine.js (V4.9 - 最終邏輯修正版: 解決 init 狀態無限迴圈問題)
+// rule_engine.js (V5.0 - 通用解鎖版: 解決 handle_general_inquiry 鎖定問題)
 
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier'); 
@@ -18,7 +18,7 @@ if (flowConfig && flowConfig.states) {
 // 優先級常量
 const PRIORITY = {
     EMERGENCY: 110,
-    RESET_FLOW: 106, // 用於明確的重設和強制開始，但不應捕捉所有 'booking' 意圖
+    RESET_FLOW: 106, 
     ROOM_LIMIT: 103,
     GENERAL_INQUIRY_OVERRIDE: 104, 
     MEMBER_LOGIN_OVERRIDE: 100, 
@@ -28,7 +28,7 @@ const PRIORITY = {
             PAUSE: 98,
             RESUME: 99
         },
-        AVAILABILITY_CHECK: 96, // 正常的訂房流程啟動優先級
+        AVAILABILITY_CHECK: 96, 
         ENTITY_SATISFIED_ADVANCE: 97 
     },
     GENERAL_RULE: 80
@@ -202,7 +202,8 @@ class RuleEngine {
             
             // 2. 執行高優先級規則 (P:100+)
             rulesResults.push(this.emergencyRule(intents, session));
-            rulesResults.push(this.resetFlowRule(intents, session)); // P:106 應只處理明確的重設指令
+            rulesResults.push(this.resetFlowRule(intents, session)); 
+            rulesResults.push(this.forceResumeBookingRule(intents, session)); // 🚀 V5.0 新增: 處理通用查詢狀態下的重啟
             rulesResults.push(this.roomLimitRule(collectedData));
             rulesResults.push(this.memberLoginRule(intents, session)); 
             rulesResults.push(this.generalInquiryOverrideRule(intents, session, message, extractedEntities)); // P:104
@@ -284,8 +285,7 @@ class RuleEngine {
 
     // --- 規則 1: 重新開始 (P:106) ---
     static resetFlowRule(intents, session) {
-        // 🚀 關鍵修正：只保留明確的 'reset' 或 'booking_start' 意圖。
-        // 讓 'booking' 意圖交由 priority 96 的 bookingFlowRule 處理。
+        // 僅處理明確的 'reset' 或 'booking_start' 意圖。
         if (intents.includes('reset') || intents.includes('booking_start')) { 
             
             // 清除所有舊數據，從 init 重新開始
@@ -301,6 +301,29 @@ class RuleEngine {
         }
         return { shouldProcess: false, priority: 0 };
     }
+    
+    // --- 規則 1.0.1: 通用查詢狀態下的強制重啟 (P:106) ---
+    static forceResumeBookingRule(intents, session) {
+        const currentStateKey = session.currentStep;
+        
+        // 🚀 關鍵邏輯：當流程卡在通用查詢狀態，且用戶嘗試發出訂房指令時，強制重啟。
+        if (currentStateKey === 'handle_general_inquiry' && intents.includes('booking')) {
+            console.log("🚀 [DEBUG] 偵測到在通用查詢狀態下嘗試訂房，強制重設流程。");
+            
+            // 觸發重設邏輯
+            session.collectedData = {};
+            this.resetHandlerExecution(session);
+            
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.RESET_FLOW, // P:106 (與 resetFlowRule 相同優先級，但會在前面被執行)
+                response: this.interpolatePrompt(flowConfig.states['init'].prompt, session.collectedData),
+                nextStep: 'init'
+            };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
     
     // --- 規則 1.1: 房間數限制 (P:103) ---
     static roomLimitRule(data) {
@@ -339,7 +362,7 @@ class RuleEngine {
     static generalInquiryOverrideRule(intents, session, message, entities) {
         const currentStateKey = session.currentStep;
         
-        // 如果偵測到通用問題意圖，且當前不在中斷狀態
+        // 只有當前狀態不是強制中斷狀態時，才允許通用查詢覆蓋流程。
         if (intents.includes('general_inquiry') && !FORCED_BREAK_STATES.includes(currentStateKey)) {
             const inquiryState = flowConfig.states['handle_general_inquiry'];
             const userQuery = message || "您的問題";
@@ -372,10 +395,7 @@ class RuleEngine {
                     nextStep: resumeStep
                 };
             }
-            // 如果偵測到 booking 意圖，將由 resetFlowRule (P:106) 處理（因為 booking 意圖會被視為 booking_start/reset 之一）
-            // 注意：因為我們移除了 resetFlowRule 對 'booking' 的依賴，這裡的 booking 意圖將被忽略，直到用戶明確輸入 'continue'。
         }
-        // 沒有暫停/恢復意圖
         return { shouldProcess: false, priority: 0 };
     }
     
@@ -396,7 +416,7 @@ class RuleEngine {
                 
                 console.log(`[DEBUG] 啟動流程：推進到 ${nextStepAfterInit}`);
                 
-                // P:96 應低於 P:106
+                // P:96 
                 return this.generateStateResponse(flow, nextStepAfterInit, data, PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK);
             }
             
