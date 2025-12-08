@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
     "version": "1.18",
-    "description": "流程穩定測試版 - V5.7 最終修正：通用查詢容錯 (CUSTOM_PROMPT)",
+    "description": "流程穩定測試版 - V5.8 修正：報價邏輯與顯示分離",
     "initial_state": "init",
     "states": {
         "init": {
@@ -84,13 +84,17 @@
             "type": "logic_exec",
             "handler": "lockInventory",
             "prompt": "正在為您鎖定房型庫存，請稍候...",
-            "next_state": "check_availability_and_price",
+            "next_state": "calculate_price_logic",
             "fallback": "房型鎖定失敗，請從頭開始。",
             "allow_gemini_call": false
         },
-        "check_availability_and_price": {
+        "calculate_price_logic": {
             "type": "logic_exec",
             "handler": "calculatePrice",
+            "next_state": "ask_member_login",
+            "fallback_state": "lock_inventory"
+        },
+        "ask_member_login": {
             "prompt": "已確認您的預訂資訊：{roomCount}間{roomType}，{nights}晚，入住日期{checkInDate}，總價為 **NT$ {finalPrice}**。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。",
             "richCard": {
                 "type": "button_list",
@@ -123,7 +127,7 @@
             "prompt": "請輸入您的會員密碼。",
             "entities": ["memberPassword"],
             "fallback": "請輸入有效的會員密碼，或回覆『跳過』。",
-            "next_state": "check_availability_and_price",
+            "next_state": "calculate_price_logic",
             "intents": {
                 "skip": "ask_addons"
             }
