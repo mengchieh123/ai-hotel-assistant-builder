@@ -1,4 +1,4 @@
-// rule_engine.js (V5.3 - 數據與流程保護版: 保護核心實體數據和流程)
+// rule_engine.js (V5.4 - 流程收尾保護版: 修正 ask_contact_info 狀態中斷)
 
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier'); 
@@ -36,8 +36,8 @@ const PRIORITY = {
 
 const MAX_ROOM_LIMIT = 10;
 const FORCED_BREAK_STATES = ['paused_waiting_for_resume', 'confirm_booking', 'booking_complete', 'end_conversation'];
-// 🚀 V5.2 修正：擴大核心流程保護範圍，加入 ask_room_count
-const CORE_COLLECTION_STATES = ['ask_nights_and_dates', 'ask_guest_count', 'ask_room_type', 'ask_room_count', 'ask_addons'];
+// 🚀 V5.4 修正：擴大流程保護範圍，加入 ask_contact_info
+const CORE_COLLECTION_STATES = ['ask_nights_and_dates', 'ask_guest_count', 'ask_room_type', 'ask_room_count', 'ask_addons', 'ask_contact_info'];
 
 
 class RuleEngine {
@@ -362,6 +362,7 @@ class RuleEngine {
     // --- 規則 1.2: 會員登入覆蓋 (P:100) ---
     static memberLoginRule(intents, session) {
         const currentStateKey = session.currentStep;
+        // 🚨 檢查：此規則僅在 check_availability_and_price 狀態下觸發
         if (currentStateKey === 'check_availability_and_price') {
             const state = flowConfig.states[currentStateKey];
             const loginIntent = state.intents?.login;
@@ -382,7 +383,7 @@ class RuleEngine {
     static generalInquiryOverrideRule(intents, session, message, entities) {
         const currentStateKey = session.currentStep;
         
-        // V5.2 修正：定義不應被 P:104 覆蓋的核心狀態列表
+        // V5.4 修正：定義不應被 P:104 覆蓋的核心狀態列表
         // 確保在這些狀態下，實體補齊 (P:97/P:95) 優先於通用查詢
         const isCollectingCoreEntities = CORE_COLLECTION_STATES.includes(currentStateKey);
 
