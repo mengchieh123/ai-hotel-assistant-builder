@@ -1,4 +1,4 @@
-// rule_engine.js (V4.0 - 最終修正版，已解決所有 ReferenceError 和 TypeError)
+// rule_engine.js (V4.2 - 專為 session_manager V1.18 單例模式調整的最終兼容版)
 
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier');
@@ -45,24 +45,23 @@ function interpolatePrompt(promptTemplate, data) {
     });
 }
 
-// Handler 執行狀態管理
+// Handler 執行狀態管理 (直接修改 session 引用)
 function hasExecutedHandler(session, stateKey) {
-    return session.handlerExecutedStates && session.handlerExecutedStates.includes(stateKey);
+    // 兼容 V1.18 的 executedHandlers 結構
+    return session.executedHandlers && session.executedHandlers[stateKey];
 }
 
 function markHandlerExecuted(session, stateKey) {
-    if (!session.handlerExecutedStates) {
-        session.handlerExecutedStates = [];
+    if (!session.executedHandlers) {
+        session.executedHandlers = {};
     }
-    if (!session.handlerExecutedStates.includes(stateKey)) {
-        session.handlerExecutedStates.push(stateKey);
-    }
-    sessionManager.updateSession(session.sessionId, { handlerExecutedStates: session.handlerExecutedStates });
+    // 🎯 修正: 兼容 V1.18 的 executedHandlers 結構
+    session.executedHandlers[stateKey] = true; 
 }
 
 function resetHandlerExecution(session) {
-    session.handlerExecutedStates = [];
-    sessionManager.updateSession(session.sessionId, { handlerExecutedStates: [] });
+    // 🎯 修正: 兼容 V1.18 的 executedHandlers 結構
+    session.executedHandlers = {};
 }
 
 class RuleEngine {
@@ -138,6 +137,12 @@ class RuleEngine {
 
     /** 🏆 修正後的執行函數：確保 rulesResults 被宣告並包含所有規則結果 */
     static async executeRules(message, sessionId) {
+        // 🎯 修正: 增加 Session ID 檢查 (推薦的最佳實踐)
+        if (!sessionId || typeof sessionId !== 'string' || sessionId === 'undefined') {
+            console.error("💥 [SECURITY FAIL] 接收到無效的 sessionId，拒絕處理。");
+            return this.getErrorResponse('INVALID_SESSION_ID', '會話 ID 無效，請重新初始化。');
+        }
+
         try {
             const session = sessionManager.getSession(sessionId);
             const flow = flowConfig;
@@ -145,16 +150,18 @@ class RuleEngine {
             // 1. 意圖分類與實體抽取
             const classificationResult = SmartIntentClassifier.classify(message, flow);
             const intents = classificationResult.intents;
-            const extractedEntities = classificationResult.extractedEntities || {}; // 確保至少是空物件
+            const extractedEntities = classificationResult.extractedEntities || {}; 
             
             const sanitizedEntities = this.sanitizeEntities(extractedEntities);
             
-            // 合併和更新實體
-            sessionManager.updateSession(sessionId, {
-                collectedData: { ...session.collectedData, ...sanitizedEntities },
-                lastIntent: intents[0] || session.lastIntent
-            });
-            const collectedData = sessionManager.getSession(sessionId).collectedData;
+            // 🎯 修正: 直接合併和更新實體到 session 物件，因為 V1.18 的 updateSession 不處理數據更新
+            Object.assign(session.collectedData, sanitizedEntities);
+            session.lastIntent = intents[0] || session.lastIntent;
+
+            // 🎯 修正: 呼叫 V1.18 的 updateSession 記錄會話歷史
+            sessionManager.updateSession(sessionId, message, intents); 
+            
+            const collectedData = session.collectedData;
 
             // 🌟 關鍵修正點：初始化 rulesResults 陣列
             const rulesResults = [];
@@ -182,13 +189,16 @@ class RuleEngine {
                 // 更新 session 狀態
                 if (finalResult.nextStep && finalResult.nextStep !== session.currentStep) {
                     session.currentStep = finalResult.nextStep;
-                    sessionManager.updateSession(sessionId, { currentStep: finalResult.nextStep });
+                    // V1.18 的 updateSession 不處理狀態更新，這裡直接修改 session 物件即可
                 }
                 
                 if (finalResult.endFlow) {
-                    sessionManager.endSession(sessionId);
+                    sessionManager.resetSession(sessionId); // 🎯 修正: 替換 endSession
                 }
                 
+                // 🎯 修正: 記錄助理回應
+                sessionManager.addAssistantResponse(sessionId, finalResult.response, finalResult.richCard);
+
                 return finalResult;
             }
             
@@ -196,7 +206,7 @@ class RuleEngine {
             const generalResult = this.generalRule(session, flowConfig);
             if (generalResult) {
                 session.currentStep = generalResult.nextStep;
-                sessionManager.updateSession(sessionId, { currentStep: generalResult.nextStep });
+                // V1.18 的 updateSession 不處理狀態更新，這裡直接修改 session 物件即可
                 return generalResult;
             }
             
@@ -222,7 +232,7 @@ class RuleEngine {
     /** 規則 0: 重置流程規則 (P:106) */
     static resetFlowRule(intents, session) {
         if (intents.includes('reset_flow')) {
-            sessionManager.endSession(session.sessionId);
+            sessionManager.resetSession(session.sessionId); // 🎯 修正: 替換 endSession
             return {
                 shouldProcess: true,
                 priority: PRIORITY.RESET_FLOW,
@@ -239,7 +249,7 @@ class RuleEngine {
     /** 規則 1: 緊急規則 (P:110) */
     static emergencyRule(intents, session) {
         if (intents.includes('emergency_exit')) {
-            sessionManager.endSession(session.sessionId);
+            sessionManager.resetSession(session.sessionId); // 🎯 修正: 替換 endSession
             return this.getErrorResponse('USER_EXIT', '流程已緊急中斷，謝謝您的使用。');
         }
         return { shouldProcess: false, priority: 0 };
@@ -284,10 +294,8 @@ class RuleEngine {
     static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
         if (intents.includes('general_inquiry') && session.currentStep !== 'init' && !FORCED_BREAK_STATES.includes(session.currentStep)) {
             // 將當前狀態存入 session，以便恢復
-            sessionManager.updateSession(session.sessionId, {
-                previousStep: session.currentStep,
-                tempQuery: message
-            });
+            session.previousStep = session.currentStep; // 🎯 修正: 直接修改 session
+            session.tempQuery = message; // 🎯 修正: 直接修改 session
             
             const inquiryResponse = this.generateHardcodedInquiryResponse(intents);
             
@@ -313,12 +321,12 @@ class RuleEngine {
             if (intents.includes('affirm') || message.includes('繼續')) {
                 // 恢復流程
                 const resumeTo = previousStep && flowConfig.states[previousStep] ? previousStep : 'ask_nights_and_dates';
-                sessionManager.updateSession(session.sessionId, { previousStep: null });
+                session.previousStep = null; // 🎯 修正: 直接修改 session
                 
                 return this.generateStateResponse(flowConfig, resumeTo, session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
             } else if (intents.includes('booking')) {
                 // 重新開始預訂
-                sessionManager.endSession(session.sessionId);
+                sessionManager.resetSession(session.sessionId); // 🎯 修正: 替換 endSession
                 return this.generateStateResponse(flowConfig, 'init', {}, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
             }
         }
@@ -442,7 +450,7 @@ class RuleEngine {
         
         if (changed) {
             session.currentStep = nextStateKey;
-            sessionManager.updateSession(session.sessionId, { currentStep: nextStateKey });
+            // 🎯 修正: 移除 updateSession 呼叫，直接修改 session 引用
         }
 
         return nextStateKey;
