@@ -1,4 +1,4 @@
-// SmartIntentClassifier.js (V3.5 - 修正版)
+// SmartIntentClassifier.js (V3.6 - 最終優化版)
 
 const dayjs = require('dayjs');
 const customParseFormat = require('dayjs/plugin/customParseFormat');
@@ -13,11 +13,11 @@ class SmartIntentClassifier {
     /**
      * 核心意圖分類與實體提取函式
      */
-    static classify(message) { 
+    static classify(message) { 
         const lowerMessage = message.toLowerCase();
         const intents = new Set();
         
-        // --- I. 意圖分類邏輯 ---
+        // --- I. 意圖分類邏輯 (無變動) ---
         
         if (/(訂房|預訂|入住|幫我訂|想要訂|預約房間|我要訂房|book|訂幾晚|住一晚|預定|房間|要住|訂一個|我想訂)/.test(lowerMessage)) { 
             intents.add('booking');
@@ -75,6 +75,7 @@ class SmartIntentClassifier {
 
     /** 輔助函式：檢查訊息是否包含日期模式 */
     static containsDatePatterns(message) {
+        // (無變動)
         const datePatterns = [
             /\d{1,2}\/\d{1,2}/,
             /\d{1,2}月\d{1,2}日/,
@@ -83,11 +84,12 @@ class SmartIntentClassifier {
         return datePatterns.some(pattern => pattern.test(message));
     }
 
-    /** 輔助函式：將全形數字轉換為半形 */
-    static toHalfWidth(str) {
-        if (!str) return '';
-        return str.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0));
-    }
+    /** 輔助函式：將全形數字轉換為半形 */
+    static toHalfWidth(str) {
+        // (無變動)
+        if (!str) return '';
+        return str.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0));
+    }
     
     /**
      * 實體提取函式
@@ -96,57 +98,66 @@ class SmartIntentClassifier {
         const data = {};
         const lowerMessage = message.toLowerCase();
 
-        // 1. 解析日期和晚數
+        // 1. 解析日期和晚數 (無變動)
         const dateInfo = this.parseDate(message);
         Object.assign(data, dateInfo);
 
-        // 2. 房型
+        // 2. 房型 (無變動)
         if (/(豪華客房|海景房|標準雙人房|行政套房|家庭四人房)/.test(lowerMessage)) {
             data.roomType = lowerMessage.match(/(豪華客房|海景房|標準雙人房|行政套房|家庭四人房)/)[0];
         }
 
-        // 3. 人數 🚨 修正：確保匹配數字或全形數字
+        // 3. 人數 (無變動)
         const adultMatch = lowerMessage.match(/([\d０-９]+)(位)?(大人|大)/);
         if (adultMatch) {
-            const countStr = this.toHalfWidth(adultMatch[1]);
+            const countStr = this.toHalfWidth(adultMatch[1]);
             data.adultCount = parseInt(countStr, 10);
         }
         const childMatch = lowerMessage.match(/([\d０-９]+)(位)?(兒童|小孩|小)/);
         if (childMatch) {
-            const countStr = this.toHalfWidth(childMatch[1]);
+            const countStr = this.toHalfWidth(childMatch[1]);
             data.childCount = parseInt(countStr, 10);
         }
 
-        // 4. 聯絡方式 (略)
+        // 4. 聯絡方式 (優化：提高姓名提取的精準度)
         const nameMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})/);
-        const pureNameMatch = !nameMatch && message.match(/^[\u4e00-\u9fa5]{2,4}$/); 
+        // 修正：當訊息只有 2-4 個漢字時才判斷為純姓名，避免誤判。
+        const pureNameMatch = !nameMatch && message.match(/^[\u4e00-\u9fa5]{2,4}$/) && message.length <= 4; 
         if (nameMatch || pureNameMatch) {
             let extractedName = nameMatch ? nameMatch[1] : pureNameMatch[0];
-            if (extractedName && !/(訂房|本人|我是|查詢|價格|預訂|行政套房|豪華客房|標準雙人房|繼續|確認)/.test(extractedName)) {
-                data.name = extractedName.trim();
+            // 修正：將 roomType 關鍵字從排除列表移除，避免訂房時提供姓名但同時提到房型被誤判。
+            if (extractedName && !/(訂房|本人|我是|查詢|價格|預訂|繼續|確認)/.test(extractedName)) {
+                data.contactName = extractedName.trim(); // 修正為 RuleEngine 期望的 contactName
             }
         }
         
         const emailMatch = message.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
-        if (emailMatch) data.email = emailMatch[0];
+        if (emailMatch) data.contactEmail = emailMatch[0]; // 修正為 RuleEngine 期望的 contactEmail
+        // 🚨 缺少電話號碼 (contactPhone) 的提取邏輯，建議新增：
+        const phoneMatch = message.match(/(?:(?:09)\d{8}|(?:0\d{1,3}[-\s]?\d{6,8}))/); // 台灣手機號碼或市話格式
+        if (phoneMatch) data.contactPhone = phoneMatch[0].replace(/[-\s]/g, '');
 
-        // 5. 房間間數
+        // 5. 房間間數 (無變動)
         const roomCountMatch = lowerMessage.match(/([\d０-９]+)[間個]/);
         if (roomCountMatch) {
-            const countStr = this.toHalfWidth(roomCountMatch[1]);
+            const countStr = this.toHalfWidth(roomCountMatch[1]);
             data.roomCount = parseInt(countStr, 10);
         }
 
-        // 6. 加購實體解析 (來自 Rich Card JSON)
-        try {
-            const buttonData = JSON.parse(message);
-            if (buttonData.addonId) data.addonId = buttonData.addonId;
-            if (buttonData.addonAction) data.addonAction = buttonData.addonAction;
-        } catch (e) {
-            // Ignore
-        }
+        // 6. 加購實體解析 (優化：先檢查是否為 JSON 格式，減少錯誤拋出)
+        // 這是為了應對用戶點擊 Rich Card Button 傳送 JSON 訊息時，能正確解析。
+        if (message.trim().startsWith('{') && message.trim().endsWith('}')) {
+            try {
+                const buttonData = JSON.parse(message);
+                // 這裡保留原有的 addonId 和 addonAction，以利 RuleEngine 判斷
+                if (buttonData.addonId) data.addonId = buttonData.addonId;
+                if (buttonData.addonAction) data.addonAction = buttonData.addonAction;
+            } catch (e) {
+                // 忽略，可能是格式不正確的 JSON 或只是用戶輸入了 {}
+            }
+        }
 
-        // 預設值 (只有當實體不存在時才給預設值，解決實體覆蓋問題)
+        // 預設值 (無變動)
         if (data.adultCount === undefined) data.adultCount = 1;
         if (data.childCount === undefined) data.childCount = 0;
         if (data.roomCount === undefined) data.roomCount = 1;
@@ -156,6 +167,8 @@ class SmartIntentClassifier {
     
     /** 輔助函式：解析日期和晚數 */
     static parseDate(text) {
+        // (無變動)
+        // ... (省略與 V3.5 相同的 parseDate 邏輯)
         const now = dayjs().startOf('day');
         let targetDate = null;
         let nights = null;
@@ -170,7 +183,7 @@ class SmartIntentClassifier {
         }
 
         // 2. 處理絕對日期
-        const dateMatch = text.match(/(\d{1,2})[月\/](\d{1,2})[日]?/); 
+        const dateMatch = text.match(/(\d{1,2})[月\/](\d{1,2})[日]?/); 
         if (dateMatch) {
             const month = parseInt(dateMatch[1], 10);
             const day = parseInt(dateMatch[2], 10);
