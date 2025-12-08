@@ -1,11 +1,11 @@
-// rule_engine.js (V4.3 - 最終修正版)
+// rule_engine.js (V4.4 - 隔離測試版)
 
 const sessionManager = require('./session_manager');
-const SmartIntentClassifier = require('./intent_classifier'); // 假設存在
-const BookingFlowController = require('./booking_controller'); // 假設存在 
+const SmartIntentClassifier = require('./intent_classifier'); 
+const BookingFlowController = require('./booking_controller'); 
 
 // 載入 Flow Config
-const flowConfig = require('./dialogue_flow.json'); // 假設存在 
+const flowConfig = require('./dialogue_flow.json'); 
 
 // 🚨 【除錯日誌 - 確保檔案載入和結構正確】
 if (flowConfig && flowConfig.states) {
@@ -29,7 +29,7 @@ const PRIORITY = {
             RESUME: 99
         },
         AVAILABILITY_CHECK: 96, 
-        ENTITY_SATISFIED_ADVANCE: 97 // 🎯 優化: 實體滿足後靜默推進的優先級
+        ENTITY_SATISFIED_ADVANCE: 97 
     },
     GENERAL_RULE: 80
 };
@@ -150,10 +150,26 @@ class RuleEngine {
             
             // 1. 意圖分類與實體抽取
             const classificationResult = SmartIntentClassifier.classify(message, flow); // 假設 SmartIntentClassifier 存在
-            const intents = classificationResult.intents;
-            const extractedEntities = classificationResult.extractedEntities || {}; 
+            let intents = classificationResult.intents;
+            let extractedEntities = classificationResult.extractedEntities || {}; 
 
-            // 🌟 【新增日誌】用於除錯實體傳輸問題
+            // 🌟🌟🌟 【隔離測試程式碼：強制實體】V4.4 🌟🌟🌟
+            if (message.includes('測試訂房')) {
+                extractedEntities = {
+                    checkInDate: '2025-12-15', // 模擬日期
+                    nights: 3,                   // 模擬晚數
+                    adultCount: 2,               // 模擬成人數
+                    roomCount: 1                 // 模擬房間數
+                };
+                // 確保意圖是 booking，防止被 P:104 覆蓋
+                if (!intents.includes('booking')) {
+                    intents = ['booking', ...intents];
+                }
+                console.log('[ISOLATION TEST] 已強制設定實體，模擬抽取成功。');
+            }
+            // 🌟🌟🌟 🌟🌟🌟 🌟🌟🌟 🌟🌟🌟
+
+            // 🌟 【除錯點 1】查看原始輸出
             console.log(`[RAW ENTITY DEBUG] 原始實體: ${JSON.stringify(extractedEntities)}`);
             
             const sanitizedEntities = this.sanitizeEntities(extractedEntities);
@@ -167,7 +183,7 @@ class RuleEngine {
             
             const collectedData = session.collectedData;
 
-            // 🌟 【新增日誌】用於除錯 RuleEngine 實際看到的實體
+            // 🌟 【除錯點 2】用於除錯 RuleEngine 實際看到的實體
             console.log(`[DATA DEBUG] 當前狀態: ${session.currentStep} | 收集實體: ${JSON.stringify(collectedData)}`);
             
             // 🌟 關鍵修正點：初始化 rulesResults 陣列
@@ -199,7 +215,7 @@ class RuleEngine {
                 }
                 
                 if (finalResult.endFlow) {
-                    sessionManager.resetSession(sessionId); // 🎯 修正: 替換 endSession
+                    sessionManager.resetSession(sessionId); 
                 }
                 
                 // 🎯 修正: 記錄助理回應
