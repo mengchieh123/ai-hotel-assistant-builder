@@ -152,6 +152,9 @@ class RuleEngine {
             const classificationResult = SmartIntentClassifier.classify(message, flow); // 假設 SmartIntentClassifier 存在
             const intents = classificationResult.intents;
             const extractedEntities = classificationResult.extractedEntities || {}; 
+
+            // 🌟 【新增日誌】用於除錯實體傳輸問題
+            console.log(`[RAW ENTITY DEBUG] 原始實體: ${JSON.stringify(extractedEntities)}`);
             
             const sanitizedEntities = this.sanitizeEntities(extractedEntities);
             
@@ -164,7 +167,7 @@ class RuleEngine {
             
             const collectedData = session.collectedData;
 
-            // 🌟 新增除錯日誌
+            // 🌟 【新增日誌】用於除錯 RuleEngine 實際看到的實體
             console.log(`[DATA DEBUG] 當前狀態: ${session.currentStep} | 收集實體: ${JSON.stringify(collectedData)}`);
             
             // 🌟 關鍵修正點：初始化 rulesResults 陣列
