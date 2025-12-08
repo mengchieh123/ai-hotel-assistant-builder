@@ -1,4 +1,4 @@
-// rule_engine.js (V2.9 - 強化載入檢查版，兼顧流程魯棒性與通用查詢友善度)
+// rule_engine.js (V3.0 - 語法修正與強化檢查版，兼顧流程魯棒性與通用查詢友善度)
 
 // 導入所有 RuleEngine 依賴的模組
 const sessionManager = require('./session_manager');
@@ -8,15 +8,14 @@ const BookingFlowController = require('./booking_controller'); 
 // 載入 Flow Config
 const flowConfig = require('./dialogue_flow.json'); 
 
-// 🚨 【新增除錯日誌 - 確保檔案載入和結構正確】
+// 🚨 【除錯日誌 - 確保檔案載入和結構正確】
 if (flowConfig && flowConfig.states) {
     console.log(`✅ [DEBUG] dialogue_flow.json 成功載入！狀態數: ${Object.keys(flowConfig.states).length}`);
     console.log(`   初始狀態 'init' 存在: ${!!flowConfig.states['init']}`);
 } else {
-    // 如果載入失敗，則紀錄錯誤，這會是您服務無法正常運行的主要原因。
+    // 如果載入失敗，則紀錄錯誤
     const errorMessage = '❌ [DEBUG] dialogue_flow.json 載入失敗或結構錯誤！請檢查路徑和 JSON 格式。';
     console.error(errorMessage);
-    // 注意：如果在 Render 上看到此錯誤，請檢查檔案是否上傳成功以及路徑是否正確。
 }
 // ---------------------------------------------
 
@@ -102,9 +101,8 @@ class RuleEngine {
         };
     }
 
-    /** 處理規則優先級排序 (已添加 Array.isArray 檢查，修正 TypeError 潛在錯誤) */
+    /** 處理規則優先級排序 */
     static processRules(rulesResults) {
-        // 🚨 修正：確保 rulesResults 是一個陣列
         if (!Array.isArray(rulesResults) || rulesResults.length === 0) return null; 
         
         // 過濾掉不應該處理的規則
@@ -129,10 +127,8 @@ class RuleEngine {
         return sanitized;
     }
 
-    /** 格式化 Gemini 回應 (🚨 移除 Gemini 呼叫邏輯) */
+    /** 格式化 Gemini 回應 (假設 RuleEngine 外部處理 AI 呼叫) */
     static formatGeminiResponse(geminiResponse, originalResponse, currentStep) {
-        // 在 V2.8 中，我們假設外部服務已處理 AI 呼叫或在 RuleEngine 外部處理，
-        // 這裡僅用於在 AI 呼叫失敗時，確保我們使用預設的回應。
         return originalResponse; // 總是返回預設的 Response
     }
 
@@ -258,7 +254,7 @@ class RuleEngine {
                 response: '✅ 流程已重置，請重新開始預訂。',
                 nextStep: 'init',
                 richCard: null,
-      在             allowGeminiCall: false
+                allowGeminiCall: false // 修正：此處已添加逗號
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -315,13 +311,13 @@ class RuleEngine {
                 response: '偵測到會員登入請求，正在轉移到登入流程...',
                 nextStep: nextStateKey,
                 richCard: null,
-                allowGeminiCall: false 
+                allowGeminiCall: false // 修正：此處應有逗號，但前一個是 richCard: null，沒問題
             };
         }
         return { shouldProcess: false, priority: 0 };
     }
 
-    /** 規則 1.5: 通用查詢覆蓋規則 (P:104) 🚨 核心優化：隔離 AI，使用硬編碼回覆 */
+    /** 規則 1.5: 通用查詢覆蓋規則 (P:104) */
     static generalInquiryOverrideRule(intents, session, message, extractedEntities) {
         const isGeneralQueryIntent = intents.some(i => ['general_inquiry', 'inquiry', 'pricing', 'facilities', 'weather', 'restaurant'].includes(i));
         const hasNoBookingEntities = Object.keys(extractedEntities).every(key => 
@@ -334,24 +330,22 @@ class RuleEngine {
 
         if (isGeneralQueryIntent && hasNoBookingEntities && isSafeToOverride) {
             
-            // 呼叫硬編碼回覆函數，解決配額不足導致的友善度問題
             const inquiryResponse = this.generateHardcodedInquiryResponse(intents);
 
-            // 導向暫停狀態，讓用戶可以隨時「繼續」
             return {
                 shouldProcess: true,
                 priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE,
                 response: inquiryResponse.prompt,
                 nextStep: 'paused_waiting_for_resume', // 導向暫停狀態
                 allowGeminiCall: false, // 確保不呼叫 Gemini
-      在           richCard: inquiryResponse.richCard,
+                richCard: inquiryResponse.richCard,
                 endFlow: false
             };
         }
         return { shouldProcess: false, priority: 0 };
     }
 
-    /** 規則 2: 流程暫停與恢復規則 (P:98/99) 🚨 核心優化：P:98 隔離 AI */
+    /** 規則 2: 流程暫停與恢復規則 (P:98/99) */
     static pauseResumeRule(intents, session, message) {
         const currentStateKey = session.currentStep;
         const flow = flowConfig;
@@ -383,7 +377,7 @@ class RuleEngine {
                     shouldProcess: true,
                     priority: PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME,
                     response: '訂房流程已取消。',
-      在               nextStep: 'end_conversation',
+                    nextStep: 'end_conversation',
                     endFlow: true,
                     allowGeminiCall: false,
                     richCard: null
@@ -417,7 +411,7 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
 
-    /** 規則 3: 訂房流程規則 (核心邏輯 P:95) 🚨 優化 Handler 處理後的流程透明度 */
+    /** 規則 3: 訂房流程規則 (核心邏輯 P:95) */
     static async bookingFlowRule(intents, session, message) {
         const currentStateKey = session.currentStep || 'init';
         const flow = flowConfig;
@@ -428,7 +422,7 @@ class RuleEngine {
             // 檢查是否有立即的預訂意圖
             const hasBookingIntent = intents.includes('booking') || 
                                      intents.includes('book') || 
-    專案                          message.toLowerCase().includes('訂房') || 
+                                     message.toLowerCase().includes('訂房') || 
                                      message.toLowerCase().includes('預訂');
             
             if (hasBookingIntent) {
@@ -575,7 +569,7 @@ class RuleEngine {
     /** 通用規則 (P:80) */
     static generalRule(session, flowConfig) {
         const currentStep = session.currentStep || 'init';
-        const state = flowConfig.states ? flowConfig.states[currentStep] : null; // 🚨 增加 flowConfig.states 檢查
+        const state = flowConfig.states ? flowConfig.states[currentStep] : null; // 增加 flowConfig.states 檢查
         
         if (!state) {
             return {
@@ -611,7 +605,7 @@ class RuleEngine {
         };
     }
 
-    /** 🚨 新增：生成硬編碼的通用查詢回覆 (解決友善度問題) */
+    /** 生成硬編碼的通用查詢回覆 */
     static generateHardcodedInquiryResponse(intents) {
         if (intents.includes('pricing')) {
             return { 
@@ -621,7 +615,7 @@ class RuleEngine {
         }
         if (intents.includes('facilities')) {
             return { 
-      在           prompt: "本飯店提供：SPA 水療、頂樓泳池、24 小時健身房。詳細資訊請諮詢櫃台。", 
+                prompt: "本飯店提供：SPA 水療、頂樓泳池、24 小時健身房。詳細資訊請諮詢櫃台。", 
                 richCard: { type: 'quick_replies', options: ['繼續'] } 
             };
         }
