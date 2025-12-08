@@ -1,4 +1,4 @@
-// rule_engine.js (V5.1 - 核心流程保護版: 避免通用查詢中斷實體收集)
+// rule_engine.js (V5.3 - 數據與流程保護版: 保護核心實體數據和流程)
 
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier'); 
@@ -36,8 +36,8 @@ const PRIORITY = {
 
 const MAX_ROOM_LIMIT = 10;
 const FORCED_BREAK_STATES = ['paused_waiting_for_resume', 'confirm_booking', 'booking_complete', 'end_conversation'];
-// 🚀 V5.1 新增：定義不允許被 P:104 覆蓋的核心實體收集狀態
-const CORE_COLLECTION_STATES = ['ask_nights_and_dates', 'ask_guest_count', 'ask_room_type', 'ask_addons'];
+// 🚀 V5.2 修正：擴大核心流程保護範圍，加入 ask_room_count
+const CORE_COLLECTION_STATES = ['ask_nights_and_dates', 'ask_guest_count', 'ask_room_type', 'ask_room_count', 'ask_addons'];
 
 
 class RuleEngine {
@@ -156,15 +156,32 @@ class RuleEngine {
         session.executedHandlers = {};
     }
 
-    /** 清理實體數據 */
-    static sanitizeEntities(entities) {
+    /** 🚀 V5.3 修正：清理實體數據並防止核心實體覆蓋 */
+    static sanitizeEntities(entities, sessionCollectedData) {
         if (typeof entities !== 'object' || entities === null) {
             return {};
         }
 
         const sanitized = {};
         for (const [key, value] of Object.entries(entities)) { 
+            // 基礎清理
             if (value !== undefined && value !== null && value !== '' && String(value).toLowerCase() !== 'null') {
+                
+                // 核心保護邏輯：防止 adultCount 和 childCount 被分類器的預設值覆蓋
+                if (key === 'adultCount' || key === 'childCount') {
+                    // 如果 session 中已經有有效值（且不為 0），並且輸入值是分類器預設的 1 或 0
+                    const sessionValue = parseInt(sessionCollectedData[key], 10);
+                    const inputValue = parseInt(value, 10);
+
+                    // 如果 session 中已經有有效的人數（>0），且新的輸入值是預設值（1 或 0），則忽略新輸入。
+                    if ((key === 'adultCount' && sessionValue > 1 && (inputValue === 1)) || 
+                        (key === 'childCount' && sessionValue > 0 && (inputValue === 0))) 
+                    {
+                        console.log(`⚠️ [ENTITY GUARD] 忽略輸入中不合理的預設值: ${key}:${inputValue}，保留 Session 值:${sessionValue}`);
+                        continue; // 跳過此實體，不加入 sanitized
+                    }
+                }
+
                 sanitized[key] = value;
             }
         }
@@ -187,7 +204,8 @@ class RuleEngine {
             let intents = classificationResult.intents;
             let extractedEntities = classificationResult.entities || {}; 
 
-            const sanitizedEntities = this.sanitizeEntities(extractedEntities);
+            // 🚀 V5.3 修正：將 session.collectedData 傳入 sanitizeEntities 進行保護性過濾
+            const sanitizedEntities = this.sanitizeEntities(extractedEntities, session.collectedData);
             
             // 🎯 實體合併：直接合併和更新實體到 session 物件
             Object.assign(session.collectedData, sanitizedEntities);
@@ -364,7 +382,7 @@ class RuleEngine {
     static generalInquiryOverrideRule(intents, session, message, entities) {
         const currentStateKey = session.currentStep;
         
-        // 🚀 關鍵修正 V5.1：定義不應被 P:104 覆蓋的核心狀態列表
+        // V5.2 修正：定義不應被 P:104 覆蓋的核心狀態列表
         // 確保在這些狀態下，實體補齊 (P:97/P:95) 優先於通用查詢
         const isCollectingCoreEntities = CORE_COLLECTION_STATES.includes(currentStateKey);
 
