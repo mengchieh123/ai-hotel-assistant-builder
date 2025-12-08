@@ -1,5 +1,3 @@
-// booking_controller.js (V1.22 - 完整優化版)
-
 const MockAPI = require('./service_mock_api');
 const sessionManager = require('./session_manager'); // 假設這是管理 session 的模組
 
@@ -19,9 +17,10 @@ function log(level, message, details = {}) {
         // 避免循環引用，只記錄必要資訊
         const safeDetails = {};
         for (const key in details) {
+            // 避免記錄整個 session 物件，只記錄原始型別或簡單字串化
             if (typeof details[key] !== 'object' || details[key] === null) {
                 safeDetails[key] = details[key];
-            } else if (key !== 'session') { // 避免記錄整個 session 物件
+            } else if (key !== 'session') {
                 safeDetails[key] = String(details[key]);
             }
         }
@@ -102,7 +101,7 @@ async function getPriceDetails(data) {
                 if (item) {
                     let cost = item.price;
                     if (item.type === 'per_person') {
-                        // per_person 應乘以總人數 (大人 + 小孩) 或只計大人，這裡選擇只計大人以符合一般做法
+                        // per_person 應乘以總人數
                         cost *= totalAdults; 
                     }
                     if (item.isPerNight) {
@@ -126,24 +125,25 @@ async function getPriceDetails(data) {
         const serviceFee = subtotalAfterDiscount * SERVICE_FEE_RATE;
         
         // --- 6. 最終價格 (Final Price) ---
+        // 只有最終價格應用四捨五入
         const finalPrice = Math.round(subtotalAfterDiscount + serviceFee);
 
         log('INFO', 'Price Calculation Completed', {
-            roomCost, 
-            childCost, 
-            addonsCost, 
+            roomCost: roomCost.toFixed(2), 
+            childCost: childCost.toFixed(2), 
+            addonsCost: addonsCost.toFixed(2), 
             memberDiscountValue: memberDiscountValue.toFixed(2), 
             finalPrice
         });
         
-        // 使用 Math.round() 確保所有細項也是整數 (便於顯示)
+        // 細項保留小數點， finalPrice 使用四捨五入
         return {
-            roomCost: Math.round(roomCost),
-            childCost: Math.round(childCost),
-            addonsCost: Math.round(addonsCost),
-            memberDiscountValue: Math.round(memberDiscountValue),
-            serviceFee: Math.round(serviceFee),
-            finalPrice: finalPrice, // 這是最終四捨五入的價格
+            roomCost: roomCost,
+            childCost: childCost,
+            addonsCost: addonsCost,
+            memberDiscountValue: memberDiscountValue,
+            serviceFee: serviceFee,
+            finalPrice: finalPrice, 
             error: false
         };
 
@@ -199,30 +199,11 @@ async function checkDateCompleteness(session) {
 }
 
 
-/**
- * 2. checkDateAndNights: 檢查日期和晚數是否有效 (冗餘檢查，確保數值正確)
- */
-async function checkDateAndNights(session) {
-    const data = session.collectedData;
-    
-    if (!data.checkInDate || isNaN(new Date(data.checkInDate))) {
-        data.CUSTOM_PROMPT = '請提供有效的【入住日期】。';
-        return { isHandled: true, nextStep: 'ask_nights_and_dates' };
-    }
-    
-    const nights = parseInt(data.nights);
-    if (isNaN(nights) || nights <= 0 || nights > MAX_NIGHTS) {
-        data.CUSTOM_PROMPT = `請提供有效的【住宿晚數】(1-${MAX_NIGHTS}晚)。`;
-        return { isHandled: true, nextStep: 'ask_nights_and_dates' };
-    }
-    
-    delete data.CUSTOM_PROMPT;
-    return { isHandled: true }; 
-}
+// **已移除原有的 checkDateAndNights 函數，因功能與 checkDateCompleteness 重疊且未在 Flow 中被使用**
 
 
 /**
- * 3. checkBookingEssentials: 檢查房型、房間數、人數是否已收集。
+ * 2. checkBookingEssentials: 檢查房型、房間數、人數是否已收集。
  */
 async function checkBookingEssentials(session) {
     const data = session.collectedData;
@@ -231,11 +212,12 @@ async function checkBookingEssentials(session) {
         data.CUSTOM_PROMPT = '請選擇有效的【房型】。';
         return { isHandled: true, nextStep: 'show_room_types' };
     }
-    if (!data.roomCount || parseInt(data.roomCount) <= 0) {
+    // 房間數和人數檢查需要確保是數字且大於 0
+    if (!data.roomCount || parseInt(data.roomCount) <= 0 || isNaN(parseInt(data.roomCount))) {
         data.CUSTOM_PROMPT = '請輸入正確的【房間數】。';
         return { isHandled: true, nextStep: 'ask_room_count' }; 
     }
-    if (!data.adultCount || parseInt(data.adultCount) <= 0) {
+    if (!data.adultCount || parseInt(data.adultCount) <= 0 || isNaN(parseInt(data.adultCount))) {
         data.CUSTOM_PROMPT = '請輸入正確的【大人】人數。';
         return { isHandled: true, nextStep: 'ask_guest_count' }; 
     }
@@ -246,7 +228,7 @@ async function checkBookingEssentials(session) {
 
 
 /**
- * 4. lockInventory: 模擬庫存鎖定 (防止超賣)。
+ * 3. lockInventory: 模擬庫存鎖定 (防止超賣)。
  */
 async function lockInventory(session) {
     const data = session.collectedData;
@@ -279,6 +261,7 @@ async function lockInventory(session) {
                 reason: lockResult.message, 
                 remaining: lockResult.remaining 
             });
+            // 庫存不足，導回房型選擇
             return { 
                 isHandled: true,
                 prompt: `😭 抱歉，您選擇的【${roomType}】庫存不足 (剩餘 ${lockResult.remaining} 間)，請重新選擇房型或間數。`,
@@ -288,7 +271,7 @@ async function lockInventory(session) {
     } catch (error) {
         log('FATAL', 'Inventory API failed', { error: error.message });
         return { 
-            isHandled: true, // 處理失敗，但流程可以繼續 (通常是導回重試)
+            isHandled: true, 
             prompt: '庫存服務暫時無法連線，請稍後再試。',
             nextStep: 'show_room_types'
         };
@@ -297,7 +280,7 @@ async function lockInventory(session) {
 
 
 /**
- * 5. calculatePrice: 計算最終價格並儲存。
+ * 4. calculatePrice: 計算最終價格並儲存。
  */
 async function calculatePrice(session) {
     const data = session.collectedData;
@@ -312,6 +295,13 @@ async function calculatePrice(session) {
     
     if (details.error || details.finalPrice <= 0) {
         log('ERROR', 'Final price is invalid or zero.', { details });
+        
+        // 價格計算失敗，釋放庫存鎖定，防止資源洩漏
+        if (data.inventoryLockId) {
+             await MockAPI.unlockInventory(data.inventoryLockId).catch(() => {});
+             delete data.inventoryLockId;
+        }
+
         return {
             isHandled: true,
             prompt: `抱歉，價格計算失敗：${details.errorMessage || '請確認您的預訂資訊。'}`,
@@ -320,7 +310,18 @@ async function calculatePrice(session) {
     }
     
     data.finalPrice = details.finalPrice;
-    data.priceDetails = details;
+    
+    // 細項金額四捨五入到整數，便於顯示 (這裡僅用於顯示，實際計算使用浮點數)
+    const displayDetails = {};
+    for (const key in details) {
+        if (typeof details[key] === 'number') {
+            displayDetails[key] = Math.round(details[key]);
+        } else {
+            displayDetails[key] = details[key];
+        }
+    }
+    data.priceDetails = displayDetails;
+
 
     log('INFO', 'Price Calculated and Stored.', { finalPrice: details.finalPrice });
     return { 
@@ -331,7 +332,7 @@ async function calculatePrice(session) {
 
 
 /**
- * 6. generateAddonsCarousel: 模擬生成加購服務清單。
+ * 5. generateAddonsCarousel: 模擬生成加購服務清單。
  */
 async function generateAddonsCarousel(session) {
     // 模擬呼叫 API 獲取最新的加購服務清單
@@ -342,7 +343,7 @@ async function generateAddonsCarousel(session) {
         options: addonsList.map(item => ({
             id: item.id,
             title: item.title,
-            description: item.description
+            description: `${item.description} (NT$ ${item.price}/${item.isPerNight ? '晚' : '次'})` // 顯示價格資訊
         }))
     };
     return { isHandled: true, richCard: richCard };
@@ -350,7 +351,7 @@ async function generateAddonsCarousel(session) {
 
 
 /**
- * 7. executeAddonsSelection: 處理加購服務選擇。
+ * 6. executeAddonsSelection: 處理加購服務選擇。
  */
 async function executeAddonsSelection(session) {
     const data = session.collectedData;
@@ -370,7 +371,7 @@ async function executeAddonsSelection(session) {
         return { 
             isHandled: true, 
             prompt: `已記錄 ${data.addons.length} 項加購服務，將重新計算總價。`,
-            nextStep: 'check_availability_and_price' // 導回價格檢查
+            nextStep: 'calculate_price_logic' // 導回價格檢查
         };
     }
     
@@ -384,7 +385,7 @@ async function executeAddonsSelection(session) {
 
 
 /**
- * 8. loginMemberAccount: 模擬會員登入 (影響價格)。
+ * 7. loginMemberAccount: 模擬會員登入 (影響價格)。
  */
 async function loginMemberAccount(session) {
     const data = session.collectedData;
@@ -395,8 +396,8 @@ async function loginMemberAccount(session) {
         return { isHandled: true };
     }
     
+    // 如果帳號或密碼不足，返回 isHandled: false 讓 RuleEngine 繼續收集實體
     if (!memberAccount || !memberPassword) {
-        // 讓 RuleEngine 透過 nextStep 繼續收集實體
         return { isHandled: false }; 
     }
 
@@ -416,17 +417,17 @@ async function loginMemberAccount(session) {
             return { 
                 isHandled: true, 
                 prompt: `✅ 會員登入成功！已為您套用 ${MEMBER_DISCOUNT_RATE * 100}% 的會員折扣，正在重新計算價格...`,
-                nextStep: 'check_availability_and_price' 
+                nextStep: 'calculate_price_logic' // 導向價格計算
             };
         } else {
-            // 登入失敗，清空數據並導回收集狀態
+            // **修正：導向回已定義的狀態 login_member_account 重新收集**
             delete data.memberAccount; 
             delete data.memberPassword;
             log('WARNING', 'Member login failed.', { account: memberAccount });
             return { 
                 isHandled: true, 
                 prompt: '❌ 登入失敗：帳號或密碼錯誤，請重新輸入。',
-                nextStep: 'handle_member_login' // 導回當前狀態，重新收集
+                nextStep: 'login_member_account' // 導回收集帳號的狀態
             };
         }
     } catch (error) {
@@ -441,7 +442,7 @@ async function loginMemberAccount(session) {
 
 
 /**
- * 9. validateContactInfo: 驗證聯絡資訊。
+ * 8. validateContactInfo: 驗證聯絡資訊。
  */
 async function validateContactInfo(session) {
     const data = session.collectedData;
@@ -455,7 +456,8 @@ async function validateContactInfo(session) {
         };
     }
     
-    if (!data.contactPhone || data.contactPhone.length < 8) {
+    // 考慮台灣手機號碼 (09開頭，10位數) 或市話 (8位數以上)
+    if (!data.contactPhone || String(data.contactPhone).replace(/\D/g,'').length < 8) {
         data.CUSTOM_PROMPT = '請提供有效的【電話號碼】。';
         delete data.contactPhone;
         return { 
@@ -481,7 +483,7 @@ async function validateContactInfo(session) {
 
 
 /**
- * 10. handleSpecialRequests: 處理特殊需求 (記錄文本)。
+ * 9. handleSpecialRequests: 處理特殊需求 (記錄文本)。
  */
 async function handleSpecialRequests(session) {
     const data = session.collectedData;
@@ -498,16 +500,16 @@ async function handleSpecialRequests(session) {
 
 
 /**
- * 11. generateOrderSummary: 生成訂單摘要。
+ * 10. generateOrderSummary: 生成訂單摘要。
  */
 async function generateOrderSummary(session) {
     const data = session.collectedData;
     
     // 確保價格已計算
     if (!data.priceDetails) {
+        // 如果價格計算失敗，則回傳 calculatePrice 的結果
         const priceResult = await calculatePrice(session);
-        // 如果價格計算失敗，返回其結果
-        if (!priceResult.isHandled) {
+        if (priceResult.error) {
             return priceResult; 
         }
     }
@@ -515,16 +517,17 @@ async function generateOrderSummary(session) {
     const details = data.priceDetails;
     const isMember = data.isLoggedIn ? '（已套用會員折扣）' : '';
 
+    // 使用 toFixed(0) 確保顯示的細項也是整數 (因為 calculatePrice 已經將 displayDetails 四捨五入)
     const summary = `
 - 房型/間數: ${data.roomType} x ${data.roomCount} 間
 - 入住/晚數: ${data.checkInDate} / ${data.nights} 晚
 - 聯絡人: ${data.contactName} (${data.contactPhone})
 - 費用詳情:
-    - 房費總計: TWD ${details.roomCost}
-    - 兒童附加費: TWD ${details.childCost}
-    - 加購服務費: TWD ${details.addonsCost}
-    - 會員折扣 (${MEMBER_DISCOUNT_RATE * 100}%): - TWD ${details.memberDiscountValue}
-    - 服務費 (${SERVICE_FEE_RATE * 100}%): + TWD ${details.serviceFee}
+    - 房費總計: TWD ${details.roomCost.toFixed(0)}
+    - 兒童附加費: TWD ${details.childCost.toFixed(0)}
+    - 加購服務費: TWD ${details.addonsCost.toFixed(0)}
+    - 會員折扣 (${MEMBER_DISCOUNT_RATE * 100}%): - TWD ${details.memberDiscountValue.toFixed(0)}
+    - 服務費 (${SERVICE_FEE_RATE * 100}%): + TWD ${details.serviceFee.toFixed(0)}
 - **應付總額: TWD ${data.finalPrice} 元**
 `;
     data.finalSummary = summary;
@@ -535,7 +538,7 @@ async function generateOrderSummary(session) {
         body: summary,
         buttons: [
             { text: '確認並提交', intent: 'affirm' }, 
-            { text: '修改預訂', intent: 'modify_booking' } // 新增修改選項
+            { text: '修改預訂', intent: 'correction' } 
         ]
     };
     
@@ -548,17 +551,18 @@ async function generateOrderSummary(session) {
 }
 
 /**
- * 12. submitBooking: 提交訂單 (並釋放庫存鎖定)。
+ * 11. submitBooking: 提交訂單 (並釋放庫存鎖定)。
  */
 async function submitBooking(session) {
     const data = session.collectedData;
+    const lockId = data.inventoryLockId;
     
-    if (!data.inventoryLockId) {
+    if (!lockId) {
         log('ERROR', 'Submission failed: Inventory lock ID missing.');
         return { 
-            isHandled: true, // 改為 true，防止 RuleEngine 陷入無限迴圈，直接返回錯誤訊息
+            isHandled: true, 
             prompt: '提交失敗：庫存鎖定狀態遺失，請重新開始預訂流程。',
-            nextStep: 'start_booking'
+            nextStep: 'init' // 導回 init 重置流程
         };
     }
 
@@ -572,23 +576,20 @@ async function submitBooking(session) {
             checkInDate: data.checkInDate,
             nights: data.nights,
             contactName: data.contactName,
-            contactPhone: data.contactPhone,
-            contactEmail: data.contactEmail,
             finalPrice: data.finalPrice
         });
         
-        // 確保釋放庫存鎖定，無論提交結果成功與否，但通常在成功或最終失敗時釋放
-        // 這裡選擇在提交 API 呼叫後 (無論成功失敗) 嘗試釋放，以防 API 異常
-        await MockAPI.unlockInventory(data.inventoryLockId).catch(e => {
-            log('WARNING', 'Failed to unlock inventory, potential resource leak.', { lockId: data.inventoryLockId, error: e.message });
+        // 確保釋放庫存鎖定
+        await MockAPI.unlockInventory(lockId).catch(e => {
+            log('WARNING', 'Failed to unlock inventory after submission.', { lockId, error: e.message });
         });
         delete data.inventoryLockId; // 清除鎖定 ID
 
         if (bookingResult.success) {
             data.orderId = `HTL${Date.now().toString().slice(-6)}`;
-            data.paymentMessage = data.paymentMethod === 'credit_card' 
+            data.paymentMessage = data.paymentMethod === '信用卡' 
                 ? '您的信用卡授權成功。' 
-                : '請於入住前 72 小時內完成銀行轉帳。';
+                : '請於入住前 72 小時內完成銀行轉帳/支付。';
                 
             log('SUCCESS', 'Booking Submitted Successfully', { orderId: data.orderId });
             return { 
@@ -600,14 +601,14 @@ async function submitBooking(session) {
             return { 
                 isHandled: true, 
                 prompt: `訂單提交失敗：${bookingResult.message}。請嘗試重新預訂。`,
-                nextStep: 'start_booking'
+                nextStep: 'init'
             };
         }
     } catch (error) {
         log('FATAL', 'Booking Submission Service Failed', { error: error.message });
-        // 在最終失敗時也嘗試釋放，以防 API 呼叫前就報錯
-        if (data.inventoryLockId) {
-             await MockAPI.unlockInventory(data.inventoryLockId).catch(() => {});
+        // 服務連線失敗，在最終失敗時也嘗試釋放
+        if (lockId) {
+             await MockAPI.unlockInventory(lockId).catch(() => {});
              delete data.inventoryLockId;
         }
         return { 
@@ -621,15 +622,15 @@ async function submitBooking(session) {
 // --- 匯出所有 Handler ---
 module.exports = {
     checkDateCompleteness,      // 1. 檢查日期完整性
-    checkDateAndNights,         // 2. 檢查日期和晚數
-    checkBookingEssentials,     // 3. 檢查預訂基本資訊
-    lockInventory,              // 4. 鎖定庫存
-    calculatePrice,             // 5. 計算價格
-    generateAddonsCarousel,     // 6. 生成加購服務
-    executeAddonsSelection,     // 7. 執行加購選擇
-    loginMemberAccount,         // 8. 會員登入 (影響價格)
-    validateContactInfo,        // 9. 驗證聯絡資訊
-    handleSpecialRequests,      // 10. 處理特殊需求
-    generateOrderSummary,       // 11. 生成訂單摘要
-    submitBooking               // 12. 提交訂單
+    // checkDateAndNights,       // (Removed)
+    checkBookingEssentials,     // 2. 檢查預訂基本資訊
+    lockInventory,              // 3. 鎖定庫存
+    calculatePrice,             // 4. 計算價格
+    generateAddonsCarousel,     // 5. 生成加購服務
+    executeAddonsSelection,     // 6. 執行加購選擇
+    loginMemberAccount,         // 7. 會員登入 (修正 nextStep)
+    validateContactInfo,        // 8. 驗證聯絡資訊
+    handleSpecialRequests,      // 9. 處理特殊需求
+    generateOrderSummary,       // 10. 生成訂單摘要
+    submitBooking               // 11. 提交訂單
 };
