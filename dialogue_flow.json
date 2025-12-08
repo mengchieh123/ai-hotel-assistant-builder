@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
     "version": "1.18",
-    "description": "流程穩定測試版 - V5.8 修正：報價邏輯與顯示分離",
+    "description": "流程穩定測試版 - V5.8 最終版：報價分離與容錯處理",
     "initial_state": "init",
     "states": {
         "init": {
@@ -25,7 +25,8 @@
                 "memberPassword",
                 "inventoryLockId",
                 "finalPrice",
-                "priceDetails"
+                "priceDetails",
+                "inventoryWarning"
             ],
             "entities": ["adultCount", "childCount", "roomCount"],
             "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
@@ -86,6 +87,7 @@
             "prompt": "正在為您鎖定房型庫存，請稍候...",
             "next_state": "calculate_price_logic",
             "fallback": "房型鎖定失敗，請從頭開始。",
+            "fallback_state": "ask_room_count",
             "allow_gemini_call": false
         },
         "calculate_price_logic": {
@@ -237,7 +239,7 @@
             "next_state": "init"
         },
         "handle_general_inquiry": {
-            "prompt": "{CUSTOM_PROMPT} 我是一個訂房助理，主要負責預訂服務。關於 {user_query}，您可以直接詢問我：\n\n1. 房價資訊\n2. 飯店設施\n3. 訂房流程問題",
+            "prompt": "{inventoryWarning} {CUSTOM_PROMPT} 我是一個訂房助理，主要負責預訂服務。關於 {user_query}，您可以直接詢問我：\n\n1. 房價資訊\n2. 飯店設施\n3. 訂房流程問題",
             "allow_gemini_call": true,
             "next_state": "paused_waiting_for_resume",
             "fallback": "請具體說明您的問題。"
