@@ -1,4 +1,4 @@
-// server.js (最終版本 - 極度精簡)
+// server.js (最終修復版本)
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors'); 
@@ -35,6 +35,16 @@ app.use(express.static('public'));
 app.get('/', (req, res) => {
     // 假設您的 index.html 位於 public/ 資料夾
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+/**
+ * 健康檢查 API  <-- 新增此部分
+ * Render 需要這個端點來判斷服務是否啟動成功。
+ * 必須返回 200 狀態碼。
+ */
+app.get('/health', (req, res) => {
+    // 簡單返回 200 OK 和一個 JSON 狀態
+    res.status(200).json({ status: 'ok', service: 'AI Hotel Assistant' });
 });
 
 /**
