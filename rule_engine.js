@@ -1,4 +1,4 @@
-// rule_engine.js (V5.0 - 通用解鎖版: 解決 handle_general_inquiry 鎖定問題)
+// rule_engine.js (V5.1 - 核心流程保護版: 避免通用查詢中斷實體收集)
 
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier'); 
@@ -36,6 +36,8 @@ const PRIORITY = {
 
 const MAX_ROOM_LIMIT = 10;
 const FORCED_BREAK_STATES = ['paused_waiting_for_resume', 'confirm_booking', 'booking_complete', 'end_conversation'];
+// 🚀 V5.1 新增：定義不允許被 P:104 覆蓋的核心實體收集狀態
+const CORE_COLLECTION_STATES = ['ask_nights_and_dates', 'ask_guest_count', 'ask_room_type', 'ask_addons'];
 
 
 class RuleEngine {
@@ -203,7 +205,7 @@ class RuleEngine {
             // 2. 執行高優先級規則 (P:100+)
             rulesResults.push(this.emergencyRule(intents, session));
             rulesResults.push(this.resetFlowRule(intents, session)); 
-            rulesResults.push(this.forceResumeBookingRule(intents, session)); // 🚀 V5.0 新增: 處理通用查詢狀態下的重啟
+            rulesResults.push(this.forceResumeBookingRule(intents, session)); // P:106 處理通用查詢狀態下的重啟
             rulesResults.push(this.roomLimitRule(collectedData));
             rulesResults.push(this.memberLoginRule(intents, session)); 
             rulesResults.push(this.generalInquiryOverrideRule(intents, session, message, extractedEntities)); // P:104
@@ -306,7 +308,7 @@ class RuleEngine {
     static forceResumeBookingRule(intents, session) {
         const currentStateKey = session.currentStep;
         
-        // 🚀 關鍵邏輯：當流程卡在通用查詢狀態，且用戶嘗試發出訂房指令時，強制重啟。
+        // 當流程卡在通用查詢狀態，且用戶嘗試發出訂房指令時，強制重啟。
         if (currentStateKey === 'handle_general_inquiry' && intents.includes('booking')) {
             console.log("🚀 [DEBUG] 偵測到在通用查詢狀態下嘗試訂房，強制重設流程。");
             
@@ -316,7 +318,7 @@ class RuleEngine {
             
             return {
                 shouldProcess: true,
-                priority: PRIORITY.RESET_FLOW, // P:106 (與 resetFlowRule 相同優先級，但會在前面被執行)
+                priority: PRIORITY.RESET_FLOW, // P:106
                 response: this.interpolatePrompt(flowConfig.states['init'].prompt, session.collectedData),
                 nextStep: 'init'
             };
@@ -362,8 +364,16 @@ class RuleEngine {
     static generalInquiryOverrideRule(intents, session, message, entities) {
         const currentStateKey = session.currentStep;
         
-        // 只有當前狀態不是強制中斷狀態時，才允許通用查詢覆蓋流程。
-        if (intents.includes('general_inquiry') && !FORCED_BREAK_STATES.includes(currentStateKey)) {
+        // 🚀 關鍵修正 V5.1：定義不應被 P:104 覆蓋的核心狀態列表
+        // 確保在這些狀態下，實體補齊 (P:97/P:95) 優先於通用查詢
+        const isCollectingCoreEntities = CORE_COLLECTION_STATES.includes(currentStateKey);
+
+        // 如果偵測到通用問題意圖，且當前不在中斷狀態，且當前**不在核心實體收集狀態**
+        if (intents.includes('general_inquiry') && 
+            !FORCED_BREAK_STATES.includes(currentStateKey) &&
+            !isCollectingCoreEntities // 檢查是否在核心收集狀態
+            ) {
+            
             const inquiryState = flowConfig.states['handle_general_inquiry'];
             const userQuery = message || "您的問題";
             
@@ -410,7 +420,6 @@ class RuleEngine {
             const hasBookingIntent = intents.includes('booking');
             const hasDateOrNights = data.checkInDate || data.nights; 
 
-            // 只有當 resetFlowRule (P:106) 沒有被觸發時，才會執行這裡 P:96 的邏輯
             if (hasBookingIntent || hasDateOrNights) {
                 const nextStepAfterInit = flow.states['init']?.next_state || 'ask_nights_and_dates'; 
                 
