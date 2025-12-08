@@ -82,7 +82,8 @@ async function getPriceDetails(data) {
         // 判斷是否為週末 (週六=6, 週日=0) 並應用週末乘數
         let isWeekend = false;
         if (checkInDate) {
-            const day = checkInDate.getDay();
+            // **V1.25 修正：使用 UTC 避免時區問題導致日期判斷錯誤**
+            const day = checkInDate.getUTCDay(); 
             isWeekend = (day === 6 || day === 0);
         }
         
@@ -101,8 +102,8 @@ async function getPriceDetails(data) {
                 if (item) {
                     let cost = item.price;
                     if (item.type === 'per_person') {
-                        // per_person 應乘以總人數
-                        cost *= totalAdults; 
+                        // per_person 乘以總人數 (大人+小孩)
+                        cost *= (totalAdults + totalChildren); 
                     }
                     if (item.isPerNight) {
                         cost *= totalNights;
@@ -167,6 +168,7 @@ async function getPriceDetails(data) {
 async function checkDateCompleteness(session) {
     const data = session.collectedData;
     
+    // ... 邏輯保持不變 ...
     if (!data.checkInDate || !data.nights) {
         return { 
             isHandled: true, 
@@ -197,9 +199,6 @@ async function checkDateCompleteness(session) {
     
     return { isHandled: true };
 }
-
-
-// **已移除原有的 checkDateAndNights 函數，因功能與 checkDateCompleteness 重疊且未在 Flow 中被使用**
 
 
 /**
@@ -239,6 +238,17 @@ async function lockInventory(session) {
         log('INFO', 'Inventory lock already exists.', { lockId: data.inventoryLockId });
         return { isHandled: true }; 
     }
+    
+    // **V1.25 修正：在呼叫 API 前再次檢查核心參數**
+    if (!roomType || !roomCount) {
+        log('ERROR', 'Lock inventory failed: Missing roomType or roomCount.', { roomType, roomCount });
+        return { 
+             isHandled: true, 
+             prompt: '庫存鎖定失敗：缺少房型或房間數資訊，請返回重新選擇。',
+             nextStep: 'show_room_types' 
+        };
+    }
+
 
     try {
         const lockResult = await MockAPI.lockInventory(roomType, parseInt(roomCount));
@@ -291,6 +301,16 @@ async function calculatePrice(session) {
         return { isHandled: true }; 
     }
     
+    // **V1.25 修正：在計算前再次檢查庫存鎖定ID**
+    if (!data.inventoryLockId) {
+        log('WARNING', 'Price calculation aborted: Inventory lock ID missing. Redirect to re-lock.', {});
+        return {
+            isHandled: true,
+            prompt: '價格計算失敗，庫存鎖定已失效，請重新鎖定房型。',
+            nextStep: 'lock_inventory' // 導回鎖定庫存步驟
+        };
+    }
+
     const details = await getPriceDetails(data);
     
     if (details.error || details.finalPrice <= 0) {
@@ -335,7 +355,7 @@ async function calculatePrice(session) {
  * 5. generateAddonsCarousel: 模擬生成加購服務清單。
  */
 async function generateAddonsCarousel(session) {
-    // 模擬呼叫 API 獲取最新的加購服務清單
+    // 邏輯保持不變
     const addonsList = await MockAPI.getAddonsList();
 
     const richCard = {
@@ -368,6 +388,7 @@ async function executeAddonsSelection(session) {
         
         log('INFO', 'Addons selected. Price cache cleared.', { addonCount: data.addons.length });
         
+        // **V1.25 修正：確保導回價格檢查**
         return { 
             isHandled: true, 
             prompt: `已記錄 ${data.addons.length} 項加購服務，將重新計算總價。`,
@@ -421,13 +442,12 @@ async function loginMemberAccount(session) {
             };
         } else {
             // **修正：導向回已定義的狀態 login_member_account 重新收集**
-            delete data.memberAccount; 
-            delete data.memberPassword;
+            delete data.memberPassword; // 只清除密碼，讓帳號保留
             log('WARNING', 'Member login failed.', { account: memberAccount });
             return { 
                 isHandled: true, 
-                prompt: '❌ 登入失敗：帳號或密碼錯誤，請重新輸入。',
-                nextStep: 'login_member_account' // 導回收集帳號的狀態
+                prompt: '❌ 登入失敗：帳號或密碼錯誤，請重新輸入密碼。',
+                nextStep: 'ask_member_password' // 導回收集密碼的狀態
             };
         }
     } catch (error) {
@@ -447,6 +467,7 @@ async function loginMemberAccount(session) {
 async function validateContactInfo(session) {
     const data = session.collectedData;
     
+    // ... 邏輯保持不變 ...
     if (!data.contactName || data.contactName.length < 2) {
         data.CUSTOM_PROMPT = '請提供有效的【訂房人姓名】。';
         delete data.contactName;
@@ -488,6 +509,7 @@ async function validateContactInfo(session) {
 async function handleSpecialRequests(session) {
     const data = session.collectedData;
     
+    // ... 邏輯保持不變 ...
     if (data.specialRequest && data.specialRequest.trim().length > 0) {
         data.CUSTOM_PROMPT = `✅ 已記錄您的特殊需求: ${data.specialRequest}`;
         log('INFO', 'Special request recorded.', { request: data.specialRequest });
@@ -557,6 +579,7 @@ async function submitBooking(session) {
     const data = session.collectedData;
     const lockId = data.inventoryLockId;
     
+    // ... 邏輯保持不變 ...
     if (!lockId) {
         log('ERROR', 'Submission failed: Inventory lock ID missing.');
         return { 
@@ -576,10 +599,11 @@ async function submitBooking(session) {
             checkInDate: data.checkInDate,
             nights: data.nights,
             contactName: data.contactName,
-            finalPrice: data.finalPrice
+            finalPrice: data.finalPrice,
+            inventoryLockId: lockId // V5.1 API 需要此 ID 進行檢查
         });
         
-        // 確保釋放庫存鎖定
+        // 確保釋放庫存鎖定 (API 內部已處理，這裡做雙重保險)
         await MockAPI.unlockInventory(lockId).catch(e => {
             log('WARNING', 'Failed to unlock inventory after submission.', { lockId, error: e.message });
         });
@@ -622,13 +646,12 @@ async function submitBooking(session) {
 // --- 匯出所有 Handler ---
 module.exports = {
     checkDateCompleteness,      // 1. 檢查日期完整性
-    // checkDateAndNights,       // (Removed)
     checkBookingEssentials,     // 2. 檢查預訂基本資訊
     lockInventory,              // 3. 鎖定庫存
-    calculatePrice,             // 4. 計算價格
+    calculatePrice,             // 4. 計算價格 (新增庫存鎖定檢查，失敗導向 lock_inventory)
     generateAddonsCarousel,     // 5. 生成加購服務
-    executeAddonsSelection,     // 6. 執行加購選擇
-    loginMemberAccount,         // 7. 會員登入 (修正 nextStep)
+    executeAddonsSelection,     // 6. 執行加購選擇 (確保 nextStep 為 calculate_price_logic)
+    loginMemberAccount,         // 7. 會員登入 (修正登入失敗導向 ask_member_password)
     validateContactInfo,        // 8. 驗證聯絡資訊
     handleSpecialRequests,      // 9. 處理特殊需求
     generateOrderSummary,       // 10. 生成訂單摘要
