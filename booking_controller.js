@@ -1,5 +1,5 @@
 const dayjs = require('dayjs');
-const MockAPI = require('./MockAPI');
+const MockAPI = require('./service_mock_api');
 
 // --- 輔助函數：日誌記錄 ---
 function log(level, message, details = {}) {
