@@ -1,17 +1,20 @@
 // intent_classifier.js
 
 const dayjs = require('dayjs');
+// 確保 dayjs 支持解析非標準日期格式，雖然這裡主要依賴正則
+// const customParseFormat = require('dayjs/plugin/customParseFormat');
+// dayjs.extend(customParseFormat); 
+
 const flowConfig = require('./dialogue_flow.json'); // 假設流程配置檔存在
 
 /**
  * 意圖分類與實體抽取的核心類別。
- * 實際應用中，這個類別會與 NLU 服務（如 Google Dialogflow/Gemini API/自建模型）連接。
  */
 class SmartIntentClassifier {
 
     /**
      * 靜態方法：執行意圖分類和實體抽取。
-     * * @param {string} message - 使用者的原始輸入訊息。
+     * @param {string} message - 使用者的原始輸入訊息。
      * @param {object} flowConfig - 整個對話流程的配置。
      * @returns {{intents: string[], entities: object}}
      */
@@ -32,10 +35,9 @@ class SmartIntentClassifier {
         // 2. 流程控制意圖 (P:106, P:98/99)
         if (normalizedMessage.includes('重來') || normalizedMessage.includes('重新開始') || normalizedMessage.includes('reset')) {
             intents.push('reset');
-            intents.push('booking_start'); // 重設同時視為啟動
+            intents.push('booking_start'); 
         }
         if (normalizedMessage.includes('訂房') || normalizedMessage.includes('預約') || normalizedMessage.includes('我要訂')) {
-             // 只有在沒有更強烈意圖時才分類為 booking_start
              if (!intents.includes('reset')) {
                  intents.push('booking_start');
              }
@@ -125,27 +127,38 @@ class SmartIntentClassifier {
         // 2. 抽取入住日期 (今天/明天/YYYY/MM/DD)
         let checkInDate = null;
         
+        // 處理相對日期
         if (message.includes('今天') || message.includes('today')) {
             checkInDate = dayjs().format('YYYY-MM-DD');
         } else if (message.includes('明天') || message.includes('tomorrow')) {
             checkInDate = dayjs().add(1, 'day').format('YYYY-MM-DD');
         } else {
-            // 簡化日期抽取：嘗試匹配 YYYY/MM/DD 或 MM/DD
-            const dateRegex = /(\d{4})[/-](\d{1,2})[/-](\d{1,2})|(\d{1,2})[/-](\d{1,2})/;
+            // 💡 優化日期抽取：兼容 YYYY/M/D, YYYY-M-D, M/D, M-D 等格式
+            // (\d{4}[/-]\d{1,2}[/-]\d{1,2}) 捕獲 YYYY/MM/DD
+            // (\d{1,2}[/-]\d{1,2}) 捕獲 MM/DD
+            const dateRegex = /(\d{4}[/-]\d{1,2}[/-]\d{1,2})|(\d{1,2}[/-]\d{1,2})/;
             const dateMatch = message.match(dateRegex);
             
             if (dateMatch) {
-                if (dateMatch[1]) { // 匹配到 YYYY/MM/DD
-                    checkInDate = dayjs(`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`).format('YYYY-MM-DD');
-                } else if (dateMatch[4]) { // 匹配到 MM/DD
+                let dateStr = dateMatch[1] || dateMatch[2];
+                // 將所有分隔符轉換為標準的橫線，以便 dayjs 穩定解析
+                dateStr = dateStr.replace(/[\/]/g, '-');
+
+                if (dateMatch[1]) { // 匹配到 YYYY-MM-DD
+                    checkInDate = dayjs(dateStr).format('YYYY-MM-DD');
+                } else if (dateMatch[2]) { // 匹配到 MM-DD (補上當前年份)
                     const year = dayjs().year();
-                    checkInDate = dayjs(`${year}-${dateMatch[4]}-${dateMatch[5]}`).format('YYYY-MM-DD');
+                    // 確保日期是有效的，並且如果月份/日期是單數，dayjs 仍能處理
+                    const parsedDate = dayjs(`${year}-${dateStr}`);
+                    if (parsedDate.isValid()) {
+                        checkInDate = parsedDate.format('YYYY-MM-DD');
+                    }
                 }
             }
         }
         
         if (checkInDate && dayjs(checkInDate).isValid()) {
-             // 確保入住日期在未來 (簡化處理)
+             // 確保入住日期在今天或未來
             if (dayjs(checkInDate).isAfter(dayjs().subtract(1, 'day'), 'day')) {
                 entities.checkInDate = checkInDate;
             } else {
@@ -156,9 +169,13 @@ class SmartIntentClassifier {
     
     /** 抽取房型 */
     static extractRoomType(message, entities) {
-        const roomTypes = Object.keys(flowConfig.states['show_room_types'].options || {});
+        // 這裡需要確保 flowConfig 存在且結構正確
+        const roomOptions = flowConfig.states['show_room_types']?.options;
+        if (!roomOptions) return; // 保護，如果配置檔未載入或狀態不存在
+
+        const roomTypes = Object.keys(roomOptions);
         
-        // 使用配置檔中的房型名稱進行匹配
+        // 使用配置檔中的房型名稱進行匹配 (忽略大小寫)
         const matchedRoom = roomTypes.find(type => message.includes(type.toLowerCase()));
         
         if (matchedRoom) {
@@ -168,30 +185,24 @@ class SmartIntentClassifier {
     
     /** 抽取數量實體 (成人數、兒童數、房間數) */
     static extractCountEntities(message, entities) {
-        // 簡化邏輯：嘗試匹配 "X個成人" 或 "X間房"
-        
         // 房間數 (roomCount)
         const roomCountMatch = message.match(/(\d+)(間房|間|rooms?)/);
         if (roomCountMatch) {
             entities.roomCount = parseInt(roomCountMatch[1]);
         } else if (message.includes('一間') || message.includes('一個')) {
-             entities.roomCount = 1; // 簡化處理 "一間"
+             entities.roomCount = 1; 
         }
 
         // 成人數 (adultCount)
         const adultCountMatch = message.match(/(\d+)(個?成人|大人|adults?)/);
         if (adultCountMatch) {
             entities.adultCount = parseInt(adultCountMatch[1]);
-        } else if (message.includes('兩位') || message.includes('2位')) {
-             // 如果只說 "兩位"，通常預設是成人
+        } else {
+             // 嘗試匹配 'X位' 並作為成人數，前提是沒有偵測到兒童數
              const totalMatch = message.match(/(\d+)位/);
-             if (totalMatch && parseInt(totalMatch[1]) > 0 && !entities.adultCount) {
+             if (totalMatch && parseInt(totalMatch[1]) > 0 && !entities.childCount && !entities.adultCount) {
                  entities.adultCount = parseInt(totalMatch[1]);
              }
-        } else if (entities.roomCount === 1 && !entities.adultCount) {
-             // 假設如果只提到房間數，且沒有人數，預設 2 個成人 (標準房型假設)
-             // ⚠️ 此處邏輯具爭議，通常讓流程詢問更安全
-             // entities.adultCount = 2; 
         }
 
         // 兒童數 (childCount)
@@ -209,7 +220,7 @@ class SmartIntentClassifier {
             }
         }
         
-        // 補充預設值：如果沒有提到人數，預設 1 個成人 (用於最小化訂房啟動)
+        // 補充預設值：如果沒有提到成人數，但有其他資訊，預設 1 個成人 (最小啟動值)
         if (!entities.adultCount && (entities.checkInDate || entities.roomType)) {
              entities.adultCount = 1;
         }
@@ -223,47 +234,60 @@ class SmartIntentClassifier {
             entities.contactEmail = emailMatch[1];
         }
 
-        // Phone: 匹配 8-10 位數字（忽略格式，例如 09XX-XXX-XXX）
+        // Phone: 匹配 8-10 位數字（忽略格式）
         const phoneMatch = message.match(/(\d{8,10})/);
         if (phoneMatch) {
             entities.contactPhone = phoneMatch[1];
         }
         
-        // Name: 簡化處理，找尋在 email/phone 之前的一個短語作為名字
-        // 由於名字抽取複雜且容易出錯，此處簡化為只找一個可能的名字作為 Placeholder
-        if (message.includes('我的名字是')) {
-             entities.contactName = message.split('我的名字是')[1].trim().split(/\s+/)[0];
+        // Name: 簡化：在特定提示詞後抽取
+        const nameMatch = message.match(/(我的名字是|聯絡人是)\s*([\u4e00-\u9fa5a-z\s]{2,10})/);
+        if (nameMatch) {
+            entities.contactName = nameMatch[2].trim();
+        } else if (message.match(/^(?:我叫|我的名字|我是)\s*([\u4e00-\u9fa5a-z\s]{2,10})/)) {
+            // 嘗試匹配開頭的簡單名字
+             entities.contactName = message.match(/^(?:我叫|我的名字|我是)\s*([\u4e00-\u9fa5a-z\s]{2,10})/)[1].trim();
         }
     }
 
     /** 抽取會員資訊 */
     static extractMemberInfo(message, entities) {
-        // 簡化：假設帳號和密碼通常是連續輸入的兩組詞
-        const parts = message.split(/\s+/).filter(p => p.length > 0);
-        
-        if (parts.length >= 2 && (message.includes('帳號') || message.includes('會員'))) {
-            // 假設第一個詞是帳號，第二個詞是密碼
-            entities.memberAccount = parts[0];
-            entities.memberPassword = parts[1];
+        // 簡化：假設帳號和密碼通常是連續輸入的兩組詞，並且在包含關鍵字時
+        if (message.includes('登入') || message.includes('會員') || message.includes('帳號')) {
+            const parts = message.split(/\s+/).filter(p => p.length > 0);
+            
+            // 嘗試從 '帳號 密碼' 格式中提取
+            const credentialsMatch = message.match(/(?:帳號|會員)\s*(\w+)\s*(?:密碼)?\s*(\w+)/);
+            
+            if (credentialsMatch) {
+                entities.memberAccount = credentialsMatch[1];
+                entities.memberPassword = credentialsMatch[2];
+            } else if (parts.length >= 2) {
+                 // Fallback: 假設前兩個詞是帳號密碼
+                 entities.memberAccount = parts[0];
+                 entities.memberPassword = parts[1];
+            }
         }
     }
     
     /** 抽取加購服務 */
     static extractAddons(message, entities) {
         const matchedAddons = [];
+        // 保護：使用可選鏈 ?. 避免 flowConfig 不存在時崩潰
         const addonsMap = flowConfig.states['ask_addons']?.options || {};
         
         for (const [id, name] of Object.entries(addonsMap)) {
+            // 匹配 ID 或 服務名稱 (使用 includes)
             if (message.includes(name.toLowerCase()) || message.includes(id.toLowerCase())) {
                 matchedAddons.push(id);
             }
         }
 
         if (matchedAddons.length > 0) {
-            entities.addons = matchedAddons;
+            // 使用 Set 確保不重複
+            entities.addons = [...new Set(matchedAddons)];
         }
     }
 }
 
-// 導出 SmartIntentClassifier 類別，Rule Engine 將使用 SmartIntentClassifier.classify() 調用靜態方法
 module.exports = SmartIntentClassifier;
