@@ -1,243 +1,190 @@
-const dayjs = require('dayjs');
-const customParseFormat = require('dayjs/plugin/customParseFormat');
-const weekday = require('dayjs/plugin/weekday');
-const isSameOrAfter = require('dayjs/plugin/isSameOrAfter');
-dayjs.extend(customParseFormat);
-dayjs.extend(weekday);
-dayjs.extend(isSameOrAfter);
+// SmartIntentClassifier.js - V3.9 修正版 (核心：調降通用查詢優先級)
 
-class SmartIntentClassifier {
-    
-    /**
-     * 核心意圖分類與實體提取函式
-     */
-    static classify(message) { 
-        const lowerMessage = message.toLowerCase();
-        const intents = new Set();
-        
-        // --- I. 意圖分類邏輯 (V3.8 Optimized) ---
-        if (/(訂房|預訂|入住|幫我訂|想要訂|預約房間|我要訂房|book|訂幾晚|住一晚|預定|房間|要住|訂一個|我想訂)/.test(lowerMessage) || this.containsDatePatterns(lowerMessage)) { 
-            intents.add('booking');
-        }
+/**
+ * 意圖分類器 (SmartIntentClassifier.js)
+ * 負責根據用戶輸入和當前狀態，判斷最高優先級的下一步 Step/Intent。
+ * * 修正歷史：
+ * V3.9: 修正 handle_general_inquiry (通用查詢/閒聊) 的優先級，從 104 降至 90，
+ * 確保流程推進 (P:97) 或邏輯回退 (P:98/95) 不會被通用查詢打斷。
+ */
 
-        if (/(是|對|好|確認|願意|繼續|可以|沒問題|yes|行)/.test(lowerMessage)) intents.add('affirm');
-        if (/(否|不|取消|不要|不願意|算了|不訂|no)/.test(lowerMessage)) intents.add('deny');
+// 假設這是一個模擬的實體解析器，用於從輸入中提取關鍵資訊
+const entityRecognizer = require('./entity_recognizer'); 
 
-        if (lowerMessage.includes('我要登入會員')) intents.add('member_login');
+// --- 輔助函數：意圖條件檢查 ---
 
-        if (lowerMessage.includes('加購') || lowerMessage.includes('票券') || lowerMessage.includes('下午茶') || lowerMessage.includes('早餐')) {
-            intents.add('addon_selection');
-        }
-        
-        if (/(修改|更正)/.test(lowerMessage)) intents.add('correction'); // 增加修正意圖
-        
-        // 確保 roomType_keyword 意圖能被分類
-        if (/(豪華客房|標準雙人房|行政套房|家庭四人房|海景房)/.test(lowerMessage)) {
-            intents.add('roomType_keyword'); 
-        }
-
-        // 避免將 'inquiry' 和 'pricing' 標記為 'general_inquiry'
-        if (/(介紹|說明|什麼樣|怎麼樣|細節|環境|特色|如何|查詢|是什麼|看一下)/.test(lowerMessage)) {
-            intents.add('inquiry');
-        }
-        if (/(價格|價錢|多少錢|房價|費用|收費|促銷|優惠)/.test(lowerMessage)) intents.add('pricing');
-
-
-        const nonBookingIntentsMap = {
-            'transfer': /(接送|機場|高鐵|交通|怎麼去)/,
-            // ... (其他非訂房意圖保持不變)
-            'restaurant': /(餐廳|用餐|午餐|晚餐|美食|吃|下午茶)/,
-            'attractions': /(景點|逛街|導覽|玩|旅遊)/,
-            'facilities': /(設施|泳池|健身房|spa|按摩)/,
-            'weather': /(天氣|氣溫|下雨|溫度)/,
-            'modification': /(取消訂單|改期)/,
-            'emergency': /(救命|火災|小偷|警察|緊急)/
-        };
-
-        for (const intent in nonBookingIntentsMap) {
-            if (nonBookingIntentsMap[intent].test(lowerMessage)) {
-                intents.add(intent);
-            }
-        }
-        
-        // --- II. 實體提取 ---
-        const extractedEntities = this.extractEntities(message);
-        
-        // --- III. 整合並返回結果 ---
-        // 如果沒有提取到任何特定意圖，則判斷為 'general_inquiry'
-        const specificIntents = Array.from(intents).filter(i => i !== 'booking' && i !== 'affirm' && i !== 'deny');
-        const finalIntents = intents.size > 0 || specificIntents.length > 0 ? Array.from(intents) : ['general_inquiry'];
-
-        return {
-            intents: finalIntents,
-            entities: extractedEntities 
-        };
-    }
-
-    /** 輔助函式：檢查訊息是否包含日期模式 */
-    static containsDatePatterns(message) {
-        const datePatterns = [
-            /\d{1,2}\/\d{1,2}/,
-            /\d{1,2}月\d{1,2}日/,
-            /今晚|今天|明天|後天/
-        ];
-        return datePatterns.some(pattern => pattern.test(message));
-    }
-
-    /** 輔助函式：將全形數字轉換為半形 */
-    static toHalfWidth(str) {
-        if (!str) return '';
-        return str.replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0));
-    }
-    
-    /**
-     * 實體提取函式
-     */
-    static extractEntities(message) {
-        const data = {};
-        const lowerMessage = message.toLowerCase();
-
-        // 1. 解析日期和晚數
-        const dateInfo = this.parseDate(message);
-        Object.assign(data, dateInfo);
-
-        // 2. 房型
-        if (/(豪華客房|海景房|標準雙人房|行政套房|家庭四人房)/.test(lowerMessage)) {
-            data.roomType = lowerMessage.match(/(豪華客房|海景房|標準雙人房|行政套房|家庭四人房)/)[0];
-        }
-
-        // 3. 人數 (優先匹配，較為精確)
-        const adultMatch = lowerMessage.match(/([\d０-９]+)(位)?(大人|大)/);
-        if (adultMatch) {
-            const countStr = this.toHalfWidth(adultMatch[1]);
-            data.adultCount = parseInt(countStr, 10);
-        }
-        const childMatch = lowerMessage.match(/([\d０-９]+)(位)?(兒童|小孩|小)/);
-        if (childMatch) {
-            const countStr = this.toHalfWidth(childMatch[1]);
-            data.childCount = parseInt(countStr, 10);
-        }
-
-        // 4. 房間間數
-        const roomCountMatch = lowerMessage.match(/([\d０-９]+)[間個]/);
-        if (roomCountMatch) {
-            const countStr = this.toHalfWidth(roomCountMatch[1]);
-            data.roomCount = parseInt(countStr, 10);
-        }
-
-        // 5. 聯絡方式 (修正提取邏輯，提高寬鬆度)
-        let name = null;
-        // A. 關鍵字 + 姓名 (優先匹配)
-        const nameKeywordMatch = message.match(/(?:訂房姓名|姓名|本人是|我的名字是|訂房人)\s*([\u4e00-\u9fa5]{2,4})/);
-        if (nameKeywordMatch) {
-            name = nameKeywordMatch[1];
-        } else {
-            // B. 寬鬆匹配：匹配 2-4 個連續中文字，但排除常用動詞/名詞，避免誤將房型或日期當作姓名
-            const simpleNameMatch = message.match(/([\u4e00-\u9fa5]{2,4})/g);
-            if (simpleNameMatch) {
-                // 檢查匹配到的中文字串是否為流程關鍵字
-                const excludeWords = ['豪華客房', '標準雙人房', '行政套房', '家庭四人房', '查詢', '價格', '預訂', '繼續', '確認', '加購', '房費'];
-                const potentialNames = simpleNameMatch.filter(n => n.length >= 2 && !excludeWords.includes(n));
-                if (potentialNames.length > 0) {
-                    name = potentialNames[0]; // 取第一個最像名字的
-                }
-            }
-        }
-        
-        if (name && !/(訂房|本人|我是|查詢|價格|預訂|繼續|確認)/.test(name)) {
-            data.contactName = name.trim(); 
-        }
-
-        // 提取 Email
-        const emailMatch = message.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
-        if (emailMatch) data.contactEmail = emailMatch[0];
-        
-        // 提取電話號碼
-        const phoneMatch = message.match(/(?:(?:09)\d{8}|(?:0\d{1,3}[-\s]?\d{6,8}))/); 
-        if (phoneMatch) data.contactPhone = phoneMatch[0].replace(/[-\s]/g, '');
-
-        // 6. 密碼提取 (新增: 支援會員流程中一次輸入帳號+密碼)
-        const passwordMatch = message.match(/(?:密碼|pass|password)\s*[:：\s]*([\w\d!@#$%^&*()]{4,})/i);
-        if (passwordMatch && passwordMatch[1].length >= 4) {
-            data.memberPassword = passwordMatch[1];
-        }
-
-
-        // 7. 加購實體解析
-        if (message.trim().startsWith('{') && message.trim().endsWith('}')) {
-            try {
-                const buttonData = JSON.parse(message);
-                if (buttonData.addonId) data.addonId = buttonData.addonId;
-                if (buttonData.addonAction) data.addonAction = buttonData.addonAction;
-            } catch (e) {
-                // Ignore
-            }
-        }
-
-        // 預設值 (確保核心實體不會是 undefined)
-        if (data.adultCount === undefined) data.adultCount = 1;
-        if (data.childCount === undefined) data.childCount = 0;
-        if (data.roomCount === undefined) data.roomCount = 1;
-
-        return data;
-    }
-    
-    /** 輔助函式：解析日期和晚數 */
-    static parseDate(text) {
-        const now = dayjs().startOf('day');
-        let targetDate = null;
-        let nights = null;
-
-        // 1. 處理相對日期
-        if (text.includes('今天') || text.includes('今晚') || text.includes('今夜')) {
-            targetDate = now;
-        } else if (text.includes('明天')) {
-            targetDate = now.add(1, 'day');
-        } else if (text.includes('後天')) {
-            targetDate = now.add(2, 'day');
-        }
-
-        // 2. 處理絕對日期
-        const dateMatch = text.match(/(\d{1,2})[月\/](\d{1,2})[日]?/); 
-        if (dateMatch) {
-            const month = parseInt(dateMatch[1], 10);
-            const day = parseInt(dateMatch[2], 10);
-            let checkYear = now.year();
-
-            // 處理跨年問題：如果月份在當月之前，預設為下一年
-            if (month < now.month() + 1 || (month === now.month() + 1 && day < now.date())) {
-                checkYear = now.year() + 1;
-            }
-
-            const potentialDate = dayjs(`${checkYear}-${month}-${day}`, 'YYYY-M-D').startOf('day');
-            if (potentialDate.isValid()) {
-                targetDate = potentialDate;
-            }
-        }
-
-        // 3. 解析住宿晚數
-        // 修正：使用更明確的 nightsMatch，確保晚數提取正確
-        const nightsMatch = text.match(/(\d+)\s*(?:晚|夜|天)/); 
-        if (nightsMatch) {
-            nights = parseInt(nightsMatch[1], 10);
-        }
-
-        if (targetDate && targetDate.isValid()) {
-            // 如果只有日期但沒有晚數，預設為 1 晚
-            if (!nights) {
-                nights = 1;
-            }
-
-            // 確保日期不早於今天
-            if (targetDate.isSameOrAfter(now)) {
-                return {
-                    checkInDate: targetDate.format('YYYY/MM/DD'),
-                    nights: nights
-                };
-            }
-        }
-        return {};
-    }
+/**
+ * 檢查輸入中是否明確包含否定意圖 (例如: "不要", "取消", "不用了")
+ */
+function isExplicitlyNegative(input) {
+    if (!input) return false;
+    const negationKeywords = ['不要', '取消', '不用', '算了', '不訂了'];
+    return negationKeywords.some(keyword => input.includes(keyword));
 }
 
-module.exports = SmartIntentClassifier;
+/**
+ * 檢查輸入中是否明確包含肯定意圖 (例如: "好", "要", "確認", "繼續")
+ */
+function isExplicitlyAffirmative(input) {
+    if (!input) return false;
+    const affirmationKeywords = ['好', '要', '確認', '繼續', '是的', '訂', '付款'];
+    return affirmationKeywords.some(keyword => input.includes(affirmationKeywords));
+}
+
+// --- 意圖規則定義 ---
+
+// 規則結構:
+// {
+//     priority: number, 
+//     step: string, 
+//     condition: (session, input) => boolean,
+//     entities: string[] (可選，指示需要解析的實體)
+// }
+
+const intentRules = [
+    // --- 核心流程控制 (最高優先級) ---
+    
+    // 1. 強制重置流程 (最高優先級：防止卡死)
+    {
+        priority: 120,
+        step: 'init',
+        condition: (session, input) => input && (input.includes('重設') || input.includes('重新開始') || input.includes('init'))
+    },
+
+    // 2. 訂房修改/更正意圖 (流程中斷，但次於重置)
+    {
+        priority: 110,
+        step: 'handle_correction',
+        condition: (session, input) => input && (input.includes('修改') || input.includes('更正') || input.includes('不對'))
+    },
+    
+    // 3. 通用肯定意圖 (例如：在確認訂單摘要時輸入"確認" 或 "是")
+    {
+        priority: 100,
+        step: 'affirm',
+        condition: (session, input) => isExplicitlyAffirmative(input) && (session.currentStep === 'confirm_summary' || session.currentStep === 'ask_member_login')
+    },
+    
+    // 4. 通用否定意圖 (例如：在詢問是否登入時輸入"否")
+    {
+        priority: 100,
+        step: 'negate',
+        condition: (session, input) => isExplicitlyNegative(input) && (session.currentStep === 'confirm_summary' || session.currentStep === 'ask_member_login' || session.currentStep === 'ask_addons')
+    },
+    
+    // --- 流程特定意圖 (通常在 P:95-98 之間，由 Rule Engine 控制推進) ---
+    
+    // 5. 聯絡資訊收集
+    {
+        priority: 98,
+        step: 'ask_contact_info',
+        condition: (session, input, entities) => session.currentStep === 'ask_contact_info' && entities.contactName && entities.contactPhone
+    },
+    
+    // 6. 會員登入
+    {
+        priority: 98,
+        step: 'login_member_account',
+        condition: (session, input, entities) => session.currentStep === 'login_member_account' && entities.memberAccount && entities.memberPassword
+    },
+    
+    // 7. 處理加購服務選擇
+    {
+        priority: 98,
+        step: 'execute_addons_selection',
+        condition: (session, input, entities) => session.currentStep === 'ask_addons' && entities.addonSelection,
+        entities: ['addonSelection'] // 假設 addonSelection 是一個從 RichCard 回傳的特殊實體
+    },
+    
+    // 8. 收集日期/晚數 (如果只輸入日期或晚數)
+    {
+        priority: 97,
+        step: 'handle_date_not_found',
+        condition: (session, input, entities) => (session.currentStep === 'ask_nights_and_dates' || session.currentStep === 'handle_date_not_found') && (entities.checkInDate || entities.nights)
+    },
+    
+    // 9. 房型選擇
+    {
+        priority: 97,
+        step: 'show_room_types',
+        condition: (session, input, entities) => session.currentStep === 'show_room_types' && entities.roomType,
+        entities: ['roomType']
+    },
+
+    // 10. 房數輸入 (確保是數字)
+    {
+        priority: 97,
+        step: 'ask_room_count',
+        condition: (session, input, entities) => session.currentStep === 'ask_room_count' && entities.roomCount && !isNaN(parseInt(entities.roomCount))
+    },
+
+    // 11. 人數輸入 (確保是數字)
+    {
+        priority: 97,
+        step: 'ask_guest_count',
+        condition: (session, input, entities) => session.currentStep === 'ask_guest_count' && entities.adultCount && !isNaN(parseInt(entities.adultCount))
+    },
+
+    // --- 通用查詢 (Fallback) ---
+    
+    /**
+     * !!! V3.9 關鍵修正 !!!
+     * 12. handle_general_inquiry (通用查詢/閒聊)
+     * 優先級從 P:104 降至 P:90，確保在關鍵流程狀態下不會截斷流程。
+     */
+    {
+        priority: 90, 
+        step: 'handle_general_inquiry',
+        condition: (session, input) => input && input.trim().length > 0
+    }
+];
+
+// --- 核心分類邏輯 ---
+
+/**
+ * 根據當前狀態和用戶輸入，找出最高優先級的意圖。
+ * @param {object} session - 當前 session 數據。
+ * @param {string} input - 用戶的原始輸入。
+ * @returns {object} 包含最高優先級意圖的 Step 和 Priority。
+ */
+function classifyIntent(session, input) {
+    if (!input || input.trim() === '') {
+        return { step: null, priority: 0 };
+    }
+    
+    // 模擬實體解析 (假設 entityRecognizer.extract(input) 返回一個實體物件)
+    const entities = entityRecognizer.extract(input) || {};
+
+    let highestPriority = 0;
+    let bestMatch = null;
+
+    for (const rule of intentRules) {
+        try {
+            // 檢查規則條件是否滿足
+            if (rule.condition(session, input, entities)) {
+                if (rule.priority > highestPriority) {
+                    highestPriority = rule.priority;
+                    bestMatch = rule;
+                }
+            }
+        } catch (e) {
+            console.error(`Error processing rule ${rule.step}: ${e.message}`);
+        }
+    }
+
+    if (bestMatch) {
+        return {
+            step: bestMatch.step,
+            priority: bestMatch.priority,
+            // 選擇性地將解析到的實體包含在回傳中，供 RuleEngine 使用
+            entities: entities
+        };
+    }
+
+    // 如果沒有任何規則匹配，則返回空
+    return { step: null, priority: 0, entities: entities };
+}
+
+module.exports = {
+    classifyIntent
+};
