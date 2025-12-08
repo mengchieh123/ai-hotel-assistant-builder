@@ -1,8 +1,8 @@
-// rule_engine.js (V4.8 - 最終修正版: 解決通用查詢卡死及引用問題)
+// rule_engine.js (V4.9 - 最終邏輯修正版: 解決 init 狀態無限迴圈問題)
 
 const sessionManager = require('./session_manager');
-const SmartIntentClassifier = require('./intent_classifier'); // 假設這是您的 SmartIntentClassifier.js 
-const BookingFlowController = require('./booking_controller'); // 假設這是您的業務邏輯 Handler
+const SmartIntentClassifier = require('./intent_classifier'); 
+const BookingFlowController = require('./booking_controller'); 
 
 // 載入 Flow Config
 const flowConfig = require('./dialogue_flow.json'); 
@@ -18,7 +18,7 @@ if (flowConfig && flowConfig.states) {
 // 優先級常量
 const PRIORITY = {
     EMERGENCY: 110,
-    RESET_FLOW: 106, // 💡 確保這是最高級別之一
+    RESET_FLOW: 106, // 用於明確的重設和強制開始，但不應捕捉所有 'booking' 意圖
     ROOM_LIMIT: 103,
     GENERAL_INQUIRY_OVERRIDE: 104, 
     MEMBER_LOGIN_OVERRIDE: 100, 
@@ -28,7 +28,7 @@ const PRIORITY = {
             PAUSE: 98,
             RESUME: 99
         },
-        AVAILABILITY_CHECK: 96, 
+        AVAILABILITY_CHECK: 96, // 正常的訂房流程啟動優先級
         ENTITY_SATISFIED_ADVANCE: 97 
     },
     GENERAL_RULE: 80
@@ -94,7 +94,6 @@ class RuleEngine {
             return {
                 shouldProcess: true,
                 priority: PRIORITY.GENERAL_RULE,
-                // 修正點：使用 this.interpolatePrompt
                 response: this.interpolatePrompt(state.fallback, session.collectedData), 
                 nextStep: stateKey,
                 endFlow: false
@@ -132,7 +131,6 @@ class RuleEngine {
         return {
             shouldProcess: true,
             priority: priority,
-            // 修正點：使用 this.interpolatePrompt
             response: this.interpolatePrompt(state.prompt, data), 
             nextStep: stateKey,
             richCard: state.richCard,
@@ -204,7 +202,7 @@ class RuleEngine {
             
             // 2. 執行高優先級規則 (P:100+)
             rulesResults.push(this.emergencyRule(intents, session));
-            rulesResults.push(this.resetFlowRule(intents, session)); // P:106 優先級高，應能跳脫暫停狀態
+            rulesResults.push(this.resetFlowRule(intents, session)); // P:106 應只處理明確的重設指令
             rulesResults.push(this.roomLimitRule(collectedData));
             rulesResults.push(this.memberLoginRule(intents, session)); 
             rulesResults.push(this.generalInquiryOverrideRule(intents, session, message, extractedEntities)); // P:104
@@ -286,14 +284,17 @@ class RuleEngine {
 
     // --- 規則 1: 重新開始 (P:106) ---
     static resetFlowRule(intents, session) {
-        // 💡 修正邏輯：偵測到 'booking' 或 'reset' 意圖時，強制重啟流程，確保跳脫暫停/通用問題狀態。
-        if (intents.includes('reset') || intents.includes('booking_start') || intents.includes('booking')) { 
+        // 🚀 關鍵修正：只保留明確的 'reset' 或 'booking_start' 意圖。
+        // 讓 'booking' 意圖交由 priority 96 的 bookingFlowRule 處理。
+        if (intents.includes('reset') || intents.includes('booking_start')) { 
+            
             // 清除所有舊數據，從 init 重新開始
             this.resetHandlerExecution(session);
             session.collectedData = {};
+            
             return {
                 shouldProcess: true,
-                priority: PRIORITY.RESET_FLOW,
+                priority: PRIORITY.RESET_FLOW, // P:106
                 response: this.interpolatePrompt(flowConfig.states['init'].prompt, session.collectedData),
                 nextStep: 'init'
             };
@@ -371,7 +372,8 @@ class RuleEngine {
                     nextStep: resumeStep
                 };
             }
-            // 如果偵測到 booking 意圖，將由 resetFlowRule (P:106) 處理
+            // 如果偵測到 booking 意圖，將由 resetFlowRule (P:106) 處理（因為 booking 意圖會被視為 booking_start/reset 之一）
+            // 注意：因為我們移除了 resetFlowRule 對 'booking' 的依賴，這裡的 booking 意圖將被忽略，直到用戶明確輸入 'continue'。
         }
         // 沒有暫停/恢復意圖
         return { shouldProcess: false, priority: 0 };
@@ -388,12 +390,13 @@ class RuleEngine {
             const hasBookingIntent = intents.includes('booking');
             const hasDateOrNights = data.checkInDate || data.nights; 
 
+            // 只有當 resetFlowRule (P:106) 沒有被觸發時，才會執行這裡 P:96 的邏輯
             if (hasBookingIntent || hasDateOrNights) {
                 const nextStepAfterInit = flow.states['init']?.next_state || 'ask_nights_and_dates'; 
                 
                 console.log(`[DEBUG] 啟動流程：推進到 ${nextStepAfterInit}`);
                 
-                // 使用 P:96 確保啟動被選中 (AVAILABILITY_CHECK)
+                // P:96 應低於 P:106
                 return this.generateStateResponse(flow, nextStepAfterInit, data, PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK);
             }
             
@@ -418,7 +421,7 @@ class RuleEngine {
             if (hasRequiredEntities && !this.hasExecutedHandler(session, currentStateKey)) {
                 const nextStateKey = currentState.next_state || currentStateKey;
                 console.log(`[DEBUG] 實體滿足，推進流程到: ${nextStateKey}`);
-                // 使用 P:97 (ENTITY_SATISFIED_ADVANCE)
+                // P:97
                 return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.ENTITY_SATISFIED_ADVANCE); 
             }
         }
