@@ -1,32 +1,17 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.18",
-    "description": "流程穩定測試版 - V5.8 最終版：報價分離與容錯處理",
+    "version": "1.19",
+    "description": "流程穩定測試版 - V5.8 最終版：報價分離與容錯處理 (修正版)",
     "initial_state": "init",
     "states": {
         "init": {
             "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間，以及住宿幾晚？ (例如：明天, 2晚)",
             "next_state": "ask_nights_and_dates",
             "clear_entities": [
-                "roomType",
-                "roomCount",
-                "checkInDate",
-                "nights",
-                "memberAccount",
-                "contactName",
-                "contactPhone",
-                "contactEmail",
-                "specialRequest",
-                "paymentMethod",
-                "addonAction",
-                "addonId",
-                "isLoggedIn",
-                "addons",
-                "memberPassword",
-                "inventoryLockId",
-                "finalPrice",
-                "priceDetails",
-                "inventoryWarning"
+                "roomType", "roomCount", "checkInDate", "nights", "memberAccount", "contactName", 
+                "contactPhone", "contactEmail", "specialRequest", "paymentMethod", "addonAction", 
+                "addonId", "isLoggedIn", "addons", "memberPassword", "inventoryLockId", 
+                "finalPrice", "priceDetails", "inventoryWarning"
             ],
             "entities": ["adultCount", "childCount", "roomCount"],
             "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
@@ -94,7 +79,7 @@
             "type": "logic_exec",
             "handler": "calculatePrice",
             "next_state": "ask_member_login",
-            "fallback_state": "lock_inventory"
+            "fallback_state": "show_room_types" // 修正：價格計算失敗，導回房型選擇
         },
         "ask_member_login": {
             "prompt": "已確認您的預訂資訊：{roomCount}間{roomType}，{nights}晚，入住日期{checkInDate}，總價為 **NT$ {finalPrice}**。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。",
@@ -110,7 +95,7 @@
                 "skip": "ask_addons"
             },
             "fallback": "請點擊按鈕或回覆『登入』或『跳過』。",
-            "next_state": "ask_addons"
+            "next_state": "ask_addons" // 確保無效輸入時跳到下一步
         },
         "login_member_account": {
             "type": "logic_exec",
@@ -149,16 +134,21 @@
         "execute_addons_selection": {
             "type": "logic_exec",
             "handler": "executeAddonsSelection",
-            "next_state": "ask_contact_info",
+            "next_state": "calculate_price_logic", // <-- 修正：選擇加購後必須重算價格
             "fallback_state": "ask_addons"
         },
         "ask_contact_info": {
-            "type": "logic_exec",
-            "handler": "validateContactInfo",
+            "type": "collect_entities", // <-- 修正：改為收集實體
             "prompt": "當前總價: **NT$ {finalPrice}**\n\n請提供【聯絡人姓名】、【手機號碼】和【電子郵件】 (例如：王大明, 0912345678, test@mail.com)。",
             "entities": ["contactName", "contactPhone", "contactEmail"],
-            "next_state": "ask_special_requests",
+            "next_state": "validate_contact_info", // <-- 導向驗證狀態
             "fallback": "請務必提供有效的聯絡資訊，這關係到您的訂單接收。"
+        },
+        "validate_contact_info": { // <-- 新增：專門用於驗證的狀態
+            "type": "logic_exec",
+            "handler": "validateContactInfo",
+            "next_state": "ask_special_requests",
+            "fallback_state": "ask_contact_info" // 驗證失敗導回收集
         },
         "ask_special_requests": {
             "type": "logic_exec",
@@ -200,7 +190,7 @@
                 "correction": "select_correction_target"
             },
             "fallback": "請回覆『確認送出』或『修改資訊』。",
-            "next_state": "select_correction_target"
+            "next_state": "select_correction_target" // 無效輸入導向修改目標選擇
         },
         "select_correction_target": {
             "prompt": "請問您想修改哪部分資訊？",
@@ -217,10 +207,11 @@
                 "correction_date": "ask_nights_and_dates",
                 "correction_room": "show_room_types",
                 "correction_addons": "ask_addons",
-                "correction_contact": "ask_contact_info"
+                "correction_contact": "ask_contact_info",
+                "affirm": "confirm_booking" // 允許直接確認返回
             },
-            "fallback": "請選擇您要修改的目標。",
-            "next_state": "confirm_booking"
+            "fallback": "請選擇您要修改的目標，或回覆『確認』。",
+            "next_state": "select_correction_target" // <-- 修正：導回自身
         },
         "booking_complete": {
             "type": "logic_exec",
@@ -260,7 +251,7 @@
                 "correction": "select_correction_target"
             },
             "fallback": "抱歉，無法恢復流程。請重新輸入『繼續』或『重新預訂』。",
-            "next_state": "init"
+            "next_state": "paused_waiting_for_resume" // <-- 修正：導回自身，維持暫停
         }
     }
 }
