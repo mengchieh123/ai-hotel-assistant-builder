@@ -1,9 +1,9 @@
-// booking_controller.js (V5.8 - ESM 轉換完成，修正導入)
+// booking_controller.js (V5.8.1 - 修正 Handler 命名與 dialogue_flow.json 一致)
 
 // 🏆 ESM 導入：將 require() 替換為 import
 import dayjs from 'dayjs';
-import { MockAPI } from './service_mock_api.js'; // 🏆 修正：現在使用命名導入
-import { LLMManager } from './llm_manager.js'; // 🏆 修正：改為命名導入 { LLMManager }
+import { MockAPI } from './service_mock_api.js'; 
+import { LLMManager } from './llm_manager.js'; 
 
 // --- 輔助函數：日誌記錄 ---
 function log(level, message, details = {}) {
@@ -51,7 +51,7 @@ function checkBookingEssentials(session) {
 }
 
 
-// --- 3. 業務邏輯：庫存鎖定 ---
+// --- 3. 業務邏輯：庫存鎖定 (lockInventory) ---
 async function lockInventoryLogic(session) {
     const data = session.collectedData;
     const { roomType, roomCount } = data;
@@ -79,7 +79,7 @@ async function lockInventoryLogic(session) {
             return {
                 isHandled: true,
                 prompt: message,
-                nextStep: 'show_room_types'
+                nextStep: 'ask_room_type' // 修正為 ask_room_type 讓用戶重新選擇房型
             };
         }
     } catch (error) {
@@ -92,7 +92,7 @@ async function lockInventoryLogic(session) {
     }
 }
 
-// --- 4. 業務邏輯：價格計算 ---
+// --- 4. 業務邏輯：價格計算 (calculatePrice) ---
 async function calculatePriceLogic(session) {
     const data = session.collectedData;
     const { roomType, checkInDate, nights, roomCount, adultCount, childCount, addons } = data;
@@ -104,7 +104,7 @@ async function calculatePriceLogic(session) {
             return {
                 isHandled: true,
                 prompt: '查詢房型價格失敗，請重新選擇。',
-                nextStep: 'show_room_types'
+                nextStep: 'ask_room_type'
             };
         }
 
@@ -183,7 +183,7 @@ async function calculatePriceLogic(session) {
     }
 }
 
-// --- 5. 會員/登入邏輯 ---
+// --- 5. 會員/登入邏輯 (loginMemberAccount) ---
 async function processMemberLogin(session) {
     const data = session.collectedData;
     const { memberAccount, memberPassword } = data;
@@ -228,7 +228,7 @@ async function processMemberLogin(session) {
     }
 }
 
-// --- 6. 通用查詢邏輯 (LLM 備援) ---
+// --- 6. 通用查詢邏輯 (processGeneralInquiry) ---
 async function processGeneralInquiry(session) {
     const data = session.collectedData;
     // ⚠️ 注意：此處應從 Rule Engine 取得用戶輸入，使用 collectedData.user_query 或 session.lastMessage
@@ -256,8 +256,7 @@ async function processGeneralInquiry(session) {
     }
 }
 
-
-// --- 7. 最終提交 (Handler: submitBooking) ---
+// --- 7. 最終提交 (submitBooking) ---
 async function submitBooking(session) {
     const data = session.collectedData;
     // 檢查關鍵數據是否齊全
@@ -307,7 +306,7 @@ async function submitBooking(session) {
     }
 }
 
-// --- 8. 庫存保護：解鎖 ---
+// --- 8. 庫存保護：解鎖 (unlockInventory) ---
 async function unlockInventory(lockId) {
     if (!lockId) {
         log('WARNING', 'Attempted to unlock inventory without a valid ID.');
@@ -328,16 +327,23 @@ async function unlockInventory(lockId) {
 // 🏆 ESM 匯出：使用命名匯出 class
 // -------------------------------------------------------------
 class BookingFlowController {
-    static checkDateCompleteness = checkDateCompleteness;
-    static checkBookingEssentials = checkBookingEssentials;
-    static lock_inventory = lockInventoryLogic; // 匹配 dialogue_flow.json
-    static calculate_price_logic = calculatePriceLogic; // 匹配 dialogue_flow.json
-    static login_member_account = processMemberLogin; // 匹配 dialogue_flow.json
-    static processGeneralInquiry = processGeneralInquiry; 
-    static submitBooking = submitBooking; 
-    static unlockInventory = unlockInventory;
-    
-    // 您應確保所有在 dialogue_flow.json 中被調用的 Handler 都在這裡
+    static checkDateCompleteness = checkDateCompleteness;
+    static checkBookingEssentials = checkBookingEssentials;
+    
+    // 修正：Handler 名稱與 dialogue_flow.json 中的 "handler": "lockInventory" 一致
+    static lockInventory = lockInventoryLogic; 
+    
+    // 修正：Handler 名稱與 dialogue_flow.json 中的 "handler": "calculatePrice" 一致
+    static calculatePrice = calculatePriceLogic; 
+    
+    // 修正：Handler 名稱與 dialogue_flow.json 中的 "handler": "loginMemberAccount" 一致
+    static loginMemberAccount = processMemberLogin; 
+    
+    static processGeneralInquiry = processGeneralInquiry; 
+    static submitBooking = submitBooking; 
+    static unlockInventory = unlockInventory;
+    
+    // 您應確保所有在 dialogue_flow.json 中被調用的 Handler 都在這裡
 }
 
 // 🏆 命名匯出
