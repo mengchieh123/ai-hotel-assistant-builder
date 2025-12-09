@@ -4,19 +4,29 @@
     "description": "V1.22 修正版：新增 set_default_child_count 邏輯，解決 ask_guest_count 循環問題。",
     "initial_state": "init",
     "states": {
-        "init": {
-            "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間，以及住宿幾晚？ (例如：明天, 2晚)",
-            "next_state": "ask_nights_and_dates",
-            "clear_entities": [
-                "roomType", "roomCount", "checkInDate", "nights", "memberAccount",
-                "contactName", "contactPhone", "contactEmail", "specialRequest",
-                "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons",
-                "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
-                "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee"
-            ],
-            "entities": ["adultCount", "childCount", "roomCount"],
-            "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
-        },
+    "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間，以及住宿幾晚？ (例如：明天, 2晚)",
+    "next_state": "ask_nights_and_dates",
+    "clear_entities": [
+        "roomType", "roomCount", "checkInDate", "nights", "memberAccount",
+        "contactName", "contactPhone", "contactEmail", "specialRequest",
+        "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons",
+        "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
+        "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee"
+    ],
+    "entities": ["adultCount", "childCount", "roomCount", "checkInDate", "nights"], // 🚨 確保所有初始實體都被捕捉
+    
+    // 🚨 關鍵修正：新增 rules 區塊
+    "rules": [
+        {
+            // 條件：如果一開始就收到日期和晚數
+            "condition": "checkInDate && nights",
+            // 則直接導向 Handler 進行檢查/救援
+            "next_state": "check_date_completeness" 
+        }
+    ],
+    
+    "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
+},
         "ask_nights_and_dates": {
             "prompt": "請提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
             "entities": ["checkInDate", "nights"],
