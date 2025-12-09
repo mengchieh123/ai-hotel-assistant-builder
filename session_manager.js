@@ -1,28 +1,31 @@
 // session_manager.js (V2.1 - 最終穩健性修正版)
 
-// --- 修正 1: uuid 導入錯誤 (CommonJS 兼容性) ---
 import pkg from 'uuid';
 const { v4: uuidv4 } = pkg;
 
-
 /**
- * 模擬一個 FlowLoader 最小化接口，以確保服務能載入並啟動。
+ * 模擬一個 FlowLoader 最小化接口
  */
 const mockFlowLoader = {
     getFlow: () => ({
-        initial_state: 'init', // 流程啟動的初始狀態
+        initial_state: 'init',
     })
 };
 
-// --- 輔助方法：獲取基礎 collectedData 結構 (確保每次都是獨立的深層副本) ---
+// --- 輔助方法：獲取基礎 collectedData 結構 ---
 function getInitialCollectedData() {
     return {
         finalPrice: 0, totalPrice: 0, childCost: 0, serviceFee: 0, transferFee: 0,
         roomType: null, checkInDate: null, nights: null, roomCount: null, adultCount: null, childCount: 0,
-        contactName: null, contactPhone: null, contactEmail: null, paymentMethod: '未選擇', specialRequest: null,
+        contactName: null, 
+        contactPhone: null, 
+        contactEmail: null, 
+        paymentMethod: '未選擇', 
+        specialRequest: null,
         memberAccount: null, isLoggedIn: false, memberPassword: null,
         priceDetails: null, CUSTOM_PROMPT: null, addons: [],
-        inventoryLockId: null 
+        inventoryLockId: null,
+        customRichCard: null, // 新增：用於 UI 控制
     };
 }
 
@@ -32,7 +35,6 @@ class SessionManager {
         this.flowLoader = mockFlowLoader; 
         this.sessions = new Map(); 
         
-        // 定期清理過期的 session (每 10 分鐘檢查一次)
         setInterval(() => this.cleanupExpiredSessions(), 10 * 60 * 1000); 
         console.log('[SESSION_MGR] Manager initialized. Cleanup timer set.');
     }
@@ -46,7 +48,6 @@ class SessionManager {
         const session = this.sessions.get(sessionId);
         const now = new Date().getTime();
         
-        // 🚨 穩健性優化：立即檢查會話是否已超時 (60 分鐘未活動)
         const TIMEOUT_MS = 60 * 60 * 1000; 
         if (now - session.lastActive > TIMEOUT_MS) {
             console.log(`[SESSION] Session ${sessionId} timed out. Resetting.`);
@@ -54,7 +55,6 @@ class SessionManager {
             return this.sessions.get(sessionId);
         }
 
-        // 更新最後活動時間
         session.lastActive = now;
         return session;
     }
@@ -67,7 +67,6 @@ class SessionManager {
         
         const newSession = {
             id: newSessionId, 
-            // 🚨 修正 3：統一使用 currentState
             currentState: initialState, 
             collectedData: getInitialCollectedData(),
             conversationHistory: [],
@@ -85,14 +84,12 @@ class SessionManager {
         return newSession;
     }
     
-    /** 3. 🎯 核心功能：將 NLP 解析到的實體安全地合併到 collectedData */
+    /** 3. 將 NLP 解析到的實體安全地合併到 collectedData */
     mergeEntities(sessionId, newEntities) {
         const session = this.getSession(sessionId);
         
-        // 🚨 穩健性優化：安全合併實體
         Object.keys(newEntities).forEach(key => {
             const value = newEntities[key];
-            // 確保值既不是 null 也不是 undefined，才進行覆蓋或設定
             if (value !== null && value !== undefined) {
                 session.collectedData[key] = value;
             }
@@ -109,7 +106,6 @@ class SessionManager {
             role: 'user', message, intents, timestamp: new Date().toISOString()
         });
         
-        // 歷史紀錄限制
         if (session.conversationHistory.length > 20) {
             session.conversationHistory.shift();
         }
@@ -129,7 +125,7 @@ class SessionManager {
         }
     }
     
-    /** 6. 🎯 關鍵方法：重置會話 (用於流程結束或全局取消) */
+    /** 6. 重置會話 */
     resetSession(sessionId) {
         if (this.sessions.has(sessionId)) {
             const session = this.sessions.get(sessionId);
@@ -151,7 +147,7 @@ class SessionManager {
     
     /** 7. 清除過期的會話 */
     cleanupExpiredSessions() {
-        const timeout = 60 * 60 * 1000; // 1 小時未活動
+        const timeout = 60 * 60 * 1000; 
         const now = new Date().getTime();
         let deletedCount = 0;
         
@@ -174,8 +170,6 @@ class SessionManager {
     }
 }
 
-// 導出 SessionManager 的單例實例 (Singleton)
 const sessionManager = new SessionManager();
 
-// 🏆 ESM 命名匯出
 export { sessionManager };
