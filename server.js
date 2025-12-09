@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // --- 導入所有模組 ---
-import config from './config.js'; 
+import { config } from './config.js';
 import { RuleEngine } from './rule_engine.js'; // ✅ 修正 RuleEngine: 使用命名導入
 
 // 設定 Port 和 Host
