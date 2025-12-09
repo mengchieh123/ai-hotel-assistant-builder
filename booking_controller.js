@@ -1,6 +1,6 @@
-// booking_controller.js (V5.8.1 - 修正 Handler 命名與 dialogue_flow.json 一致)
+// booking_controller.js (V5.9 - 修正 Handler 命名與會員登入邏輯)
 
-// 🏆 ESM 導入：將 require() 替換為 import
+// 🏆 ESM 導入
 import dayjs from 'dayjs';
 import { MockAPI } from './service_mock_api.js'; 
 import { LLMManager } from './llm_manager.js'; 
@@ -8,14 +8,13 @@ import { LLMManager } from './llm_manager.js';
 // --- 輔助函數：日誌記錄 ---
 function log(level, message, details = {}) {
     const timestamp = dayjs().toISOString();
-    // 移除 details 避免 log 過度冗長，僅在 DEBUG/ERROR 使用
     console.log(`[${timestamp}] [${level}] ${message}`); 
     if (level === 'ERROR' || level === 'FATAL' || level === 'DEBUG') {
         console.log('詳細資訊:', details);
     }
 }
 
-// --- 1. 流程前置檢查 ---
+// --- 1. 流程前置檢查 (checkDateCompleteness) ---
 function checkDateCompleteness(session) {
     const data = session.collectedData;
     const { checkInDate, nights } = data;
@@ -33,6 +32,7 @@ function checkDateCompleteness(session) {
     };
 }
 
+// --- 2. 流程前置檢查 (checkBookingEssentials) ---
 function checkBookingEssentials(session) {
     const data = session.collectedData;
     const { roomType, checkInDate, nights, roomCount, adultCount } = data;
@@ -71,7 +71,6 @@ async function lockInventoryLogic(session) {
             return { isHandled: true, nextStep: 'calculate_price_logic' };
         } else {
             log('WARNING', 'Inventory lock failed.');
-            
             delete data.roomCount;
             
             const message = `😭 **抱歉，您選擇的【${roomType}】庫存不足** (剩餘 ${lockResult.remaining} 間)。請重新選擇房型或間數。`;
@@ -79,7 +78,7 @@ async function lockInventoryLogic(session) {
             return {
                 isHandled: true,
                 prompt: message,
-                nextStep: 'ask_room_type' // 修正為 ask_room_type 讓用戶重新選擇房型
+                nextStep: 'ask_room_type'
             };
         }
     } catch (error) {
@@ -184,55 +183,63 @@ async function calculatePriceLogic(session) {
 }
 
 // --- 5. 會員/登入邏輯 (loginMemberAccount) ---
+// ⚠️ 修正邏輯：這個 Handler 應僅處理實際的登入動作，並將流程導向 `calculate_price_logic` 進行價格重算。
 async function processMemberLogin(session) {
     const data = session.collectedData;
     const { memberAccount, memberPassword } = data;
 
-    if (memberAccount && !memberPassword) {
-        return { isHandled: false }; // 等待密碼輸入
+    // 1. 當處於 login_member_account (只收集 memberAccount) 狀態
+    if (session.currentState === 'login_member_account' && memberAccount && !memberPassword) {
+        // 實體已收集，交給 Rule Engine 推進到 ask_member_password
+        // 這裡 return { isHandled: false }，讓 Rule Engine 走下一步
+        return { isHandled: false }; 
     }
 
-    if (!memberAccount || !memberPassword) {
-        return { isHandled: false };
-    }
+    // 2. 當處於 ask_member_password (同時收集 memberAccount 和 memberPassword) 狀態，執行登入
+    if (memberAccount && memberPassword) {
+        try {
+            const loginResult = await MockAPI.verifyMember(memberAccount, memberPassword);
 
-    try {
-        const loginResult = await MockAPI.verifyMember(memberAccount, memberPassword);
-
-        if (loginResult.isSuccessful) {
-            data.isLoggedIn = true;
-            log('SUCCESS', 'Member logged in.');
-            // 登入成功後跳轉回計算價格，以應用折扣
+            if (loginResult.isSuccessful) {
+                data.isLoggedIn = true;
+                log('SUCCESS', 'Member logged in.');
+                // 登入成功後，返回重算價格
+                return {
+                    isHandled: true,
+                    prompt: `會員 ${memberAccount} 登入成功！您本次預訂享有 95 折優惠。`,
+                    nextStep: 'calculate_price_logic' 
+                };
+            } else {
+                data.isLoggedIn = false;
+                log('WARNING', 'Member login failed.');
+                delete data.memberPassword; // 清除密碼，要求重試
+                return {
+                    isHandled: true,
+                    prompt: '帳號或密碼錯誤，請重新輸入。若要跳過請輸入「跳過」。',
+                    nextStep: 'ask_member_password' // 保持在密碼狀態
+                };
+            }
+        } catch (error) {
+            log('FATAL', 'Member API Service Failed.', { error: error.message });
             return {
                 isHandled: true,
-                prompt: `會員 ${memberAccount} 登入成功！您本次預訂享有 95 折優惠。`,
-                nextStep: 'calculate_price_logic' 
-            };
-        } else {
-            data.isLoggedIn = false;
-            log('WARNING', 'Member login failed.');
-            delete data.memberPassword;
-            return {
-                isHandled: true,
-                prompt: '帳號或密碼錯誤，請重新輸入。若要跳過請輸入「跳過」。',
-                nextStep: 'login_member_account'
+                prompt: '會員驗證服務異常，請直接進行預訂。',
+                nextStep: 'ask_addons' // 跳過會員步驟
             };
         }
-    } catch (error) {
-        log('FATAL', 'Member API Service Failed.', { error: error.message });
-        return {
-            isHandled: true,
-            prompt: '會員驗證服務異常，請直接進行預訂。',
-            nextStep: 'ask_addons' // 跳過會員步驟
-        };
     }
+    
+    // 3. 其他情況 (例如：在 ask_member_password 狀態，但密碼未收集到)
+    // 讓 Rule Engine 繼續收集實體
+    return { isHandled: false };
 }
+
 
 // --- 6. 通用查詢邏輯 (processGeneralInquiry) ---
 async function processGeneralInquiry(session) {
     const data = session.collectedData;
-    // ⚠️ 注意：此處應從 Rule Engine 取得用戶輸入，使用 collectedData.user_query 或 session.lastMessage
-    const userQuery = data.user_query || session.lastMessage;
+    // 由於 Rule Engine 會自動將用戶輸入放在 session.lastMessage，我們優先使用它
+    const userQuery = session.lastMessage;
 
     if (!userQuery) {
         log('ERROR', 'General inquiry called without user query.');
@@ -251,15 +258,17 @@ async function processGeneralInquiry(session) {
         
     } catch (error) {
         log('FATAL', 'All LLM services failed.', { error: error.message });
-
+        // 觸發 JSON 中的 fallback_state
         return { isHandled: false }; 
     }
 }
 
+
 // --- 7. 最終提交 (submitBooking) ---
 async function submitBooking(session) {
     const data = session.collectedData;
-    // 檢查關鍵數據是否齊全
+    // ... (為了簡潔，這裡省略，保留您原來的邏輯) ...
+    // 檢查關鍵數據是否齊全
     if (!data.contactName || !data.inventoryLockId || data.finalPrice <= 0) {
         log('ERROR', 'Missing critical data for submission.', data);
         if (data.inventoryLockId) {
@@ -306,6 +315,7 @@ async function submitBooking(session) {
     }
 }
 
+
 // --- 8. 庫存保護：解鎖 (unlockInventory) ---
 async function unlockInventory(lockId) {
     if (!lockId) {
@@ -324,26 +334,31 @@ async function unlockInventory(lockId) {
 
 
 // -------------------------------------------------------------
-// 🏆 ESM 匯出：使用命名匯出 class
+// 🏆 ESM 匯出
 // -------------------------------------------------------------
 class BookingFlowController {
     static checkDateCompleteness = checkDateCompleteness;
     static checkBookingEssentials = checkBookingEssentials;
     
-    // 修正：Handler 名稱與 dialogue_flow.json 中的 "handler": "lockInventory" 一致
+    // 修正：確保 Handler 名稱與 dialogue_flow.json 一致
     static lockInventory = lockInventoryLogic; 
-    
-    // 修正：Handler 名稱與 dialogue_flow.json 中的 "handler": "calculatePrice" 一致
     static calculatePrice = calculatePriceLogic; 
-    
-    // 修正：Handler 名稱與 dialogue_flow.json 中的 "handler": "loginMemberAccount" 一致
     static loginMemberAccount = processMemberLogin; 
     
+    // 暫時忽略 addons 和 summary 的 Handler，讓流程順暢推進
+    static generateAddonsCarousel = (session) => ({ isHandled: false });
+    static executeAddonsSelection = (session) => ({ isHandled: true, nextStep: 'ask_contact_info' });
+    static validateContactInfo = (session) => ({ isHandled: false });
+    static handleSpecialRequests = (session) => ({ isHandled: false });
+    static generateOrderSummary = (session) => {
+        const { roomType, checkInDate, nights, roomCount, finalPrice } = session.collectedData;
+        session.collectedData.finalSummary = `房型: ${roomCount}間${roomType}\n入住: ${checkInDate} / ${nights}晚\n聯絡人: ${session.collectedData.contactName || '未提供'}\n總價: NT$ ${finalPrice}`;
+        return { isHandled: false };
+    };
+
     static processGeneralInquiry = processGeneralInquiry; 
     static submitBooking = submitBooking; 
     static unlockInventory = unlockInventory;
-    
-    // 您應確保所有在 dialogue_flow.json 中被調用的 Handler 都在這裡
 }
 
 // 🏆 命名匯出
