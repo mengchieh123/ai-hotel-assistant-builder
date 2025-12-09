@@ -217,7 +217,7 @@
             },
             "intents": {
                 "correction_date": "ask_nights_and_dates",
-                "correction_room": "ask_room_type", // ✅ 修正這裡
+                "correction_room": "ask_room_type",
                 "correction_addons": "ask_addons",
                 "correction_contact": "ask_contact_info"
             },
