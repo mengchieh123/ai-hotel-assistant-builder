@@ -1,9 +1,8 @@
-// service_mock_api.js (V5.8 - 完整的 ESM 命名匯出)
+// service_mock_api.js (V5.9 - 增強可用性 API)
 
-// 🏆 ESM 導入：將 require('dayjs') 替換為 import
 import dayjs from 'dayjs';
 
-// --- 模擬數據庫 ---
+// --- 模擬數據庫 (移動到 Class 外部保持 V5.8 的結構，但新增 dayjs 邏輯) ---
 
 const MOCK_ROOM_PRICING = {
     '標準雙人房': { price: 2200, capacity: 2, weekendMultiplier: 1.2 },
@@ -26,7 +25,7 @@ let CURRENT_INVENTORY = {
     '行政套房': 10,
     '家庭四人房': 3
 };
-let ACTIVE_LOCKS = {}; // 追蹤所有活躍的庫存鎖
+let ACTIVE_LOCKS = {}; 
 
 // --- 輔助函數 ---
 
@@ -37,119 +36,154 @@ function simulateDelay(ms = 100) {
 // --- 核心 API 接口 (使用 Class 統一匯出) ---
 
 class MockAPI {
-    
-    /**
-     * 取得房價細節和加購服務列表
-     */
-    static async getPricingDetails(roomType) {
-        await simulateDelay(50);
-        return {
-            roomDetails: MOCK_ROOM_PRICING[roomType],
-            addons: MOCK_ADDONS_SERVICE
-        };
-    }
+    
+    /**
+     * 🏆 新增: 取得指定條件下的可用房型 (用於初期篩選)
+     */
+    static async getAvailableRooms(checkInDate, nights = 1, guests = 1) {
+        await simulateDelay(100);
+        
+        const availableRooms = [];
+        
+        // 假設週末判斷僅需判斷第一晚
+        const checkDate = dayjs(checkInDate);
+        // day() === 0 (Sun) 或 6 (Sat)
+        const isWeekend = checkDate.isValid() && (checkDate.day() === 0 || checkDate.day() === 6); 
 
-    /**
-     * 取得加購服務列表 (用於 UI 顯示)
-     */
-    static async getAddonsList() {
-        await simulateDelay(50);
-        return Object.keys(MOCK_ADDONS_SERVICE).map(id => ({
-            id: id,
-            title: MOCK_ADDONS_SERVICE[id].name,
-            description: MOCK_ADDONS_SERVICE[id].description
-        }));
-    }
+        for (const [type, details] of Object.entries(MOCK_ROOM_PRICING)) {
+            const inventory = CURRENT_INVENTORY[type] || 0;
+            const priceMultiplier = isWeekend ? details.weekendMultiplier : 1;
+            const finalPrice = details.price * priceMultiplier;
+            
+            if (inventory > 0 && details.capacity >= guests) {
+                availableRooms.push({
+                    roomType: type,
+                    basePricePerNight: Math.round(finalPrice),
+                    capacity: details.capacity,
+                    availableCount: inventory,
+                    weekendPremium: isWeekend
+                });
+            }
+        }
+        
+        // 如果沒有有效的日期，返回所有房型，價格為基礎價 (用於初期引導)
+        if (!checkDate.isValid() || !checkInDate) {
+            return Object.keys(MOCK_ROOM_PRICING).map(type => ({
+                roomType: type,
+                basePricePerNight: MOCK_ROOM_PRICING[type].price,
+                capacity: MOCK_ROOM_PRICING[type].capacity,
+                availableCount: CURRENT_INVENTORY[type] || 0
+            })).filter(room => room.availableCount > 0);
+        }
+        
+        return availableRooms;
+    }
 
-    /**
-     * 模擬會員登入驗證
-     */
-    static async verifyMember(account, password) {
-        await simulateDelay(200);
-        const storedPassword = MOCK_MEMBER_CREDENTIALS[account.toUpperCase()];
-        const isSuccessful = (storedPassword === password);
-        
-        if (account.toUpperCase() === 'ERROR') { 
-            throw new Error('Member API Service Down: Test Failure');
-        }
+    /**
+     * 取得房價細節和加購服務列表
+     */
+    static async getPricingDetails(roomType) {
+        await simulateDelay(50);
+        return {
+            roomDetails: MOCK_ROOM_PRICING[roomType],
+            addons: MOCK_ADDONS_SERVICE
+        };
+    }
 
-        return {
-            isSuccessful: isSuccessful,
-            memberId: isSuccessful ? 12345 : null
-        };
-    }
+    /**
+     * 取得加購服務列表 (用於 UI 顯示)
+     */
+    static async getAddonsList() {
+        await simulateDelay(50);
+        return Object.keys(MOCK_ADDONS_SERVICE).map(id => ({
+            id: id,
+            title: MOCK_ADDONS_SERVICE[id].name,
+            description: MOCK_ADDONS_SERVICE[id].description
+        }));
+    }
 
-    /**
-     * 鎖定庫存
-     */
-    static async lockInventory(roomType, roomCount) {
-        await simulateDelay(150);
-        const currentCount = CURRENT_INVENTORY[roomType] || 0;
+    /**
+     * 模擬會員登入驗證
+     */
+    static async verifyMember(account, password) {
+        await simulateDelay(200);
+        const storedPassword = MOCK_MEMBER_CREDENTIALS[account.toUpperCase()];
+        const isSuccessful = (storedPassword === password);
+        
+        if (account.toUpperCase() === 'ERROR') { 
+            throw new Error('Member API Service Down: Test Failure');
+        }
 
-        if (currentCount >= roomCount) {
-            const lockId = `LOCK-${Date.now()}-${roomType.substring(0, 2)}`;
-            ACTIVE_LOCKS[lockId] = { roomType, roomCount, timestamp: Date.now() };
-            CURRENT_INVENTORY[roomType] -= roomCount; 
-            
-            // 設置 15 秒超時自動解鎖
-            setTimeout(() => {
-                if (ACTIVE_LOCKS[lockId]) {
-                    CURRENT_INVENTORY[ACTIVE_LOCKS[lockId].roomType] += ACTIVE_LOCKS[lockId].roomCount;
-                    delete ACTIVE_LOCKS[lockId];
-                }
-            }, 15000);
+        return {
+            isSuccessful: isSuccessful,
+            memberId: isSuccessful ? 12345 : null
+        };
+    }
 
-            return { isLocked: true, lockId: lockId, remaining: CURRENT_INVENTORY[roomType] };
-        } else {
-            return { isLocked: false, message: '庫存不足', remaining: currentCount };
-        }
-    }
+    /**
+     * 鎖定庫存
+     */
+    static async lockInventory(roomType, roomCount) {
+        await simulateDelay(150);
+        const currentCount = CURRENT_INVENTORY[roomType] || 0;
 
-    /**
-     * 解除庫存鎖定
-     */
-    static async unlockInventory(lockId) {
-        if (ACTIVE_LOCKS[lockId]) {
-            CURRENT_INVENTORY[ACTIVE_LOCKS[lockId].roomType] += ACTIVE_LOCKS[lockId].roomCount;
-            delete ACTIVE_LOCKS[lockId];
-            return { isUnlocked: true };
-        }
-        return { isUnlocked: false };
-    }
+        if (currentCount >= roomCount) {
+            const lockId = `LOCK-${Date.now()}-${roomType.substring(0, 2)}`;
+            ACTIVE_LOCKS[lockId] = { roomType, roomCount, timestamp: Date.now() };
+            CURRENT_INVENTORY[roomType] -= roomCount; 
+            
+            // 設置 15 秒超時自動解鎖
+            setTimeout(() => {
+                if (ACTIVE_LOCKS[lockId]) {
+                    CURRENT_INVENTORY[ACTIVE_LOCKS[lockId].roomType] += ACTIVE_LOCKS[lockId].roomCount;
+                    delete ACTIVE_LOCKS[lockId];
+                }
+            }, 15000);
 
-    /**
-     * 提交最終訂單 (V5.1 優化：強制檢查鎖定狀態)
-     */
-    static async submitBooking(bookingData) {
-        await simulateDelay(300);
-        
-        const lockId = bookingData.inventoryLockId;
-        
-        // 1. 檢查庫存鎖定是否仍然存在
-        if (!lockId || !ACTIVE_LOCKS[lockId]) {
-            return { success: false, message: '庫存鎖定已失效，請重新預訂以鎖定房型。' };
-        }
-        
-        // 2. 業務邏輯檢查
-        if (bookingData.contactName && bookingData.finalPrice > 0) {
-            
-            // 3. 提交成功，立即手動解鎖（防止超時機制重複操作）
-            await this.unlockInventory(lockId);  // 使用 this.unlockInventory
-            
-            const bookingId = `BOOK-${Date.now()}`;
-            return { success: true, bookingId: bookingId };
-        } else {
-            
-            // 4. 數據不完整，手動解鎖並返回失敗 (不讓庫存被鎖定在失敗的訂單上)
-            await this.unlockInventory(lockId);  // 使用 this.unlockInventory
-            return { success: false, message: '預訂資料不完整。' };
-        }
-    }
-    
-    // 雖然這個函數沒有被外部調用，但我們讓它保持靜態
-    static simulateDelay = simulateDelay;
+            return { isLocked: true, lockId: lockId, remaining: CURRENT_INVENTORY[roomType] };
+        } else {
+            return { isLocked: false, message: '庫存不足', remaining: currentCount };
+        }
+    }
+
+    /**
+     * 解除庫存鎖定
+     */
+    static async unlockInventory(lockId) {
+        if (ACTIVE_LOCKS[lockId]) {
+            CURRENT_INVENTORY[ACTIVE_LOCKS[lockId].roomType] += ACTIVE_LOCKS[lockId].roomCount;
+            delete ACTIVE_LOCKS[lockId];
+            return { isUnlocked: true };
+        }
+        return { isUnlocked: false };
+    }
+
+    /**
+     * 提交最終訂單
+     */
+    static async submitBooking(bookingData) {
+        await simulateDelay(300);
+        
+        const lockId = bookingData.inventoryLockId;
+        
+        if (!lockId || !ACTIVE_LOCKS[lockId]) {
+            return { success: false, message: '庫存鎖定已失效，請重新預訂以鎖定房型。' };
+        }
+        
+        if (bookingData.contactName && bookingData.finalPrice > 0) {
+            
+            await this.unlockInventory(lockId);  
+            
+            const bookingId = `BOOK-${Date.now()}`;
+            return { success: true, bookingId: bookingId };
+        } else {
+            
+            await this.unlockInventory(lockId);  
+            return { success: false, message: '預訂資料不完整。' };
+        }
+    }
+    
+    static simulateDelay = simulateDelay;
 }
 
-
-// 🏆 最終修正：使用命名匯出
 export { MockAPI };
