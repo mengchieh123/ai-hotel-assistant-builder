@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.21_Fix", 
-    "description": "V1.21 修正版：新增兒童實體收集，修正 ask_member_login 提示價格包含服務費。",
+    "version": "1.22_Fix_ChildCount", 
+    "description": "V1.22 修正版：新增 set_default_child_count 邏輯，解決 ask_guest_count 循環問題。",
     "initial_state": "init",
     "states": {
         "init": {
@@ -27,13 +27,21 @@
         "check_date_completeness": {
             "type": "logic_exec",
             "handler": "checkDateCompleteness",
-            "next_state": "ask_guest_count",
+            "next_state": "set_default_child_count", // <-- 【修改點 1】從 ask_guest_count 變更為新的邏輯狀態
             "fallback_state": "handle_date_not_found"
         },
         "handle_date_not_found": {
             "prompt": "抱歉，我需要明確的【入住日期】和【住宿晚數】才能繼續。請再試一次。 (例如：12月24日, 2晚)",
             "next_state": "ask_nights_and_dates",
             "fallback": "請重新輸入完整的日期和晚數。"
+        },
+        // 【新增狀態】確保 childCount 有預設值 0
+        "set_default_child_count": {
+            "type": "logic_exec",
+            "handler": "setDefaultChildCount", // 👈 需要您在後端實現此 Handler
+            "next_state": "ask_guest_count",
+            // 即使 Handler 執行失敗或有任何錯誤，也應嘗試引導用戶到 ask_guest_count
+            "fallback_state": "ask_guest_count"
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
@@ -69,7 +77,9 @@
             "type": "logic_exec",
             "handler": "checkBookingEssentials",
             "next_state": "lock_inventory",
-            "fallback_state": "ask_room_type"
+            // 【修改點 2】將 Fallback_state 從 ask_room_type 改為 ask_nights_and_dates 
+            // 這是為了處理日誌中觀察到的日期/晚數缺失問題，使其返回到流程起點收集日期，而非房型
+            "fallback_state": "ask_nights_and_dates" 
         },
         "lock_inventory": {
             "type": "logic_exec",
