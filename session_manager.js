@@ -120,3 +120,4 @@ const sessionManager = new SessionManager();
 
 // 🏆 修正：將 CommonJS 匯出 (module.exports) 替換為 ESM 命名匯出
 export { sessionManager };
+
