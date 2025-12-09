@@ -1,10 +1,10 @@
-// server.js (ESM V1.2 - 最終修正統一版)
+// server.js (ESM V1.3 - 最終部署修正版)
 
-import 'dotenv/config'; // 引入 dotenv 並配置，這是 ESM 的慣用寫法
+import 'dotenv/config'; 
 import express from 'express';
 import cors from 'cors'; 
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 庫
+import { v4 as uuidv4 } from 'uuid'; 
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -13,12 +13,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // --- 導入所有模組 ---
-// 注意：所有本地模組導入必須加上 .js 擴展名
 import config from './config.js'; 
-
-// 🎯 修正：RuleEngine 現在使用命名匯出 (Named Export)，必須使用命名導入
-import { RuleEngine } from './rule_engine.js'; 
-// import RuleEngine from './rule_engine.js'; // ❌ 原始錯誤：這是預設導入
+import { RuleEngine } from './rule_engine.js'; // ✅ 修正 RuleEngine: 使用命名導入
 
 // 設定 Port 和 Host
 const PORT = process.env.PORT || 10000;
@@ -29,16 +25,15 @@ const { apiUrl } = config;
 const app = express();
 
 // ---------------------------------------------
-## 📦 Express 中間件與靜態檔案
+// 📦 Express 中間件與靜態檔案 (✅ 修正：移除 ## 標記)
 // ---------------------------------------------
 app.use(cors());
 app.use(express.json());
-// 使用 __dirname 來指定靜態檔案路徑
 app.use(express.static(path.join(__dirname, 'public')));
 
----
+
 // ---------------------------------------------
-## 🛣️ 路由定義
+// 🛣️ 路由定義 (✅ 修正：移除 ## 標記)
 // ---------------------------------------------
 
 app.get('/', (req, res) => {
@@ -60,21 +55,21 @@ app.post('/api/chat', async (req, res) => {
         return res.status(400).send({ error: '缺少 message' });
     }
 
-    // 🏆 Session ID 淨化與生成邏輯
+    // Session ID 淨化與生成邏輯
     const isSessionIdValid = sessionId && 
                              typeof sessionId === 'string' && 
                              sessionId.length > 0 &&
-                             sessionId.toLowerCase() !== 'undefined'; // 排除 'undefined' 字串
+                             sessionId.toLowerCase() !== 'undefined';
 
     const safeSessionId = isSessionIdValid
                              ? sessionId
-                             : uuidv4(); // 如果無效 (包含 'undefined')，則生成一個新的 UUID
+                             : uuidv4();
 
     console.log(`[DEBUG_ID] 接收到 ID: ${sessionId} | 傳入 RuleEngine 的 ID: ${safeSessionId}`);
 
     let engineResult;
     try {
-        // 傳入安全 ID，並呼叫 RuleEngine 的靜態方法
+        // 呼叫 RuleEngine 的靜態方法
         engineResult = await RuleEngine.executeRules(message, safeSessionId);
         
     } catch (error) {
@@ -108,9 +103,9 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
----
+
 // ---------------------------------------------
-## 🖥️ 伺服器啟動
+// 🖥️ 伺服器啟動 (✅ 修正：移除 ## 標記)
 // ---------------------------------------------
 app.listen(PORT, HOST, () => {
     console.log(`🚀 伺服器運行在 http://${HOST}:${PORT}`);
