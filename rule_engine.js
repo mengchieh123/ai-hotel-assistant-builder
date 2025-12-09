@@ -1,19 +1,38 @@
-// rule_engine.js (V5.6 - 最終優化與容錯保護版 - ESM 轉換完成)
+// rule_engine.js (V5.7 - JSON 穩定載入修正版)
 
 // 🏆 ESM 導入：將所有 require() 替換為 import
 import sessionManager from './session_manager.js';
 import SmartIntentClassifier from './intent_classifier.js';
-// ⚠️ 注意：BookingFlowController 需包含 unlockInventory 方法
 import BookingFlowController from './booking_controller.js'; 
 
-// 載入 Flow Config - ESM 環境下導入 JSON
-import flowConfig from './dialogue_flow.json' assert { type: 'json' }; 
+// 🏆 導入 Node.js 內建模組
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs'; 
 
-// 🚨 【除錯日誌 - 確保檔案載入和結構正確】
-if (flowConfig && flowConfig.states) {
-    console.log(`✅ [DEBUG] dialogue_flow.json 成功載入！狀態數: ${Object.keys(flowConfig.states).length}`);
-} else {
-    console.error('❌ [DEBUG] dialogue_flow.json 載入失敗或結構錯誤！');
+// --- 模擬 __dirname 和 __filename (ESM 環境必備) ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// ----------------------------------------------------
+
+
+// 載入 Flow Config - 🏆 修正: 使用同步 FS 載入 JSON
+let flowConfig;
+try {
+    const flowPath = path.join(__dirname, 'dialogue_flow.json');
+    const flowJsonString = fs.readFileSync(flowPath, 'utf8');
+    flowConfig = JSON.parse(flowJsonString);
+    
+    // 🚨 【除錯日誌 - 確保檔案載入和結構正確】
+    if (flowConfig && flowConfig.states) {
+        console.log(`✅ [DEBUG] dialogue_flow.json 成功載入！狀態數: ${Object.keys(flowConfig.states).length}`);
+    } else {
+        console.error('❌ [DEBUG] dialogue_flow.json 載入失敗或結構錯誤！');
+    }
+} catch (error) {
+    console.error(`💥 [DEBUG] 載入 dialogue_flow.json 失敗: ${error.message}`);
+    // 如果載入失敗，設置為空對象防止應用崩潰
+    flowConfig = { states: {} }; 
 }
 // ---------------------------------------------
 
@@ -608,5 +627,5 @@ class RuleEngine {
 
 RuleEngine.initializeErrorHandlers();
 
-// 🏆 ESM 匯出：解決 'does not provide an export named default' 錯誤
+// 🏆 ESM 匯出
 export default RuleEngine;
