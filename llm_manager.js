@@ -1,19 +1,19 @@
-// llm_manager.js (V5.8 - 完整的 ESM 命名匯出)
+// llm_manager.js (V6.0 - 修正統一版)
 
 // 🏆 ESM 導入：將 require() 替換為 import
 import axios from 'axios';
-// ⚠️ 注意：@google/genai 庫仍使用動態導入來規避 CJS/ESM 混用問題
 
 // --- 🔑 API 密鑰與 Client 初始化 ---
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY; 
 
-// ai 變數現在將儲存一個承諾 (Promise) 或 null
+// ai 變數現在將儲存一個 Client 實例或 null
 let ai = null;
 
 // --- 輔助函數：異步初始化 Gemini Client ---
 async function initializeGeminiClient() {
     if (!GEMINI_API_KEY) {
+        console.warn("⚠️ GEMINI_API_KEY 未設置，Gemini Client 將不會初始化。");
         return null;
     }
     try {
@@ -50,10 +50,17 @@ class LLMManager {
      * @returns {Promise<{response: string, source: string}>}
      */
     static async callGemini(query, context) {
-        // 確保 ai 已經被異步初始化完成
+        
+        // ⭐ 修正 1: 異步等待 Gemini Client 確保初始化完成 (防止服務剛啟動時失敗)
+        const timeoutMs = 5000; 
+        const startTime = Date.now();
+        
+        while (ai === null && (Date.now() - startTime < timeoutMs)) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
         if (ai === null) {
-            // 如果 Client 未初始化，直接拋出錯誤，讓容錯機制切換到備用 LLM
-            throw new Error("Gemini Client 未初始化或初始化失敗，請檢查 GEMINI_API_KEY。");
+            throw new Error("Gemini Client 在 5 秒內未完成初始化，切換至備用 LLM。");
         }
         
         console.log("➡️ 呼叫 LLM: Gemini API");
@@ -109,9 +116,13 @@ class LLMManager {
         if (!hfApiEndpoint) {
              throw new Error("Hugging Face API Endpoint 未設置。");
         }
+        
+        // 構造 Hugging Face 的輸入提示 (保持與清除邏輯一致)
+        const inputPrefix = `你是旅館聊天機器人。請簡潔地回答此問題：`;
+        const fullInput = `${inputPrefix}${query}。上下文數據：${JSON.stringify(context)}`;
 
         const requestBody = {
-            inputs: `你是旅館聊天機器人。請簡潔地回答此問題：${query}。上下文數據：${JSON.stringify(context)}`,
+            inputs: fullInput,
             parameters: { 
                 max_new_tokens: 256,
                 temperature: 0.7 
@@ -119,7 +130,6 @@ class LLMManager {
         };
 
         try {
-            // axios 已透過 ESM 導入
             const apiResponse = await axios.post(hfApiEndpoint, requestBody, {
                 headers: {
                     'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
@@ -138,6 +148,13 @@ class LLMManager {
                  throw new Error("Hugging Face API 返回的格式無法解析。");
             }
 
+            // ⭐ 優化 2: 清除 Hugging Face 響應中的原始輸入文本
+            if (textResponse.startsWith(fullInput)) {
+                textResponse = textResponse.substring(fullInput.length).trim();
+            }
+            // 移除可能出現的 LLM 句首標記或空格
+            textResponse = textResponse.replace(/^[\s\n\r]*[.:]*(.*)$/, '$1').trim();
+            
             return { 
                 response: textResponse, 
                 source: 'HuggingFace' 
@@ -162,7 +179,7 @@ class LLMManager {
                 result = await this.callGemini(query, sessionData);
                 return result;
             } catch (error) {
-                console.error("⚠️ 主要 LLM (Gemini) 呼叫失敗，切換到備用 LLM。");
+                console.error(`⚠️ 主要 LLM (Gemini) 呼叫失敗，切換到備用 LLM。錯誤: ${error.message}`);
             }
         }
 
@@ -186,5 +203,5 @@ class LLMManager {
     }
 }
 
-// 🏆 最終修正：使用命名匯出，匹配 booking_controller.js 中的 { LLMManager } 導入
+// 🏆 最終修正：使用命名匯出
 export { LLMManager };
