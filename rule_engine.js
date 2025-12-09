@@ -1,4 +1,4 @@
-// rule_engine.js (V6.0 - 流程啟動健壯版)
+// rule_engine.js (V6.1 - 通用查詢整合版)
 
 // ----------------------------------------------------
 // 🏆 修正 1: ESM 導入 (全部改為命名導入以避免衝突)
@@ -36,13 +36,14 @@ try {
 }
 // ---------------------------------------------
 
-// 優先級常量 (保持不變)
+// 優先級常量
 const PRIORITY = {
     EMERGENCY: 110,
+    GENERAL_QUERY_COMPLETE: 107, // 🏆 新增: 通用查詢完成後返回原流程的優先級
     RESET_FLOW: 106,
     INVENTORY_FAILURE_OVERRIDE: 105, 
+    GENERAL_INQUIRY_OVERRIDE: 104, // 🏆 修正: 通用查詢介入的優先級
     ROOM_LIMIT: 103,
-    GENERAL_INQUIRY_OVERRIDE: 104,
     MEMBER_LOGIN_OVERRIDE: 100,
     BOOKING_FLOW: {
         BASE: 95,
@@ -129,17 +130,17 @@ class RuleEngine {
     }
 
     /**
-     * ⭐ 修正 2: 確保即使沒有 Prompt 也能返回有效的 shouldProcess: true 結果，並處理狀態缺失
+     * 確保即使沒有 Prompt 也能返回有效的 shouldProcess: true 結果，並處理狀態缺失
      * @returns 統一格式的回應結構 (永不返回 null)
      */
     static generateStateResponse(flow, stateKey, data, priority) {
         const state = flow.states[stateKey];
         
-        // 💥 關鍵修正：狀態缺失時，返回一個有效的錯誤，而不是 null
+        // 狀態缺失時，返回一個有效的錯誤，而不是 null
         if (!state) {
             console.error(`❌ [FLOW ERROR] 嘗試導向的狀態 '${stateKey}' 在 dialogue_flow.json 中不存在！`);
             return {
-                shouldProcess: true, 
+                shouldProcess: true, 
                 priority: PRIORITY.EMERGENCY,
                 response: `系統流程配置錯誤：狀態 '${stateKey}' 缺失。請輸入『重新開始』。`,
                 nextStep: 'init',
@@ -250,10 +251,16 @@ class RuleEngine {
             rulesResults.push(this.emergencyRule(intents, session));
             rulesResults.push(await this.resetFlowRule(intents, session)); 
             rulesResults.push(await this.forceResumeBookingRule(intents, session)); 
-            rulesResults.push(this.roomLimitRule(collectedData));
             rulesResults.push(this.inventoryFailureRule(session)); 
+            
+            // 🏆 修正 2.1: 通用查詢結束後，高優先級返回原流程 (P:107)
+            rulesResults.push(this.handleGeneralQueryCompletionRule(session));
+            
+            rulesResults.push(this.roomLimitRule(collectedData));
             rulesResults.push(this.memberLoginRule(intents, session)); 
-            rulesResults.push(this.generalInquiryOverrideRule(intents, session, message, extractedEntities));
+            
+            // 🏆 修正 2.2: 通用查詢覆蓋規則 (P:104)
+            rulesResults.push(this.generalInquiryOverrideRule(intents, session, message));
             
             // 3. 執行流程控制規則 (P:98/99)
             rulesResults.push(this.pauseResumeRule(intents, session));
@@ -270,7 +277,7 @@ class RuleEngine {
                 
                 // 更新 session 狀態
                 if (finalResult.nextStep && finalResult.nextStep !== session.currentStep) {
-                    session.previousStep = session.currentStep;
+                    // 這裡不使用 previousStep，通用查詢回退使用 generalInquiryPreviousStep
                     session.currentStep = finalResult.nextStep;
                     this.resetHandlerExecution(session); 
                 }
@@ -358,15 +365,18 @@ class RuleEngine {
     static async forceResumeBookingRule(intents, session) {
         const currentStateKey = session.currentStep;
         
+        // 偵測到在通用查詢狀態下嘗試訂房，強制重設流程，以新的實體開始
         if (currentStateKey === 'handle_general_inquiry' && intents.includes('booking')) {
-            console.log("🚀 [DEBUG] 偵測到在通用查詢狀態下嘗試訂房，強制重設流程。");
+            console.log("🚀 [DEBUG] 偵測到在通用查詢狀態下嘗試訂房，清除舊流程並重新開始。");
 
             if (session.collectedData.inventoryLockId) {
                 console.log(`🔒 [DEBUG] 強制重設流程時解除庫存鎖定：${session.collectedData.inventoryLockId}`);
                 await BookingFlowController.unlockInventory(session.collectedData.inventoryLockId);
             }
             
-            session.collectedData = {};
+            const entitiesToKeep = {}; // 僅保留本次輸入的實體
+            const oldEntities = { ...session.collectedData };
+            session.collectedData = entitiesToKeep;
             this.resetHandlerExecution(session);
             
             const initPrompt = flowConfig.states['init']?.prompt || "您好，請問需要訂房服務嗎？";
@@ -374,7 +384,7 @@ class RuleEngine {
             return {
                 shouldProcess: true,
                 priority: PRIORITY.RESET_FLOW, 
-                response: this.interpolatePrompt(initPrompt, session.collectedData),
+                response: this.interpolatePrompt(initPrompt, oldEntities),
                 nextStep: 'init'
             };
         }
@@ -385,6 +395,7 @@ class RuleEngine {
     static inventoryFailureRule(session) {
         const data = session.collectedData;
         
+        // 庫存鎖定 ID 缺失但有錯誤標記，表示庫存或價格檢查失敗
         if (!data.inventoryLockId && data.inventory_error) { 
             
             const errorDetails = data.inventory_error_details || "庫存或價格檢查失敗。";
@@ -392,6 +403,7 @@ class RuleEngine {
             const roomType = data.roomType || "您選擇的房型";
             const requestedRooms = data.roomCount || 0;
             
+            // 清除錯誤標記，避免無限循環
             delete data.inventory_error; 
             delete data.inventory_error_details;
             delete data.remainingRooms;
@@ -404,6 +416,28 @@ class RuleEngine {
                 richCard: null,
                 allowGeminiCall: false
             };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+    
+    // 🏆 修正 3: 通用查詢結束後返回原流程 (P:107)
+    static handleGeneralQueryCompletionRule(session) {
+        const currentStateKey = session.currentStep;
+
+        // 條件：當前狀態是通用查詢狀態，且 Handler 已經執行
+        if (currentStateKey === 'handle_general_inquiry' && this.hasExecutedHandler(session, currentStateKey)) {
+            
+            // 檢查返回狀態
+            const returnStep = session.generalInquiryPreviousStep && flowConfig.states[session.generalInquiryPreviousStep] 
+                ? session.generalInquiryPreviousStep 
+                : 'init';
+            
+            // 清理暫存的狀態
+            delete session.generalInquiryPreviousStep;
+
+            console.log(`↩️ [DEBUG] 通用查詢完成，返回前一個狀態: ${returnStep}`);
+
+            return this.generateStateResponse(flowConfig, returnStep, session.collectedData, PRIORITY.GENERAL_QUERY_COMPLETE); // P:107
         }
         return { shouldProcess: false, priority: 0 };
     }
@@ -431,10 +465,18 @@ class RuleEngine {
             const loginIntent = state.intents?.login;
             
             if (loginIntent && intents.includes('login')) {
+                // 🏆 修正 4: 登入實體預處理
+                const data = session.collectedData;
+                if (!data.memberAccount && (data.contactPhone || data.rawNumber)) {
+                    // 優先使用 contactPhone，其次使用 rawNumber
+                    data.memberAccount = data.contactPhone || String(data.rawNumber); 
+                    console.log(`🔑 [DEBUG] 在登入狀態下將 contactPhone/rawNumber 賦值給 memberAccount: ${data.memberAccount}`);
+                }
+
                 return {
                     shouldProcess: true,
                     priority: PRIORITY.MEMBER_LOGIN_OVERRIDE,
-                    response: this.interpolatePrompt(flowConfig.states[loginIntent].prompt, session.collectedData),
+                    response: this.interpolatePrompt(flowConfig.states[loginIntent].prompt, data),
                     nextStep: loginIntent
                 };
             }
@@ -443,20 +485,19 @@ class RuleEngine {
     }
     
     // --- 規則 1.5: 跨流程通用問題處理 (P:104) ---
-    static generalInquiryOverrideRule(intents, session, message, entities) {
+    static generalInquiryOverrideRule(intents, session, message) {
         const currentStateKey = session.currentStep;
         
-        const isCollectingCoreEntities = CORE_COLLECTION_STATES.includes(currentStateKey);
-
-        if (intents.includes('general_inquiry') && 
-            !FORCED_BREAK_STATES.includes(currentStateKey) &&
-            !isCollectingCoreEntities 
-            ) {
+        // 🏆 修正 2: 移除 isCollectingCoreEntities 的檢查，允許在核心流程中中斷。
+        if (intents.includes('general_inquiry') && !FORCED_BREAK_STATES.includes(currentStateKey)) {
             
             const inquiryState = flowConfig.states['handle_general_inquiry'];
 
             // 處理 handle_general_inquiry 狀態缺失的情況
             if (!inquiryState) return { shouldProcess: false, priority: 0 };
+            
+            // 🎯 修正 2.3: 儲存當前狀態，用於返回
+            session.generalInquiryPreviousStep = currentStateKey; 
 
             const userQuery = message || "您的問題";
             
@@ -511,7 +552,6 @@ class RuleEngine {
                 return this.generateStateResponse(flow, nextStepAfterInit, data, PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK);
             }
             
-            // ⭐ 修正 1: 確保在 init 狀態的邏輯塊內返回結果
             return { shouldProcess: false, priority: 0 }; 
         }
         
@@ -530,7 +570,8 @@ class RuleEngine {
             console.log(`[DEBUG] 狀態 ${currentStateKey} 檢查實體是否滿足: ${hasRequiredEntities}`);
 
             // 實體滿足，推進流程
-            if (hasRequiredEntities && !this.hasExecutedHandler(session, currentStateKey)) {
+            // 🏆 修正 5: 實體滿足時，不再檢查 Handler 是否執行過，讓 Handler 邏輯在下一個循環處理。
+            if (hasRequiredEntities) {
                 const nextStateKey = currentState.next_state || currentStateKey;
                 console.log(`[DEBUG] 實體滿足，推進流程到: ${nextStateKey}`);
                 // P:97
@@ -547,7 +588,7 @@ class RuleEngine {
             const handlerKey = flow.states[nextStateKey].handler;
             console.log(`💲 觸發 Handler: ${handlerKey} 於狀態: ${nextStateKey}`); 
             
-            // ⚠️ 確保使用 await 等待非同步 Handler 執行
+            // 確保使用 await 等待非同步 Handler 執行
             const handlerResult = await BookingFlowController[handlerKey](session, flowConfig); 
             
             this.markHandlerExecuted(session, nextStateKey); 
@@ -629,6 +670,6 @@ class RuleEngine {
 RuleEngine.initializeErrorHandlers();
 
 // ----------------------------------------------------
-// 🏆 修正 3: ESM 匯出 (改為命名匯出，與所有導入保持一致)
+// 🏆 修正 6: ESM 匯出 (改為命名匯出)
 // ----------------------------------------------------
 export { RuleEngine };
