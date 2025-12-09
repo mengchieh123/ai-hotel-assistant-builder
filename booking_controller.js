@@ -1,9 +1,9 @@
-// booking_controller.js (V5.8 - ESM 轉換完成，使用命名匯出物件)
+// booking_controller.js (V5.8 - ESM 轉換完成，修正導入)
 
 // 🏆 ESM 導入：將 require() 替換為 import
 import dayjs from 'dayjs';
-import MockAPI from './service_mock_api.js';
-import LLMManager from './llm_manager.js'; // 💡 引入 LLMManager
+import MockAPI from './service_mock_api.js'; // 假設 MockAPI 也是預設匯出
+import { LLMManager } from './llm_manager.js'; // 🏆 修正：改為命名導入 { LLMManager }
 
 // --- 輔助函數：日誌記錄 ---
 function log(level, message, details = {}) {
@@ -170,7 +170,6 @@ async function calculatePriceLogic(session) {
         log('INFO', `Price calculated: NT$${data.finalPrice}`);
         return {
             isHandled: true,
-            // 注意：這裡的 nextStep 在您的 dialogue_flow.json 中是 ask_member_login
             nextStep: 'ask_member_login' 
         };
 
@@ -189,13 +188,11 @@ async function processMemberLogin(session) {
     const data = session.collectedData;
     const { memberAccount, memberPassword } = data;
 
-    // 如果只需輸入帳號 (memberAccount 存在但 memberPassword 不存在)
     if (memberAccount && !memberPassword) {
         return { isHandled: false }; // 等待密碼輸入
     }
 
     if (!memberAccount || !memberPassword) {
-        // 如果兩個都缺少 (例如用戶跳過了 login_member_account 狀態)
         return { isHandled: false };
     }
 
@@ -234,9 +231,7 @@ async function processMemberLogin(session) {
 // --- 6. 通用查詢邏輯 (LLM 備援) ---
 async function processGeneralInquiry(session) {
     const data = session.collectedData;
-    // 從 Rule Engine 傳遞的 session.currentState.data 中獲取用戶輸入
-    // ⚠️ 注意：此處 'user_query' 假設已由 Rule Engine 提前設置到 session.collectedData
-    // 如果 Rule Engine 沒有設置，您可能需要調整 LLMManager 傳入的參數。
+    // ⚠️ 注意：此處應從 Rule Engine 取得用戶輸入，使用 collectedData.user_query 或 session.lastMessage
     const userQuery = data.user_query || session.lastMessage;
 
     if (!userQuery) {
@@ -245,23 +240,18 @@ async function processGeneralInquiry(session) {
     }
 
     try {
-        // 呼叫 LLM Manager，執行 LLM 優先級切換和容錯邏輯
         const llmResult = await LLMManager.getGeneralAnswer(userQuery, data);
 
-        // 將 LLM 的結果和來源存入 session data，供 dialogue_flow.json 中的提示詞使用
         data.llm_response = llmResult.response;
         data.llm_source = llmResult.source; 
 
         log('SUCCESS', 'LLM Inquiry handled.', { source: llmResult.source });
 
-        // 成功處理：推進到 general_inquiry_response 狀態 (由 dialogue_flow.json 定義)
         return { isHandled: true, nextStep: 'general_inquiry_response' };
         
     } catch (error) {
-        // LLM Manager 拋出錯誤 (GemINI 和 Hugging Face 都失敗)
         log('FATAL', 'All LLM services failed.', { error: error.message });
 
-        // 失敗處理：返回 isHandled: false，讓 dialogue_flow.json 根據 fallback_state (handle_llm_failure) 處理
         return { isHandled: false }; 
     }
 }
@@ -290,7 +280,6 @@ async function submitBooking(session) {
 
         if (result.success) {
             log('SUCCESS', 'Booking submitted.', { bookingId: result.bookingId });
-            // 訂單完成後不清空數據，讓 prompt 能夠使用 {finalPrice} 和 {orderId}
             data.orderId = result.bookingId;
             data.paymentMessage = data.paymentMethod === '現場支付' ? 
                                  '請在入住時支付。' : 
@@ -336,7 +325,7 @@ async function unlockInventory(lockId) {
 
 
 // -------------------------------------------------------------
-// 🏆 ESM 匯出：使用 class 語法，並將所有 Handler 註冊為靜態方法，以便 RuleEngine 導入
+// 🏆 ESM 匯出：使用命名匯出 class
 // -------------------------------------------------------------
 class BookingFlowController {
     static checkDateCompleteness = checkDateCompleteness;
@@ -348,14 +337,8 @@ class BookingFlowController {
     static submitBooking = submitBooking; 
     static unlockInventory = unlockInventory;
     
-    // 💡 確保 rule_engine.js 中使用的所有方法都被匯出
-    // 您在原始代碼中缺少：generateAddonsCarousel, executeAddonsSelection, validateContactInfo, handleSpecialRequests, generateOrderSummary
-    // 這裡僅匯出您已定義的 Handler
+    // 您應確保所有在 dialogue_flow.json 中被調用的 Handler 都在這裡
 }
 
-// 🏆 ESM 匯出：使用預設匯出 class，以匹配 rule_engine.js 中的命名導入 (如果 rule_engine.js 使用了命名導入，此處需調整)
-// 由於您在 rule_engine.js 中遇到錯誤：does not provide an export named 'default'
-// 我們假設您在 rule_engine.js 中已經根據我的建議更改為命名導入：
-// import { BookingFlowController } from './booking_controller.js'; 
-// 因此這裡將使用命名匯出
+// 🏆 命名匯出
 export { BookingFlowController };
