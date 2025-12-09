@@ -4,7 +4,6 @@
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 import isBetween from 'dayjs/plugin/isBetween.js';
 import dayjs from 'dayjs';
-import customParseFormat from 'dayjs/plugin/customParseFormat';
 
 dayjs.extend(customParseFormat); 
 
