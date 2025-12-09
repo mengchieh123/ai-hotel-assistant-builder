@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.20_Stable",
-    "description": "V1.20 穩定增強版：修正會員登入回彈邏輯，所有 logic_exec/entity_collection 狀態加入明確 fallback。",
+    "version": "1.21_Fix", 
+    "description": "V1.21 修正版：新增兒童實體收集，修正 ask_member_login 提示價格包含服務費。",
     "initial_state": "init",
     "states": {
         "init": {
@@ -37,7 +37,7 @@
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
-            "entities": ["adultCount"],
+            "entities": ["adultCount", "childCount"], 
             "next_state": "ask_room_type",
             "fallback": "請提供準確的入住人數 (大人/兒童)，謝謝。",
             "fallback_state": "ask_guest_count"
@@ -87,7 +87,7 @@
             "fallback_state": "ask_room_type"
         },
         "ask_member_login": {
-            "prompt": "已確認您的預訂資訊：{roomCount}間{roomType}，{nights}晚，入住日期{checkInDate}，總價為 **NT$ {finalPrice}**。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。",
+            "prompt": "已確認您的預訂資訊：{roomCount}間{roomType}，{nights}晚，入住日期{checkInDate}。含服務費最終總價為 **NT$ {finalPrice}**。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。", 
             "richCard": {
                 "type": "button_list",
                 "buttons": [
