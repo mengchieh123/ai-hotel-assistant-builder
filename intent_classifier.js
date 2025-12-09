@@ -1,6 +1,8 @@
 // intent_classifier.js (ESM 命名匯出修正版)
 
 // 🏆 修正 1: 將 require 替換為 import
+import customParseFormat from 'dayjs/plugin/customParseFormat.js';
+import isBetween from 'dayjs/plugin/isBetween.js';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 
