@@ -1,9 +1,9 @@
-// booking_controller.js (V5.9 - 修正 Handler 命名與會員登入邏輯)
+// booking_controller.js (V5.10 - 修正聯絡人與加購 Handler 邏輯)
 
 // 🏆 ESM 導入
 import dayjs from 'dayjs';
-import { MockAPI } from './service_mock_api.js'; 
-import { LLMManager } from './llm_manager.js'; 
+import { MockAPI } from './service_mock_api.js'; 
+import { LLMManager } from './llm_manager.js'; 
 
 // --- 輔助函數：日誌記錄 ---
 function log(level, message, details = {}) {
@@ -191,8 +191,8 @@ async function processMemberLogin(session) {
     // 1. 當處於 login_member_account (只收集 memberAccount) 狀態
     if (session.currentState === 'login_member_account' && memberAccount && !memberPassword) {
         // 實體已收集，交給 Rule Engine 推進到 ask_member_password
-        // 這裡 return { isHandled: false }，讓 Rule Engine 走下一步
-        return { isHandled: false }; 
+        // 這裡 return { isHandled: false }，讓 Rule Engine 走下一步
+        return { isHandled: false }; 
     }
 
     // 2. 當處於 ask_member_password (同時收集 memberAccount 和 memberPassword) 狀態，執行登入
@@ -228,10 +228,132 @@ async function processMemberLogin(session) {
             };
         }
     }
+    
+    // 3. 其他情況 (例如：在 ask_member_password 狀態，但密碼未收集到)
+    // 讓 Rule Engine 繼續收集實體
+    return { isHandled: false };
+}
+
+// -------------------------------------------------------------
+// 🏆 修正後的新 Handler 邏輯
+// -------------------------------------------------------------
+
+// --- 9. 聯絡資訊驗證與推進 (validateContactInfo) ---
+function validateContactInfoLogic(session) {
+    const data = session.collectedData;
+    const { contactName, contactPhone, contactEmail } = data;
+
+    // 關鍵修正：檢查電話和Email。只要有電話和 Email，就視為資訊足夠，允許推進。
+    if (contactPhone && contactEmail) {
+        // 如果 contactName 缺失，賦予預設值 (避免後續 submitBooking 失敗)
+        if (!contactName) {
+            data.contactName = data.memberAccount || '未提供聯絡人姓名';
+        }
+        log('INFO', 'Contact phone and email are present, proceeding.');
+        return { isHandled: true, nextStep: 'ask_special_requests' }; 
+    } else {
+        log('WARNING', 'Missing contact phone or email. Staying in state to collect.');
+        // 返回 isHandled: false，讓 Rule Engine 繼續收集實體 (不會觸發無限 fallback)
+        return { isHandled: false }; 
+    }
+}
+
+// --- 10. 加購牌卡生成 (generateAddonsCarousel) ---
+async function generateAddonsCarouselLogic(session) {
+    const data = session.collectedData;
     
-    // 3. 其他情況 (例如：在 ask_member_password 狀態，但密碼未收集到)
-    // 讓 Rule Engine 繼續收集實體
-    return { isHandled: false };
+    try {
+        // 假設 MockAPI.getAddonList() 返回加購清單
+        const pricing = await MockAPI.getPricingDetails(data.roomType);
+        const addonsList = Object.values(pricing.addons);
+        
+        const richCardButtons = addonsList.map(addon => ({
+            text: `${addon.name} (NT$ ${addon.price})`,
+            value: `加購 ${addon.id}`, // 此值會被 NLU 識別為 addonAction 和 addonId
+            intent: 'correction' // 避免觸發affirm/skip等意圖
+        }));
+        
+        // 添加『完成』按鈕 (對應到 dialogue_flow 中的 affirm/skip 意圖)
+        richCardButtons.push({
+            text: '完成加購，進入下一步',
+            value: '完成',
+            intent: 'affirm'
+        });
+    
+        // 輸出 customRichCard，讓 Rule Engine 渲染
+        data.customRichCard = {
+            type: "button_list",
+            buttons: richCardButtons
+        };
+    
+        log('INFO', 'Addons carousel generated.');
+        // 返回 isHandled: true，表示 Handler 已經處理，Rule Engine 應發送 prompt 和 richCard
+        // nextStep 設為當前狀態，讓 Rule Engine 依賴用戶輸入
+        return { isHandled: true, nextStep: 'ask_addons' }; 
+    } catch (error) {
+        log('ERROR', 'Failed to generate addons carousel. Skipping to contact info.', error);
+        // 如果 API 失敗，直接跳過加購步驟
+        return { isHandled: true, nextStep: 'ask_contact_info' };
+    }
+}
+
+// --- 11. 執行加購操作 (executeAddonsSelection) ---
+function executeAddonsSelectionLogic(session) {
+    const data = session.collectedData;
+    const { addonAction, addonId } = data;
+    
+    // 初始化 addons 陣列
+    data.addons = data.addons || [];
+
+    if (addonAction === '加購' && addonId) {
+        if (!data.addons.includes(addonId)) {
+            data.addons.push(addonId);
+            log('INFO', `Addon ${addonId} added.`);
+            
+            // 處理完畢，導回 ask_addons，讓使用者繼續選擇
+            return { 
+                isHandled: true, 
+                nextStep: 'ask_addons', 
+                prompt: `✅ 已加購 ${addonId}。當前總價將在下一步更新。`
+            };
+        } else {
+             return { 
+                isHandled: true, 
+                nextStep: 'ask_addons', 
+                prompt: `您已加購 ${addonId}。`
+            };
+        }
+    } 
+    
+    // 如果是 affirm/skip 意圖，或沒有任何加購行為，則直接推進
+    // 注意：這個 nextStep 應與 dialogue_flow.json 中的 next_state 對齊
+    log('INFO', 'Addons selection completed or skipped. Proceeding to contact info.');
+    return { isHandled: true, nextStep: 'ask_contact_info' };
+}
+
+// --- 12. 處理特殊需求 (handleSpecialRequests) ---
+function handleSpecialRequestsLogic(session) {
+    // 這裡只需要確保流程可以推進，因為 specialRequest 實體由 Rule Engine 收集
+    log('INFO', 'Special requests handled. Proceeding to payment.');
+    return { isHandled: true, nextStep: 'ask_payment_method' };
+}
+
+
+// --- 13. 生成訂單摘要 (generateOrderSummary) ---
+function generateOrderSummaryLogic(session) {
+    const { roomType, checkInDate, nights, roomCount, finalPrice, contactName, contactPhone, contactEmail } = session.collectedData;
+    // 重新組合摘要，納入聯絡資訊
+    
+    const summary = [
+        `**預訂項目:** ${roomCount}間 ${roomType}`,
+        `**入住時間:** ${checkInDate} / ${nights}晚`,
+        `**聯絡人:** ${contactName || '未提供' }`,
+        `**電話/Email:** ${contactPhone || '未提供'} / ${contactEmail || '未提供'}`,
+        `**加購服務:** ${session.collectedData.addons && session.collectedData.addons.length > 0 ? session.collectedData.addons.join(', ') : '無'}`
+    ].join('\n');
+    
+    session.collectedData.finalSummary = summary;
+    return { isHandled: true, nextStep: 'confirm_booking' }; // 確保返回 isHandled: true 讓 Rule Engine 推進
 }
 
 
@@ -258,7 +380,7 @@ async function processGeneralInquiry(session) {
         
     } catch (error) {
         log('FATAL', 'All LLM services failed.', { error: error.message });
-        // 觸發 JSON 中的 fallback_state
+        // 觸發 JSON 中的 fallback_state
         return { isHandled: false }; 
     }
 }
@@ -267,8 +389,8 @@ async function processGeneralInquiry(session) {
 // --- 7. 最終提交 (submitBooking) ---
 async function submitBooking(session) {
     const data = session.collectedData;
-    // ... (為了簡潔，這裡省略，保留您原來的邏輯) ...
-    // 檢查關鍵數據是否齊全
+    // ... (為了簡潔，這裡省略，保留您原來的邏輯) ...
+    // 檢查關鍵數據是否齊全
     if (!data.contactName || !data.inventoryLockId || data.finalPrice <= 0) {
         log('ERROR', 'Missing critical data for submission.', data);
         if (data.inventoryLockId) {
@@ -334,31 +456,26 @@ async function unlockInventory(lockId) {
 
 
 // -------------------------------------------------------------
-// 🏆 ESM 匯出
+// 🏆 ESM 匯出 - 更新為修正後的 Handler
 // -------------------------------------------------------------
 class BookingFlowController {
-    static checkDateCompleteness = checkDateCompleteness;
-    static checkBookingEssentials = checkBookingEssentials;
-    
-    // 修正：確保 Handler 名稱與 dialogue_flow.json 一致
-    static lockInventory = lockInventoryLogic; 
-    static calculatePrice = calculatePriceLogic; 
-    static loginMemberAccount = processMemberLogin; 
-    
-    // 暫時忽略 addons 和 summary 的 Handler，讓流程順暢推進
-    static generateAddonsCarousel = (session) => ({ isHandled: false });
-    static executeAddonsSelection = (session) => ({ isHandled: true, nextStep: 'ask_contact_info' });
-    static validateContactInfo = (session) => ({ isHandled: false });
-    static handleSpecialRequests = (session) => ({ isHandled: false });
-    static generateOrderSummary = (session) => {
-        const { roomType, checkInDate, nights, roomCount, finalPrice } = session.collectedData;
-        session.collectedData.finalSummary = `房型: ${roomCount}間${roomType}\n入住: ${checkInDate} / ${nights}晚\n聯絡人: ${session.collectedData.contactName || '未提供'}\n總價: NT$ ${finalPrice}`;
-        return { isHandled: false };
-    };
+    static checkDateCompleteness = checkDateCompleteness;
+    static checkBookingEssentials = checkBookingEssentials;
+    
+    static lockInventory = lockInventoryLogic; 
+    static calculatePrice = calculatePriceLogic; 
+    static loginMemberAccount = processMemberLogin; 
+    
+    // --- 修正後的 Handler 導入 ---
+    static generateAddonsCarousel = generateAddonsCarouselLogic; 
+    static executeAddonsSelection = executeAddonsSelectionLogic;
+    static validateContactInfo = validateContactInfoLogic;
+    static handleSpecialRequests = handleSpecialRequestsLogic;
+    static generateOrderSummary = generateOrderSummaryLogic;
 
-    static processGeneralInquiry = processGeneralInquiry; 
-    static submitBooking = submitBooking; 
-    static unlockInventory = unlockInventory;
+    static processGeneralInquiry = processGeneralInquiry; 
+    static submitBooking = submitBooking; 
+    static unlockInventory = unlockInventory;
 }
 
 // 🏆 命名匯出
