@@ -248,8 +248,8 @@
             "type": "logic_exec",
             "prompt": "正在為您查詢通用資訊，請稍候...", 
             "handler": "processGeneralInquiry", 
-            "next_state": "general_inquiry_response", // 成功：跳轉到回應展示
-            "fallback_state": "handle_llm_failure" // 失敗：跳轉到容錯提示
+            "next_state": "general_inquiry_response",
+            "fallback_state": "handle_llm_failure"
         },
 
         "general_inquiry_response": {
@@ -278,7 +278,7 @@
                     {"text": "重新預訂", "value": "重新預訂", "intent": "booking"}
                 ]
             },
-            "next_state": "paused_waiting_for_resume", // 暫存狀態，讓 Rule Engine 的 P:99 規則決定恢復到哪一步
+            "next_state": "paused_waiting_for_resume",
             "fallback": "請回覆『繼續』或『重新開始』。"
         },
         
@@ -292,13 +292,12 @@
                 ]
             },
             "intents": {
-                "affirm": "", // 讓 Rule Engine 的 P:99 規則執行
+                "affirm": "",
                 "booking": "init",
                 "correction": "select_correction_target"
             },
             "fallback": "抱歉，無法恢復流程。請重新輸入『繼續』或『重新預訂』。",
             "next_state": "init"
         }
-        
     }
 }
