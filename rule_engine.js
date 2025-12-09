@@ -1,4 +1,4 @@
-// rule_engine.js (V5.9 - 穩定修正版)
+// rule_engine.js (V6.0 - 流程啟動健壯版)
 
 // ----------------------------------------------------
 // 🏆 修正 1: ESM 導入 (全部改為命名導入以避免衝突)
@@ -129,13 +129,24 @@ class RuleEngine {
     }
 
     /**
-     * ⭐ 修正 2: 確保即使沒有 Prompt 也能返回有效的 shouldProcess: true 結果
-     * @returns 統一格式的回應結構
+     * ⭐ 修正 2: 確保即使沒有 Prompt 也能返回有效的 shouldProcess: true 結果，並處理狀態缺失
+     * @returns 統一格式的回應結構 (永不返回 null)
      */
     static generateStateResponse(flow, stateKey, data, priority) {
         const state = flow.states[stateKey];
-        if (!state) return null;
         
+        // 💥 關鍵修正：狀態缺失時，返回一個有效的錯誤，而不是 null
+        if (!state) {
+            console.error(`❌ [FLOW ERROR] 嘗試導向的狀態 '${stateKey}' 在 dialogue_flow.json 中不存在！`);
+            return {
+                shouldProcess: true, 
+                priority: PRIORITY.EMERGENCY,
+                response: `系統流程配置錯誤：狀態 '${stateKey}' 缺失。請輸入『重新開始』。`,
+                nextStep: 'init',
+                allowGeminiCall: false
+            };
+        }
+
         // 檢查狀態是否有提示。如果沒有，則返回一個有效的空回應
         if (!state.prompt && !state.richCard) {
              return {
@@ -330,10 +341,13 @@ class RuleEngine {
             this.resetHandlerExecution(session);
             session.collectedData = {}; 
 
+            // 檢查 init 狀態是否存在，如果不存在則使用 fallback 文本
+            const initPrompt = flowConfig.states['init']?.prompt || "您好，請問需要訂房服務嗎？";
+
             return {
                 shouldProcess: true,
                 priority: PRIORITY.RESET_FLOW, 
-                response: this.interpolatePrompt(flowConfig.states['init'].prompt, session.collectedData),
+                response: this.interpolatePrompt(initPrompt, session.collectedData),
                 nextStep: 'init'
             };
         }
@@ -355,10 +369,12 @@ class RuleEngine {
             session.collectedData = {};
             this.resetHandlerExecution(session);
             
+            const initPrompt = flowConfig.states['init']?.prompt || "您好，請問需要訂房服務嗎？";
+
             return {
                 shouldProcess: true,
                 priority: PRIORITY.RESET_FLOW, 
-                response: this.interpolatePrompt(flowConfig.states['init'].prompt, session.collectedData),
+                response: this.interpolatePrompt(initPrompt, session.collectedData),
                 nextStep: 'init'
             };
         }
@@ -438,6 +454,10 @@ class RuleEngine {
             ) {
             
             const inquiryState = flowConfig.states['handle_general_inquiry'];
+
+            // 處理 handle_general_inquiry 狀態缺失的情況
+            if (!inquiryState) return { shouldProcess: false, priority: 0 };
+
             const userQuery = message || "您的問題";
             
             return {
@@ -492,7 +512,7 @@ class RuleEngine {
             }
             
             // ⭐ 修正 1: 確保在 init 狀態的邏輯塊內返回結果
-            return { shouldProcess: false, priority: 0 }; 
+            return { shouldProcess: false, priority: 0 }; 
         }
         
         // 2. 實體推進邏輯 (非 init 狀態)
