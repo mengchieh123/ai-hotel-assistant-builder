@@ -1,0 +1,358 @@
+const dayjs = require('dayjs');
+const MockAPI = require('./service_mock_api');
+const LLMManager = require('./llm_manager'); // 💡 新增：引入 LLMManager
+
+// --- 輔助函數：日誌記錄 ---
+function log(level, message, details = {}) {
+    const timestamp = dayjs().toISOString();
+    // 移除 details 避免 log 過度冗長，僅在 DEBUG/ERROR 使用
+    console.log(`[${timestamp}] [${level}] ${message}`); 
+    if (level === 'ERROR' || level === 'FATAL' || level === 'DEBUG') {
+        console.log('詳細資訊:', details);
+    }
+}
+
+// --- 1. 流程前置檢查 ---
+function checkDateCompleteness(session) {
+    const data = session.collectedData;
+    const { checkInDate, nights } = data;
+
+    if (checkInDate && nights && parseInt(nights) > 0) {
+        log('DEBUG', 'Date and nights are complete.');
+        return { isHandled: true, nextStep: 'ask_guest_count' };
+    }
+
+    log('WARNING', 'Date or nights missing/invalid.');
+    return {
+        isHandled: true,
+        nextStep: 'ask_nights_and_dates',
+        prompt: '請確認您的入住日期和晚數。'
+    };
+}
+
+function checkBookingEssentials(session) {
+    const data = session.collectedData;
+    const { roomType, checkInDate, nights, roomCount, adultCount } = data;
+
+    if (!roomType || !checkInDate || !nights || !roomCount || !adultCount) {
+        log('ERROR', 'Missing essential booking data.');
+        return {
+            isHandled: true,
+            prompt: '資料不完整，請從頭開始預訂。',
+            nextStep: 'init'
+        };
+    }
+
+    log('INFO', 'All booking essentials are present.');
+    return { isHandled: true, nextStep: 'lock_inventory' };
+}
+
+// --- 2. 業務邏輯：人數容量驗證 (已移除，簡化流程至 checkBookingEssentials) ---
+// 原有的 validateRoomCapacity 邏輯已被移除或簡化以符合您的 dialogue_flow.json 結構。
+// 這裡保留了 checkBookingEssentials 之後直接跳轉到 lock_inventory 的邏輯。
+
+
+// --- 3. 業務邏輯：庫存鎖定 ---
+async function lockInventoryLogic(session) {
+    const data = session.collectedData;
+    const { roomType, roomCount } = data;
+    
+    // 如果存在舊的 Lock ID，先嘗試解鎖
+    if (data.inventoryLockId) {
+        await MockAPI.unlockInventory(data.inventoryLockId);
+        delete data.inventoryLockId;
+    }
+
+    try {
+        const lockResult = await MockAPI.lockInventory(roomType, parseInt(roomCount));
+
+        if (lockResult.isLocked) {
+            log('SUCCESS', 'Inventory locked.', { lockId: lockResult.lockId });
+            data.inventoryLockId = lockResult.lockId;
+            return { isHandled: true, nextStep: 'calculate_price_logic' };
+        } else {
+            log('WARNING', 'Inventory lock failed.');
+            
+            delete data.roomCount;
+            
+            const message = `😭 **抱歉，您選擇的【${roomType}】庫存不足** (剩餘 ${lockResult.remaining} 間)。請重新選擇房型或間數。`;
+            
+            return {
+                isHandled: true,
+                prompt: message,
+                nextStep: 'show_room_types'
+            };
+        }
+    } catch (error) {
+        log('FATAL', 'Lock Inventory API Failed.', { error: error.message });
+        return {
+            isHandled: true,
+            prompt: '庫存鎖定服務異常，請稍後再試。',
+            nextStep: 'init'
+        };
+    }
+}
+
+// --- 4. 業務邏輯：價格計算 ---
+async function calculatePriceLogic(session) {
+    const data = session.collectedData;
+    const { roomType, checkInDate, nights, roomCount, adultCount, childCount, addons } = data;
+
+    try {
+        const pricing = await MockAPI.getPricingDetails(roomType);
+        const roomDetails = pricing.roomDetails;
+        if (!roomDetails) {
+            return {
+                isHandled: true,
+                prompt: '查詢房型價格失敗，請重新選擇。',
+                nextStep: 'show_room_types'
+            };
+        }
+
+        let totalPrice = 0;
+        let priceDetails = [];
+        let totalAddonCost = 0;
+        const totalGuests = parseInt(adultCount) + parseInt(childCount || 0);
+
+        // --- 1. 計算房間總價 ---
+        let currentDay = dayjs(checkInDate);
+        for (let i = 0; i < nights; i++) {
+            const isWeekend = currentDay.day() === 5 || currentDay.day() === 6;
+            const multiplier = isWeekend ? roomDetails.weekendMultiplier : 1;
+            const nightPrice = roomDetails.price * multiplier * parseInt(roomCount);
+            totalPrice += nightPrice;
+            
+            priceDetails.push({
+                date: currentDay.format('YYYY/MM/DD'),
+                price: nightPrice,
+                isWeekend: isWeekend
+            });
+            currentDay = currentDay.add(1, 'day');
+        }
+
+        // --- 2. 計算加購服務總價 ---
+        if (addons && addons.length > 0) {
+            const allAddons = pricing.addons;
+            for (const addonId of addons) {
+                const addonItem = allAddons[addonId];
+                if (addonItem) {
+                    let cost = addonItem.price;
+                    if (addonItem.isPerNight) {
+                        cost *= nights;
+                    }
+                    if (addonItem.type === 'per_person') {
+                        cost *= totalGuests;
+                    }
+                    
+                    totalAddonCost += cost;
+                }
+            }
+        }
+        
+        // --- 3. 應用服務費/稅費 (假設為 5% 總價) ---
+        const serviceFee = (totalPrice + totalAddonCost) * 0.05;
+
+        // --- 4. 最終價格 ---
+        let finalPrice = totalPrice + totalAddonCost + serviceFee;
+        
+        // 5. 會員折扣 (假設登入成功)
+        if (data.isLoggedIn) {
+             finalPrice *= 0.95; // 95 折
+        }
+
+        Object.assign(data, {
+            totalPrice: Math.round(totalPrice),
+            childCost: 0,
+            serviceFee: Math.round(serviceFee),
+            finalPrice: Math.round(finalPrice),
+            priceDetails: priceDetails
+        });
+
+        log('INFO', `Price calculated: NT$${data.finalPrice}`);
+        return {
+            isHandled: true,
+            // 注意：這裡的 nextStep 在您的 dialogue_flow.json 中是 ask_member_login
+            nextStep: 'ask_member_login' 
+        };
+
+    } catch (error) {
+        log('ERROR', 'Price calculation failed:', error);
+        return {
+            isHandled: true,
+            prompt: '價格計算服務暫時故障，請稍後再試。',
+            nextStep: 'init'
+        };
+    }
+}
+
+// --- 5. 會員/登入邏輯 ---
+async function processMemberLogin(session) {
+    const data = session.collectedData;
+    const { memberAccount, memberPassword } = data;
+
+    // 如果只需輸入帳號 (memberAccount 存在但 memberPassword 不存在)
+    if (memberAccount && !memberPassword) {
+        return { isHandled: false }; // 等待密碼輸入
+    }
+
+    if (!memberAccount || !memberPassword) {
+        // 如果兩個都缺少 (例如用戶跳過了 login_member_account 狀態)
+        return { isHandled: false };
+    }
+
+    try {
+        const loginResult = await MockAPI.verifyMember(memberAccount, memberPassword);
+
+        if (loginResult.isSuccessful) {
+            data.isLoggedIn = true;
+            log('SUCCESS', 'Member logged in.');
+            // 登入成功後跳轉回計算價格，以應用折扣
+            return {
+                isHandled: true,
+                prompt: `會員 ${memberAccount} 登入成功！您本次預訂享有 95 折優惠。`,
+                nextStep: 'calculate_price_logic' 
+            };
+        } else {
+            data.isLoggedIn = false;
+            log('WARNING', 'Member login failed.');
+            delete data.memberPassword;
+            return {
+                isHandled: true,
+                prompt: '帳號或密碼錯誤，請重新輸入。若要跳過請輸入「跳過」。',
+                nextStep: 'login_member_account'
+            };
+        }
+    } catch (error) {
+        log('FATAL', 'Member API Service Failed.', { error: error.message });
+        return {
+            isHandled: true,
+            prompt: '會員驗證服務異常，請直接進行預訂。',
+            nextStep: 'ask_addons' // 跳過會員步驟
+        };
+    }
+}
+
+// --- 6. 通用查詢邏輯 (LLM 備援) ---
+async function processGeneralInquiry(session) {
+    const data = session.collectedData;
+    // 從 Rule Engine 傳遞的 session.currentState.data 中獲取用戶輸入
+    const { user_query } = session.currentState.data; 
+
+    if (!user_query) {
+        log('ERROR', 'General inquiry called without user query.');
+        return { isHandled: false };
+    }
+
+    try {
+        // 呼叫 LLM Manager，執行 LLM 優先級切換和容錯邏輯
+        const llmResult = await LLMManager.getGeneralAnswer(user_query, data);
+
+        // 將 LLM 的結果和來源存入 session data，供 dialogue_flow.json 中的提示詞使用
+        data.llm_response = llmResult.response;
+        data.llm_source = llmResult.source; 
+
+        log('SUCCESS', 'LLM Inquiry handled.', { source: llmResult.source });
+
+        // 成功處理：推進到 general_inquiry_response 狀態 (由 dialogue_flow.json 定義)
+        return { isHandled: true, nextStep: 'general_inquiry_response' };
+        
+    } catch (error) {
+        // LLM Manager 拋出錯誤 (GemINI 和 Hugging Face 都失敗)
+        log('FATAL', 'All LLM services failed.', { error: error.message });
+
+        // 失敗處理：返回 isHandled: false，讓 dialogue_flow.json 根據 fallback_state (handle_llm_failure) 處理
+        return { isHandled: false }; 
+    }
+}
+
+
+// --- 7. 最終提交 (Handler: submitBooking) ---
+// ⚠️ 註：原程式碼中只有 handleBookingConfirmation，此處假定 submitBooking 函數名即為此函數
+async function submitBooking(session) {
+    const data = session.collectedData;
+    // 檢查關鍵數據是否齊全
+    if (!data.contactName || !data.inventoryLockId || data.finalPrice <= 0) {
+        log('ERROR', 'Missing critical data for submission.', data);
+        if (data.inventoryLockId) {
+            // 提交失敗時釋放庫存
+            await MockAPI.unlockInventory(data.inventoryLockId);
+            delete data.inventoryLockId;
+        }
+        return {
+            isHandled: true,
+            prompt: '資料不完整或價格計算有誤，無法提交訂單。',
+            nextStep: 'init'
+        };
+    }
+
+    try {
+        const result = await MockAPI.submitBooking(data);
+
+        if (result.success) {
+            log('SUCCESS', 'Booking submitted.', { bookingId: result.bookingId });
+            // 訂單完成後清空數據
+            // session.collectedData = {}; 
+            // 這裡不清空，讓 prompt 能夠使用 {finalPrice} 和 {orderId}
+            data.orderId = result.bookingId;
+            data.paymentMessage = data.paymentMethod === '現場支付' ? 
+                                 '請在入住時支付。' : 
+                                 '支付連結已發送至您的信箱。';
+            
+            return {
+                isHandled: true,
+                nextStep: 'booking_complete' // 讓流程推進到最終狀態
+            };
+        } else {
+            log('WARNING', 'Booking submission failed.', result);
+            return {
+                isHandled: true,
+                prompt: `提交訂單失敗：${result.message}。請重新開始預訂。`,
+                nextStep: 'init'
+            };
+        }
+    } catch (error) {
+        log('FATAL', 'Submit Booking API Failed.', { error: error.message });
+        return {
+            isHandled: true,
+            prompt: '提交訂單服務異常，請聯絡客服。',
+            nextStep: 'init'
+        };
+    }
+}
+
+// --- 8. 庫存保護：解鎖 ---
+async function unlockInventory(lockId) {
+    if (!lockId) {
+        log('WARNING', 'Attempted to unlock inventory without a valid ID.');
+        return;
+    }
+
+    try {
+        log('INFO', `Attempting to unlock inventory lock ID: ${lockId}`);
+        await MockAPI.unlockInventory(lockId);
+        log('SUCCESS', `Inventory lock ID ${lockId} released.`);
+    } catch (error) {
+        log('ERROR', `Failed to unlock inventory ${lockId}.`, { error: error.message });
+    }
+}
+
+
+// -------------------------------------------------------------
+// 導出所有 Handler (確保與 dialogue_flow.json 中的 handler 名稱一致)
+// -------------------------------------------------------------
+module.exports = {
+    checkDateCompleteness,
+    checkBookingEssentials,
+    lockInventory: lockInventoryLogic, // 您的 json 中是 lock_inventory，Handler 需對應
+    calculatePrice: calculatePriceLogic, // 您的 json 中是 calculate_price_logic
+    loginMemberAccount: processMemberLogin, // 您的 json 中是 login_member_account
+    // 這裡缺少 generateAddonsCarousel, executeAddonsSelection, validateContactInfo, 
+    // handleSpecialRequests, generateOrderSummary (請確保您在專案中已添加這些)
+
+    // 💡 LLM 通用查詢
+    processGeneralInquiry, 
+    
+    // 最終提交
+    submitBooking, 
+    unlockInventory
+};
