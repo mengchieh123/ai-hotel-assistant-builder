@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
     "version": "2.1_Fixed_Flow",
-    "description": "V2.1 修正版：修復 RichCard 殘留、聯絡資訊檢查、付款方式生成及流程回歸邏輯。",
+    "description": "V2.1 修正版：修復聯絡資訊收集流程、付款方式生成及通用查詢回歸邏輯。",
     "initial_state": "init",
     "states": {
         "init": {
@@ -12,7 +12,7 @@
                 "contactName", "contactPhone", "contactEmail", "specialRequest",
                 "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons",
                 "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
-                "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee"
+                "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee", "pauseState"
             ],
             "entities": ["adultCount", "childCount", "roomCount", "checkInDate", "nights"],
             "rules": [
@@ -128,14 +128,22 @@
             "fallback_state": "login_member_account"
         },
         "ask_member_password": {
+            "type": "entity_collection",
+            "prompt": "請輸入您的會員密碼。",
+            "entities": ["memberPassword"],
+            "next_state": "perform_member_login",
+            "fallback": "請輸入您的密碼。",
+            "intents": {
+                "skip": "ask_addons"
+            }
+        },
+        "perform_member_login": {
             "type": "logic_exec",
             "handler": "loginMemberAccount",
-            "prompt": "請輸入您的會員密碼。",
-            "entities": ["memberPassword", "rawNumber"],
-            "fallback": "密碼錯誤，請重新輸入，或回覆『跳過』。",
             "next_state": "calculate_price_logic",
+            "fallback": "密碼錯誤，請重新輸入，或回覆『跳過』。",
             "fallback_state": "ask_member_password",
-            "intents": {
+            "intents": {
                 "skip": "ask_addons"
             }
         },
@@ -172,7 +180,7 @@
         },
         "calculate_price_logic_after_addons": {
             "type": "logic_exec",
-            "handler": "calculatePriceAfterAddons",
+            "handler": "calculatePrice",
             "next_state": "ask_contact_info",
             "fallback_state": "ask_addons"
         },
@@ -212,6 +220,13 @@
             "type": "logic_exec",
             "handler": "generateOrderSummary",
             "prompt": "請確認您的訂單摘要：\n{finalSummary}\n\n最終總價: **NT$ {finalPrice}**\n\n是否確認送出訂單？",
+            "richCard": {
+                "type": "button_list",
+                "buttons": [
+                    {"text": "確認送出", "value": "確認送出", "intent": "affirm"},
+                    {"text": "修改資訊", "value": "修改資訊", "intent": "correction"}
+                ]
+            },
             "intents": {
                 "affirm": "booking_complete",
                 "correction": "select_correction_target"
@@ -305,12 +320,19 @@
                 ]
             },
             "intents": {
-                "affirm": "ask_addons",
+                "affirm": "resume_from_pause",
                 "booking": "init",
                 "correction": "select_correction_target"
             },
             "fallback": "抱歉，無法恢復流程。請重新輸入『繼續』或『重新預訂』。",
             "next_state": "init"
-        }
+        },
+        "resume_from_pause": {
+            "type": "logic_exec",
+            "handler": "resumeFromPause",
+            "prompt": "正在為您恢復訂房流程...",
+            "next_state": "ask_addons",
+            "fallback_state": "ask_member_login"
+        }
     }
 }
