@@ -1,4 +1,4 @@
-// session_manager.js (V1.18 - 最終版，與 RuleEngine V4.2 架構兼容)
+// session_manager.js (V1.19 - 最終 ESM 修正版)
 
 /**
  * 模擬一個 FlowLoader 最小化接口，以確保服務能載入並啟動。
@@ -30,11 +30,11 @@ class SessionManager {
                 conversationHistory: [],
                 lastActive: new Date().getTime(),
                 pausedState: null,
-                executedHandlers: {}, // V4.2 依賴此屬性追蹤 Handler 執行狀態
-                previousStep: null, // 用於通用查詢後恢復流程
+                executedHandlers: {}, 
+                previousStep: null, 
                 tempQuery: null, 
                 lastIntent: null,
-                handlerExecutedStates: [] // 防禦性兼容
+                handlerExecutedStates: [] 
             });
             console.log(`[SESSION] New session created: ${sessionId}`);
         }
@@ -92,7 +92,7 @@ class SessionManager {
             session.previousStep = null;
             session.tempQuery = null;
             session.lastIntent = null;
-            session.handlerExecutedStates = []; // 清除 RuleEngine 追蹤
+            session.handlerExecutedStates = []; 
             session.conversationHistory = []; 
         }
     }
@@ -118,4 +118,5 @@ class SessionManager {
 // 導出 SessionManager 的單例實例 (Singleton)
 const sessionManager = new SessionManager();
 
-module.exports = sessionManager;
+// 🏆 修正：將 CommonJS 匯出 (module.exports) 替換為 ESM 命名匯出
+export { sessionManager };
