@@ -1,9 +1,12 @@
-// rule_engine.js (V5.7 - JSON 穩定載入修正版)
+// rule_engine.js (V5.8 - 最終穩定版)
 
 // 🏆 ESM 導入：將所有 require() 替換為 import
 import sessionManager from './session_manager.js';
 import SmartIntentClassifier from './intent_classifier.js';
-import BookingFlowController from './booking_controller.js'; 
+
+// 🚨 修正：將 'BookingFlowController' 的預設導入改為命名導入
+// 假設 booking_controller.js 是使用 'export class BookingFlowController' 或 'export { BookingFlowController }'
+import { BookingFlowController } from './booking_controller.js'; 
 
 // 🏆 導入 Node.js 內建模組
 import path from 'path';
@@ -16,7 +19,7 @@ const __dirname = path.dirname(__filename);
 // ----------------------------------------------------
 
 
-// 載入 Flow Config - 🏆 修正: 使用同步 FS 載入 JSON
+// 載入 Flow Config - 🏆 修正: 使用同步 FS 載入 JSON (解決 assert 錯誤)
 let flowConfig;
 try {
     const flowPath = path.join(__dirname, 'dialogue_flow.json');
