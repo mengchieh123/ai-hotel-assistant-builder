@@ -1,93 +1,80 @@
-🏨 AI 酒店訂房助理 (Hotel Booking Assistant)
+# 旅萌大酒店 AI 訂房系統 (Hotel Booking AI System)
 
-專案概述 (Project Overview)
-AI 酒店訂房助理是一個基於
-**規則引擎（Rule Engine）
-**與 大型語言模型（LLM, Gemini） 協同運作的對話式應用程式。
-它旨在提供一個高效、穩定且人性化的訂房體驗，能夠處理複雜的多步驟交易流程，同時利用生成式 AI 來處理用戶的非結構化查詢和特殊要求。
+## 💡 專案概述
 
-前端測試連結：https://ai-hotel-assistant-builder.onrender.com/
+本系統旨在提供一個高度穩定、可配置的對話式 AI 介面，以實現端到端的酒店訂房服務。系統核心由 **Rule Engine** 驅動，結合後端 **Handler** 服務，提供精準的狀態追蹤與業務邏輯處理，確保用戶從查詢到訂單提交的順暢體驗。
 
-核心功能:
+---
 
-多步驟訂房流程： 依序收集房型、日期、人數、會員資訊、加購服務和聯絡資訊。
+## 🛠️ 系統架構 (System Architecture)
 
-精確的業務邏輯： 內建房價計算、空房檢查、會員折扣和服務費用計算（如早餐、接送機）。
+本系統採三層架構設計：
 
-智慧閒聊與協作： 在流程間隙或用戶提出非流程性問題（如「嬰兒床」、「早餐在哪吃」）時，自動切換到 Gemini AI 進行處理和回應。
+1.  **使用者介面 (Frontend/Channel)**：接收用戶輸入。
+2.  **對話管理層 (Rule Engine Core)**：處理自然語言理解 (NLU) 與流程狀態管理。
+3.  **業務邏輯層 (Backend Handlers/APIs)**：執行關鍵業務操作和數據查詢。
 
-流程暫停與恢復： 允許用戶隨時暫停訂房流程進行資訊查詢，然後無縫返回上一個步驟。
+### 核心組成部分
 
-系統架構 (System Architecture)
-本系統的核心架構基於三層協作模型，確保了交易穩定性與對話彈性。
+| 組成部分 | 關鍵技術 | 職責 |
+| :--- | :--- | :--- |
+| **Rule Engine** | `dialogue_flow.json` (JSON) | **對話核心**。負責狀態機的推進、意圖 (Intent) 識別、實體 (Entity) 收集，以及定義流程的轉移規則。 |
+| **NLU Module** | (外部或內建分類器) | 將用戶的自然語言輸入分類為流程中定義的 Intent 和 Entity。 |
+| **Handlers** | (業務服務層) | 處理複雜業務邏輯，例如：價格計算、庫存鎖定、資料驗證、API 呼叫。 |
+| **Backend API** | (庫存/訂單系統) | 提供即時庫存、會員服務、支付處理、訂單提交等關鍵數據與服務。 |
 
-組件名稱	檔案	職責 (Responsibility)	協作類型
-對話流程配置	dialogue_flow.json	定義所有對話狀態、轉移路徑、實體需求和標準提示語。	靜態配置
-規則引擎核心	rule_engine.js	執行核心決策邏輯，管理規則優先級（緊急 > 流程 > 閒聊），並決定是否呼叫 AI。	業務邏輯
-流程控制器	booking_controller.js	處理所有業務交易邏輯：價格計算、會員折扣應用、空房模擬檢查及最終訂單提交。	交易處理
-意圖與實體識別	intent_classifier.js	將用戶輸入分類為特定的訂房意圖 (booking, affirm, deny) 並提取關鍵實體 (roomType, checkInDate, 等)。	輸入解析
-AI 生成器	gemini_generator.js	負責與 Gemini API 互動，處理通用查詢和非結構化問題，提供人性化的回覆。	內容生成
-快速開始 (Getting Started)
-預先準備 (Prerequisites)
+---
 
-Node.js (推薦 v18+)
+## ⚙️ 核心流程機制
 
-Gemini API Key (用於 gemini_generator.js)
+### 1. 狀態機 (State Machine)
 
-專案安裝 (Installation)
+流程定義於 `dialogue_flow.json`。每個 State 定義了：
+* **`type`**：`entity_collection` (收集實體), `logic_exec` (執行 Handler), `prompt` (提示/結束)。
+* **`next_state`**：成功時的跳轉目標。
+* **`fallback_state`**：當 NLU 或 Handler 失敗時的明確回彈點 (**V1.20 穩定版的核心增強點**)。
 
-Bash
-# 複製專案
-git clone [您的專案連結]
-cd [專案目錄]
+### 2. 實體與意圖 (Entities & Intents)
 
-# 安裝依賴
-npm install
+* **關鍵實體 (Entities)**：`checkInDate`, `nights`, `roomType`, `contactName`, `finalPrice` 等，用於追蹤訂單數據。
+* **關鍵意圖 (Intents)**：`booking` (開始預訂), `affirm` (確認), `skip` (跳過), `login` (登入), `correction` (修改)。
 
-# 設定環境變數
-# 在專案根目錄建立 .env 檔案，並填入您的 API Key
-echo "GEMINI_API_KEY='YOUR_API_KEY_HERE'" > .env
-運行專案 (Running the Project)
+### 3. Handler 邏輯執行 (Logic Execution)
 
-Bash
-# 啟動應用程式 (例如使用 Express.js 伺服器)
-npm start
-核心流程邏輯說明
-rule_engine.js 採用優先級處理模型，確保系統的穩定性。
+Handler 負責與後端服務進行數據交換，主要分為兩大類：
 
-1. 規則優先級
+| Handler 類型 | 範例 Handler | 描述 |
+| :--- | :--- | :--- |
+| **資料驗證/流程控制** | `checkDateCompleteness`, `validateContactInfo` | 驗證輸入的有效性，控制流程的轉向。 |
+| **關鍵交易/API 呼叫** | `lockInventory`, `calculatePrice`, `submitBooking` | 呼叫後端 API，執行房型鎖定、價格計算和最終訂單提交。 **(當靜態資料無法支援時，則調用此類 API)** |
 
-優先級	規則名稱	描述
-P:100	emergencyRule	處理如「救命」、「緊急」等關鍵字，立即中斷流程。
-P:99	bookingFlowRule (恢復)	處理從暫停狀態 (paused_waiting_for_resume) 恢復訂房的指令。
-P:98	bookingFlowRule (暫停)	識別到用戶在流程中提出查詢，將當前狀態存入 pausedState 並進入暫停。
-P:95	bookingFlowRule (轉移/Fallback)	驅動流程前進，進行狀態轉移、實體收集檢查，並處理流程內的錯誤或 Fallback。
-P:1	generalRule	處理所有未被高優先級規則捕獲的輸入，將請求導向 Gemini AI 進行閒聊或特殊處理。
-2. 特殊業務邏輯 (在 bookingFlowRule 內觸發)
+---
 
-加購服務邏輯： 在進入 ask_transfer_service 之前，系統會根據用戶對早餐的選擇，計算 mealPrice 並將其納入 totalPrice。
+## 🛡️ V1.20_Stable 版本重點增強 (Stability & Robustness)
 
-接送機邏輯： 根據用戶在 ask_transfer_service 和 collect_transfer_details 中的回覆，在最終價格計算前更新 transferFee。
+V1.20 版本的重點是解決流程中的「**無預警回彈**」和「**實體數據污染**」問題，從而大幅提升系統的健壯性。
 
-最終確認： 在進入 confirm_booking 狀態時，系統會調用 generateSummary 函數，動態生成包含所有費用細項的 Markdown 訂單摘要。
+| 改善項目 | 實作細節 | 影響範圍 |
+| :--- | :--- | :--- |
+| **強化 Fallback 機制** | 在所有 `logic_exec` 狀態 (如 `ask_contact_info`) 設置明確的 `fallback_state`。 | 確保 Handler 執行失敗時，流程穩定停留在當前狀態，要求用戶重試，而非回彈至 `init`。 |
+| **清除實體數據** | 擴大 `init` 狀態中的 `clear_entities` 列表。 | 解決實體殘留 (Stale Entity) 問題，確保每次新訂單從「乾淨」的狀態開始。 |
+| **登入流程穩定** | 修正 `login_member_account` 和 `ask_member_password` 的跳轉邏輯。 | 提升會員登入環節的穩定性，優化跳過登入至加購服務的路徑。 |
 
-配置與維護 (Configuration and Maintenance)
-狀態管理 (dialogue_flow.json)
+---
 
-所有狀態配置皆在此檔案中維護：
+## 📘 系統操作與部署
 
-修改提示語： 更改 prompt 欄位。
+### 前置要求
+* [列出所需的環境或框架，例如 Node.js / Python Runtime]
+* 後端 Booking API 服務需正常運行。
 
-調整按鈕： 更改 richCard 內的 buttons 陣列。
+### 部署步驟
+1.  **Clone 專案：** `git clone [https://github.com/mengchieh123/ai-hotel-assistant-builder/]`
+2.  前端測試網址：https://ai-hotel-assistant-builder.onrender.com/
+3.  **配置 Rule Engine：** 將 `dialogue_flow.json` 載入 Rule Engine 伺服器。
+4.  **配置 Handlers：** 確保所有 Handler 服務已部署並正確配置 API 呼叫路徑。
+5.  **啟動服務：** 執行 Rule Engine 服務和 Handler 服務。
 
-變更流程順序： 更改 next_state 欄位。
-
-業務邏輯 (booking_controller.js)
-
-所有價格、折扣、空房庫存和業務規則的調整應在此檔案中進行。例如，修改早餐價格或更改兒童免費年齡。
-
-AI 知識庫 (gemini_generator.js)
-
-如果需要調整 AI 的角色扮演、語氣或提供特定的業務知識（如酒店設施、周邊景點介紹），應修改傳遞給 Gemini 的 System Instruction (系統指令)。
-
-感謝您參與構建這個強大的 AI 酒店訂房助理！
+### 貢獻與除錯
+* **Bug 報告：** 請附上 **Session ID** 和詳細的 **DEBUG 日誌**。
+* **除錯原則：** 優先檢查 `fallback_state` 設定，確保沒有流程無頭狀態。
