@@ -1,14 +1,36 @@
-// llm_manager.js (V1.2 - LLM 優先級切換與容錯)
+// llm_manager.js (V1.3 - 使用動態導入解決 CJS/ESM 衝突)
 
 const axios = require('axios');
-const { GoogleGenAI } = require('@google/genai');
+// ❌ 移除: const { GoogleGenAI } = require('@google/genai');
 
 // --- 🔑 API 密鑰與 Client 初始化 ---
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
-const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY; 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY; 
 
-// 初始化 Gemini Client：如果密鑰不存在，ai 會是 null，呼叫時會被捕獲並觸發容錯
-const ai = GEMINI_API_KEY ? new GoogleGenAI({apiKey: GEMINI_API_KEY}) : null;
+// ai 變數現在將儲存一個承諾 (Promise) 或 null
+let ai = null;
+
+// --- 輔助函數：異步初始化 Gemini Client ---
+async function initializeGeminiClient() {
+    if (!GEMINI_API_KEY) {
+        return null;
+    }
+    try {
+        // 🚀 使用動態導入解決 require/import 衝突
+        const { GoogleGenAI } = await import('@google/genai');
+        console.log("✅ Gemini Client 成功載入 (透過動態導入)。");
+        return new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    } catch (error) {
+        console.error("💥 Gemini 函式庫載入失敗 (動態導入錯誤):", error.message);
+        return null;
+    }
+}
+
+// 在模組載入時，異步初始化 Client
+initializeGeminiClient().then(client => {
+    ai = client;
+});
+
 
 // --- 配置區 ---
 const LLM_PRIORITY = {
@@ -27,9 +49,10 @@ class LLMManager {
      * @returns {Promise<{response: string, source: string}>}
      */
     static async callGemini(query, context) {
-        if (!ai) {
+        // 確保 ai 已經被異步初始化完成
+        if (ai === null) {
             // 如果 Client 未初始化，直接拋出錯誤，讓容錯機制切換到備用 LLM
-            throw new Error("Gemini Client 未初始化，請檢查 GEMINI_API_KEY。");
+            throw new Error("Gemini Client 未初始化或初始化失敗，請檢查 GEMINI_API_KEY。");
         }
         
         console.log("➡️ 呼叫 LLM: Gemini API");
@@ -55,7 +78,7 @@ class LLMManager {
             const textResponse = response.text;
             
             if (!textResponse) {
-                 throw new Error("Gemini API 返回了空內容。");
+                throw new Error("Gemini API 返回了空內容。");
             }
             
             return { 
@@ -72,9 +95,7 @@ class LLMManager {
 
     /**
      * 呼叫 Hugging Face LLM (透過 Inference API) (備用)
-     * @param {string} query 使用者問題
-     * @param {object} context 會話數據 (collectedData)
-     * @returns {Promise<{response: string, source: string}>}
+     * [此函數保持不變，因為它只依賴 axios (CJS)]
      */
     static async callHuggingFace(query, context) {
         if (!HUGGINGFACE_API_KEY) {
@@ -83,35 +104,31 @@ class LLMManager {
         
         console.log("➡️ 呼叫 LLM: HuggingFace LLM (備用)");
 
-        // 讀取 Render 中設置的 Endpoint URL
-        const hfApiEndpoint = process.env.HUGGINGFACE_API_ENDPOINT; 
+        const hfApiEndpoint = process.env.HUGGINGFACE_API_ENDPOINT; 
         
         if (!hfApiEndpoint) {
              throw new Error("Hugging Face API Endpoint 未設置。");
         }
 
-        // 構造請求 Body：傳入問題和參數
         const requestBody = {
             inputs: `你是旅館聊天機器人。請簡潔地回答此問題：${query}。上下文數據：${JSON.stringify(context)}`,
-            parameters: { 
+            parameters: { 
                 max_new_tokens: 256,
-                temperature: 0.7 
+                temperature: 0.7 
             }
         };
 
         try {
             const apiResponse = await axios.post(hfApiEndpoint, requestBody, {
                 headers: {
-                    // 使用 Access Token 進行授權
                     'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
                     'Content-Type': 'application/json'
                 },
-                timeout: LLM_TIMEOUT 
+                timeout: LLM_TIMEOUT 
             });
             
             let textResponse = '';
             
-            // 處理 Hugging Face Inference API 的常見響應格式
             if (Array.isArray(apiResponse.data) && apiResponse.data[0]?.generated_text) {
                  textResponse = apiResponse.data[0].generated_text;
             } else if (apiResponse.data.generated_text) {
@@ -133,7 +150,7 @@ class LLMManager {
     }
 
     /**
-     * 核心切換與容錯邏輯：優先嘗試主要 LLM，失敗後自動切換到備用 LLM。
+     * 核心切換與容錯邏輯：保持不變
      */
     static async getGeneralAnswer(query, sessionData) {
         let result = null;
