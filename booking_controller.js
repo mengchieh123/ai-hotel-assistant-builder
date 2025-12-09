@@ -1,6 +1,5 @@
-// booking_controller.js (V6.0 - 最終優化版)
+// booking_controller.js (V7.0 - 最終穩健版)
 
-// 🏆 ESM 導入
 import dayjs from 'dayjs';
 import { MockAPI } from './service_mock_api.js'; 
 import { LLMManager } from './llm_manager.js'; 
@@ -17,16 +16,55 @@ function log(level, message, details = {}) {
 }
 
 // -------------------------------------------------------------
-// I. 流程前置檢查與實體補齊 (Handlers for Logic_Exec)
+// I. 輔助/流程控制 Handler
 // -------------------------------------------------------------
 
-// --- 1. 流程前置檢查 (checkDateCompleteness) ---
+// --- 1. 庫存解鎖 (unlockInventory) ---
+// 🚨 修正：確保 data 存在，且 inventoryLockId 存在才執行解鎖
+async function unlockInventory(session) {
+    // 防禦性檢查 collectedData
+    const data = session.collectedData || {}; 
+    
+    if (data.inventoryLockId) {
+        try {
+            await MockAPI.unlockInventory(data.inventoryLockId);
+            log('INFO', `Inventory lock ${data.inventoryLockId} released.`);
+        } catch (error) {
+            log('ERROR', `Failed to release inventory lock ${data.inventoryLockId}.`, error);
+        }
+        delete data.inventoryLockId;
+    } else {
+        log('INFO', 'Attempted to unlock inventory, but inventoryLockId was not found in data.');
+    }
+    return { isHandled: true }; 
+}
+
+// --- 2. 處理全局取消 (handleCancellationLogic) ---
+async function handleCancellationLogic(session) {
+    // 呼叫解鎖庫存
+    await unlockInventory(session); 
+    
+    // 清除所有已收集的數據
+    session.collectedData = {}; 
+    
+    log('INFO', 'Global cancellation executed. Data cleared.');
+    return {
+        isHandled: true,
+        prompt: '您的預訂已取消。感謝您的使用，期待下次為您服務！',
+        nextStep: 'init' // 導回初始狀態
+    };
+}
+
+
+// -------------------------------------------------------------
+// II. 流程前置檢查與實體補齊
+// -------------------------------------------------------------
+
+// --- 3. 流程前置檢查 (checkDateCompleteness) ---
 function checkDateCompleteness(session) {
     const data = session.collectedData;
     let { checkInDate, nights } = data;
     
-    // 🚨 這裡應有日期實體救援邏輯，但為簡化省略
-
     if (checkInDate && nights && parseInt(nights) > 0) {
         const today = dayjs().startOf('day');
         if (dayjs(checkInDate).isBefore(today)) {
@@ -37,7 +75,9 @@ function checkDateCompleteness(session) {
                 prompt: '入住日期必須是今日或未來日期，請重新輸入。'
             };
         }
-        // 🚨 優化點：日期驗證成功，導向檢查人數
+        if (!data.adultCount) {
+             data.adultCount = 1; // 預設 1 位成人
+        }
         return { isHandled: true, nextStep: 'set_default_child_count' };
     }
 
@@ -49,24 +89,23 @@ function checkDateCompleteness(session) {
 }
 
 
-// --- 2. 實體補齊：自動設定兒童數 (setDefaultChildCount) ---
+// --- 4. 實體補齊：自動設定兒童數 (setDefaultChildCount) ---
 function setDefaultChildCount(session) {
     const data = session.collectedData;
-    // 🚨 優化點：如果只有大人數，將兒童數補齊為 0
+    
     if (data.adultCount && data.childCount === null) {
         data.childCount = 0;
         log('INFO', 'childCount 實體自動補齊為 0。');
     }
     
     if (data.adultCount) {
-        // 人數齊全，導向問房型 (在 ask_room_type 之前應先取得可用房型列表)
         return { isHandled: true, nextStep: 'ask_room_type' };
     }
     return { isHandled: true, nextStep: 'ask_guest_count' };
 }
 
 
-// --- 3. 流程前置檢查 (checkBookingEssentials) ---
+// --- 5. 流程前置檢查 (checkBookingEssentials) ---
 function checkBookingEssentials(session) {
     const data = session.collectedData;
     const { roomType, checkInDate, nights, roomCount, adultCount } = data;
@@ -85,10 +124,10 @@ function checkBookingEssentials(session) {
 }
 
 // -------------------------------------------------------------
-// II. 業務邏輯 (Handlers for API & Calculation)
+// III. 業務邏輯 (API & Calculation)
 // -------------------------------------------------------------
 
-// --- 4. 業務邏輯：庫存鎖定 (lockInventory) ---
+// --- 6. 業務邏輯：庫存鎖定 (lockInventory) ---
 async function lockInventoryLogic(session) {
     const data = session.collectedData;
     const { roomType, roomCount } = data;
@@ -101,10 +140,9 @@ async function lockInventoryLogic(session) {
             log('INFO', `Inventory locked: ${lockResult.lockId}`);
             return { isHandled: true, nextStep: 'calculate_price_logic' };
         } else {
-            // 🚨 優化點：庫存鎖定失敗，返回房型選擇或日期調整
             return { 
                 isHandled: true, 
-                nextStep: 'ask_room_type', // 重新選擇房型/數量
+                nextStep: 'ask_room_type', 
                 prompt: `抱歉，您選擇的 ${roomType} x ${roomCount} 間目前庫存不足，剩餘 ${lockResult.remaining} 間。請調整房型或數量。`
             };
         }
@@ -118,10 +156,14 @@ async function lockInventoryLogic(session) {
     }
 }
 
-// --- 5. 業務邏輯：價格計算 (calculatePrice) ---
+// --- 7. 業務邏輯：價格計算 (calculatePrice) ---
 async function calculatePriceLogic(session) {
     const data = session.collectedData;
-    const { roomType, checkInDate, nights, roomCount, adultCount, childCount, addons } = data;
+    const { roomType, checkInDate, nights, roomCount, adultCount } = data;
+    
+    // 🚨 修正：防禦性地初始化 data.addons，避免 .includes 錯誤 (錯誤 1 修正)
+    data.addons = data.addons || []; 
+    const addons = data.addons; 
     
     try {
         const pricing = await MockAPI.getPricingDetails(roomType);
@@ -129,7 +171,7 @@ async function calculatePriceLogic(session) {
         let totalPrice = 0;
         let priceDetails = [];
         let totalAddonCost = 0;
-        const totalGuests = parseInt(adultCount) + parseInt(childCount || 0);
+        const totalGuests = parseInt(adultCount) + parseInt(data.childCount || 0);
 
         // --- 1. 計算房間總價 (原價) ---
         let currentDay = dayjs(checkInDate);
@@ -142,8 +184,8 @@ async function calculatePriceLogic(session) {
             currentDay = currentDay.add(1, 'day');
         }
 
-        // --- 2. 計算加購服務總價 (在 calculatePriceLogic_after_addons 狀態才計入) ---
-        if (session.currentState.includes('after_addons') && addons && addons.length > 0) {
+        // --- 2. 計算加購服務總價 ---
+        if (session.currentState.includes('after_addons') && addons.length > 0) {
             const allAddons = pricing.addons;
             for (const addonId of addons) {
                 const addonItem = allAddons[addonId];
@@ -156,10 +198,10 @@ async function calculatePriceLogic(session) {
             }
         }
         
-        // --- 3. 服務費/稅費 (基於原價+加購) ---
+        // --- 3. 服務費/稅費 ---
         const serviceFee = (totalPrice + totalAddonCost) * 0.05;
 
-        // --- 4. 最終價格 (含服務費/稅費) ---
+        // --- 4. 最終價格 ---
         let finalPrice = totalPrice + totalAddonCost + serviceFee;
         
         // --- 5. 會員折扣 (在 calculatePriceLogic_after_login 狀態才應用) ---
@@ -168,29 +210,28 @@ async function calculatePriceLogic(session) {
         }
 
         Object.assign(data, {
-            roomBasePrice: Math.round(totalPrice), // 紀錄房間原價
-            totalAddonCost: Math.round(totalAddonCost), // 紀錄加購總價
+            roomBasePrice: Math.round(totalPrice), 
+            totalAddonCost: Math.round(totalAddonCost), 
             serviceFee: Math.round(serviceFee),
             finalPrice: Math.round(finalPrice),
             priceDetails: priceDetails
         });
 
-        // 🚨 根據當前狀態決定下一步導向
         let targetStep;
         if (session.currentState === 'calculate_price_logic_after_login') {
-            targetStep = 'ask_addons'; // 登入/註冊後 -> 加購
+            targetStep = 'ask_addons'; 
         } else if (session.currentState === 'calculate_price_logic_after_addons') {
-            targetStep = 'ask_contact_info'; // 加購完成後 -> 聯絡資訊
+            targetStep = 'ask_contact_info'; 
         } else {
-            targetStep = 'ask_member_login'; // 預設 (初次計算) -> 會員登入選擇
+            targetStep = 'ask_member_login'; 
         }
 
         log('INFO', `Price calculated: NT$${data.finalPrice}. Next step: ${targetStep}`);
-        // 🚨 優化點：初次和登入後的計算，不改變提示，讓流程安靜過渡
         return { isHandled: true, nextStep: targetStep };
 
     } catch (error) {
-        log('ERROR', 'Price calculation failed:', error);
+        log('ERROR', 'Price calculation failed:', { error: error, stack: error.stack });
+        // 🚨 修正：服務故障應導向 init
         return {
             isHandled: true,
             prompt: '價格計算服務暫時故障，請稍後再試。',
@@ -200,14 +241,9 @@ async function calculatePriceLogic(session) {
 }
 
 
-// --- 6. 業務邏輯：加購後價格計算 (calculatePriceAfterAddons) ---
-// 專門用於加購服務完成後的價格計算和導向聯絡資訊
+// --- 8. 業務邏輯：加購後價格計算 (calculatePriceAfterAddons) ---
 async function calculatePriceAfterAddons(session) {
-    // 執行 calculatePriceLogic 中的計算核心部分
-    // 這裡會觸發 calculatePriceLogic 內部對 after_addons 狀態的處理
     await calculatePriceLogic(session); 
-    
-    // 強制 nextStep 導向聯絡資訊 (這是 calculatePriceLogic 的預期行為)
     return {
         isHandled: true,
         nextStep: 'ask_contact_info' 
@@ -215,12 +251,12 @@ async function calculatePriceAfterAddons(session) {
 }
 
 
-// --- 7. 會員登入邏輯 (loginMemberAccount) ---
+// --- 9. 會員登入邏輯 (loginMemberAccount) ---
 async function processMemberLogin(session) {
     const data = session.collectedData;
-    let { memberAccount, memberPassword, rawNumber } = data; // 🚨 引入 rawNumber
+    let { memberAccount, memberPassword, rawNumber } = data; 
 
-    // 🚨 優化點：處理 rawNumber 被誤抓為密碼的情況 (步驟 2)
+    // 修正：處理 rawNumber 被誤抓為密碼的情況
     if (session.currentState === 'ask_member_password' && !memberPassword && rawNumber) {
         memberPassword = String(rawNumber);
         data.memberPassword = memberPassword;
@@ -264,7 +300,7 @@ async function processMemberLogin(session) {
 }
 
 
-// --- 8. 會員註冊邏輯 (registerMemberAccount) ---
+// --- 10. 會員註冊邏輯 (registerMemberAccount) ---
 async function registerMemberAccountLogic(session) {
     const data = session.collectedData;
     const { memberAccount } = data;
@@ -302,21 +338,27 @@ async function registerMemberAccountLogic(session) {
 
 
 // -------------------------------------------------------------
-// III. 其他 Handler (邏輯與輔助)
+// IV. 其他 Handler (加購/聯絡人/摘要/提交)
 // -------------------------------------------------------------
 
-// --- 9. 加購牌卡生成 (generateAddonsCarousel) ---
+// --- 11. 加購牌卡生成 (generateAddonsCarousel) ---
 async function generateAddonsCarouselLogic(session) {
     const data = session.collectedData;
     
     try {
         const pricing = await MockAPI.getPricingDetails(data.roomType);
-        // 🚨 修正：使用 Object.entries 來同時取得 ID 和細節 (步驟 3)
         const addonsEntries = Object.entries(pricing.addons);
+        
+        // 💡 優化：生成已選加購服務摘要
+        let summaryPrompt = '請選擇您需要的加購服務，完成後請回覆「完成」。';
+        if (data.addons && data.addons.length > 0) {
+            const selectedNames = data.addons.map(id => pricing.addons[id]?.name || id);
+            summaryPrompt = `您目前已選擇：**${selectedNames.join(', ')}**。請繼續選擇或回覆「完成」進入下一步。`;
+        }
         
         const richCardButtons = addonsEntries.map(([id, addon]) => ({
             text: `${addon.name} (NT$ ${addon.price}${addon.isPerNight ? '/晚' : ''})`,
-            value: `加購 ${id}`, // 確保這裡使用正確的 ID
+            value: `加購 ${id}`, 
             intent: 'correction'
         }));
         
@@ -331,14 +373,14 @@ async function generateAddonsCarouselLogic(session) {
             buttons: richCardButtons
         };
         
-        return { isHandled: true }; 
+        return { isHandled: true, prompt: summaryPrompt }; 
     } catch (error) {
         log('ERROR', 'Failed to generate addons carousel. Skipping to contact info.', error);
         return { isHandled: true, nextStep: 'ask_contact_info' };
     }
 }
 
-// --- 10. 執行加購操作 (executeAddonsSelection) ---
+// --- 12. 執行加購操作 (executeAddonsSelection) ---
 function executeAddonsSelectionLogic(session) {
     const data = session.collectedData;
     const { addonAction, addonId } = data;
@@ -357,7 +399,6 @@ function executeAddonsSelectionLogic(session) {
                 prompt: `✅ 已加購 ${addonId}。請選擇其他服務或回覆「完成」。`
             };
         } else {
-             // 清除實體，準備接收下一個加購指令
             delete data.addonAction;
             delete data.addonId; 
              return { 
@@ -372,13 +413,13 @@ function executeAddonsSelectionLogic(session) {
     return { isHandled: true, nextStep: 'calculate_price_logic_after_addons' };
 }
 
-// --- 11. 聯絡資訊驗證與推進 (validateContactInfo) ---
+// --- 13. 聯絡資訊驗證與推進 (validateContactInfo) ---
 function validateContactInfoLogic(session) {
     const data = session.collectedData;
-    const { contactName, contactPhone, contactEmail } = data;
+    const { contactPhone, contactEmail } = data;
 
     if (contactPhone && contactEmail) {
-        if (!contactName) {
+        if (!data.contactName) {
             data.contactName = data.memberAccount || '未提供聯絡人姓名';
         }
         return { isHandled: true, nextStep: 'ask_special_requests' }; 
@@ -387,17 +428,16 @@ function validateContactInfoLogic(session) {
     }
 }
 
-// --- 12. 處理特殊需求 (handleSpecialRequests) ---
+// --- 14. 處理特殊需求 (handleSpecialRequests) ---
 function handleSpecialRequestsLogic(session) {
     log('INFO', 'Special requests recorded. Proceeding to payment.');
     return { isHandled: true, nextStep: 'ask_payment_method' };
 }
 
-// --- 13. 生成訂單摘要 (generateOrderSummary) ---
+// --- 15. 生成訂單摘要 (generateOrderSummary) ---
 async function generateOrderSummaryLogic(session) {
     const data = session.collectedData;
     const roomBasePriceAfterDiscount = data.isLoggedIn ? data.roomBasePrice * 0.95 : data.roomBasePrice;
-    const totalRoomPrice = roomBasePriceAfterDiscount + data.totalAddonCost;
     
     data.finalSummary = `
 🏨 預訂資訊
@@ -417,7 +457,7 @@ async function generateOrderSummaryLogic(session) {
 ---
 💰 **價格明細**
 - 房間原價 (折扣前): NT$ ${data.roomBasePrice}
-- 折扣金額: NT$ ${data.roomBasePrice - roomBasePriceAfterDiscount}
+- 折扣金額: NT$ ${Math.round(data.roomBasePrice - roomBasePriceAfterDiscount)}
 - 房間總價 (折扣後): NT$ ${Math.round(roomBasePriceAfterDiscount)}
 - 加購服務費用: NT$ ${data.totalAddonCost}
 - 服務費/稅費 (5%): NT$ ${data.serviceFee}
@@ -425,7 +465,7 @@ async function generateOrderSummaryLogic(session) {
 **🎉 最終總價: NT$ ${data.finalPrice}**
     `.trim();
 
-    // 🚨 優化點：增加修改按鈕 (步驟 4)
+    // 增加修改按鈕
     data.customRichCard = {
         type: "button_list",
         buttons: [
@@ -437,12 +477,12 @@ async function generateOrderSummaryLogic(session) {
     return { isHandled: true };
 }
 
-// --- 14. 提交訂單 (submitBooking) ---
+// --- 16. 提交訂單 (submitBooking) ---
 async function submitBooking(session) {
     const data = session.collectedData;
     
     try {
-        const orderResult = await MockAPI.submitBooking(data); // MockAPI已在步驟1中修正
+        const orderResult = await MockAPI.submitBooking(data); 
 
         if (orderResult.isSuccessful) {
             data.orderId = orderResult.orderId;
@@ -469,18 +509,7 @@ async function submitBooking(session) {
     }
 }
 
-// --- 15. 庫存解鎖 (unlockInventory) ---
-async function unlockInventory(session) {
-    const data = session.collectedData;
-    if (data.inventoryLockId) {
-        await MockAPI.unlockInventory(data.inventoryLockId);
-        log('INFO', `Inventory lock ${data.inventoryLockId} released.`);
-        delete data.inventoryLockId;
-    }
-    return { isHandled: true }; 
-}
-
-// --- 16. 通用查詢處理 (processGeneralInquiry) ---
+// --- 17. 通用查詢處理 (processGeneralInquiry) ---
 async function processGeneralInquiry(session) {
     const data = session.collectedData;
     const lastMessage = session.lastMessage;
@@ -501,27 +530,30 @@ async function processGeneralInquiry(session) {
 // 🏆 ESM 匯出 (Export Class)
 // -------------------------------------------------------------
 class BookingFlowController {
+    // I. 輔助/流程控制
+    static unlockInventory = unlockInventory; 
+    static handleCancellation = handleCancellationLogic; 
+    
+    // II. 流程前置檢查與實體補齊
     static checkDateCompleteness = checkDateCompleteness;
     static setDefaultChildCount = setDefaultChildCount; 
     static checkBookingEssentials = checkBookingEssentials;
     
+    // III. 業務邏輯
     static lockInventory = lockInventoryLogic; 
     static calculatePrice = calculatePriceLogic; 
-    
     static calculatePriceAfterAddons = calculatePriceAfterAddons; 
-
     static loginMemberAccount = processMemberLogin; 
     static registerMemberAccount = registerMemberAccountLogic; 
     
+    // IV. 其他 Handler
     static generateAddonsCarousel = generateAddonsCarouselLogic; 
     static executeAddonsSelection = executeAddonsSelectionLogic;
     static validateContactInfo = validateContactInfoLogic;
     static handleSpecialRequests = handleSpecialRequestsLogic; 
     static generateOrderSummary = generateOrderSummaryLogic; 
-
-    static processGeneralInquiry = processGeneralInquiry; 
     static submitBooking = submitBooking; 
-    static unlockInventory = unlockInventory; 
+    static processGeneralInquiry = processGeneralInquiry; 
 }
 
 // 🏆 命名匯出
