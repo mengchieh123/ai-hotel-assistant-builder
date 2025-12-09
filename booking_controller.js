@@ -2,7 +2,7 @@
 
 // 🏆 ESM 導入：將 require() 替換為 import
 import dayjs from 'dayjs';
-import MockAPI from './service_mock_api.js'; // 假設 MockAPI 也是預設匯出
+import { MockAPI } from './service_mock_api.js'; // 🏆 修正：現在使用命名導入
 import { LLMManager } from './llm_manager.js'; // 🏆 修正：改為命名導入 { LLMManager }
 
 // --- 輔助函數：日誌記錄 ---
@@ -232,7 +232,7 @@ async function processMemberLogin(session) {
 async function processGeneralInquiry(session) {
     const data = session.collectedData;
     // ⚠️ 注意：此處應從 Rule Engine 取得用戶輸入，使用 collectedData.user_query 或 session.lastMessage
-    const userQuery = data.user_query || session.lastMessage;
+    const userQuery = data.user_query || session.lastMessage;
 
     if (!userQuery) {
         log('ERROR', 'General inquiry called without user query.');
@@ -328,16 +328,16 @@ async function unlockInventory(lockId) {
 // 🏆 ESM 匯出：使用命名匯出 class
 // -------------------------------------------------------------
 class BookingFlowController {
-    static checkDateCompleteness = checkDateCompleteness;
-    static checkBookingEssentials = checkBookingEssentials;
-    static lock_inventory = lockInventoryLogic; // 匹配 dialogue_flow.json
-    static calculate_price_logic = calculatePriceLogic; // 匹配 dialogue_flow.json
-    static login_member_account = processMemberLogin; // 匹配 dialogue_flow.json
-    static processGeneralInquiry = processGeneralInquiry; 
-    static submitBooking = submitBooking; 
-    static unlockInventory = unlockInventory;
-    
-    // 您應確保所有在 dialogue_flow.json 中被調用的 Handler 都在這裡
+    static checkDateCompleteness = checkDateCompleteness;
+    static checkBookingEssentials = checkBookingEssentials;
+    static lock_inventory = lockInventoryLogic; // 匹配 dialogue_flow.json
+    static calculate_price_logic = calculatePriceLogic; // 匹配 dialogue_flow.json
+    static login_member_account = processMemberLogin; // 匹配 dialogue_flow.json
+    static processGeneralInquiry = processGeneralInquiry; 
+    static submitBooking = submitBooking; 
+    static unlockInventory = unlockInventory;
+    
+    // 您應確保所有在 dialogue_flow.json 中被調用的 Handler 都在這裡
 }
 
 // 🏆 命名匯出
