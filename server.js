@@ -13,8 +13,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // --- 導入所有模組 ---
-import { config } from './config.js';
-import { RuleEngine } from './rule_engine.js'; // ✅ 修正 RuleEngine: 使用命名導入
+// 🎯 修正點：使用預設導入 (Default Import) 來匹配 config.js 中的 export default
+import config from './config.js'; 
+import { RuleEngine } from './rule_engine.js'; // 命名導入 (Named Import)
 
 // 設定 Port 和 Host
 const PORT = process.env.PORT || 10000;
@@ -25,7 +26,7 @@ const { apiUrl } = config;
 const app = express();
 
 // ---------------------------------------------
-// 📦 Express 中間件與靜態檔案 (✅ 修正：移除 ## 標記)
+// 📦 Express 中間件與靜態檔案
 // ---------------------------------------------
 app.use(cors());
 app.use(express.json());
@@ -33,7 +34,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 
 // ---------------------------------------------
-// 🛣️ 路由定義 (✅ 修正：移除 ## 標記)
+// 🛣️ 路由定義
 // ---------------------------------------------
 
 app.get('/', (req, res) => {
@@ -62,8 +63,8 @@ app.post('/api/chat', async (req, res) => {
                              sessionId.toLowerCase() !== 'undefined';
 
     const safeSessionId = isSessionIdValid
-                             ? sessionId
-                             : uuidv4();
+                              ? sessionId
+                              : uuidv4();
 
     console.log(`[DEBUG_ID] 接收到 ID: ${sessionId} | 傳入 RuleEngine 的 ID: ${safeSessionId}`);
 
@@ -105,7 +106,7 @@ app.post('/api/chat', async (req, res) => {
 
 
 // ---------------------------------------------
-// 🖥️ 伺服器啟動 (✅ 修正：移除 ## 標記)
+// 🖥️ 伺服器啟動
 // ---------------------------------------------
 app.listen(PORT, HOST, () => {
     console.log(`🚀 伺服器運行在 http://${HOST}:${PORT}`);
