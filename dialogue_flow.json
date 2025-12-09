@@ -239,19 +239,13 @@
             "fallback": "謝謝，祝您有美好的一天！",
             "next_state": "init"
         },
-        
-        // =================================================================
-        // 🚀 LLM 備援流程狀態 (新增/修改)
-        // =================================================================
-        
         "handle_general_inquiry": {
             "type": "logic_exec",
-            "prompt": "正在為您查詢通用資訊，請稍候...", 
-            "handler": "processGeneralInquiry", 
+            "prompt": "正在為您查詢通用資訊，請稍候...",
+            "handler": "processGeneralInquiry",
             "next_state": "general_inquiry_response",
             "fallback_state": "handle_llm_failure"
         },
-
         "general_inquiry_response": {
             "prompt": "🤖 這是來自 **{llm_source}** 的回應：\n\n{llm_response}\n\n請問您是否要回到之前的訂房流程？",
             "richCard": {
@@ -262,13 +256,12 @@
                 ]
             },
             "intents": {
-                "affirm": "paused_waiting_for_resume", 
+                "affirm": "paused_waiting_for_resume",
                 "booking": "init",
                 "reset": "init"
             },
             "fallback": "請回覆『繼續』以恢復訂房，或輸入『重新開始』。"
         },
-        
         "handle_llm_failure": {
             "prompt": "抱歉，目前所有通用資訊服務都連線失敗，無法回答您的問題。\n\n請問您現在需要：",
             "richCard": {
@@ -281,7 +274,6 @@
             "next_state": "paused_waiting_for_resume",
             "fallback": "請回覆『繼續』或『重新開始』。"
         },
-        
         "paused_waiting_for_resume": {
             "prompt": "流程已暫停。請回覆『繼續』或點擊按鈕恢復訂房流程，或提出新的預訂請求。",
             "richCard": {
