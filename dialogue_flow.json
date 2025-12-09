@@ -1,32 +1,32 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.22_Fix_ChildCount", 
-    "description": "V1.22 修正版：新增 set_default_child_count 邏輯，解決 ask_guest_count 循環問題。",
+    "version": "1.23_Final_FlowFix",
+    "description": "V1.23 修正版：新增 init 狀態的 Rule，解決實體完整時的流程循環錯誤。",
     "initial_state": "init",
     "states": {
-    "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間，以及住宿幾晚？ (例如：明天, 2晚)",
-    "next_state": "ask_nights_and_dates",
-    "clear_entities": [
-        "roomType", "roomCount", "checkInDate", "nights", "memberAccount",
-        "contactName", "contactPhone", "contactEmail", "specialRequest",
-        "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons",
-        "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
-        "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee"
-    ],
-    "entities": ["adultCount", "childCount", "roomCount", "checkInDate", "nights"], // 🚨 確保所有初始實體都被捕捉
-    
-    // 🚨 關鍵修正：新增 rules 區塊
-    "rules": [
-        {
-            // 條件：如果一開始就收到日期和晚數
-            "condition": "checkInDate && nights",
-            // 則直接導向 Handler 進行檢查/救援
-            "next_state": "check_date_completeness" 
-        }
-    ],
-    
-    "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
-},
+        "init": {
+            "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間，以及住宿幾晚？ (例如：明天, 2晚)",
+            "next_state": "ask_nights_and_dates",
+            "clear_entities": [
+                "roomType", "roomCount", "checkInDate", "nights", "memberAccount",
+                "contactName", "contactPhone", "contactEmail", "specialRequest",
+                "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons",
+                "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
+                "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee"
+            ],
+            // 🚨 修正：確保 init 狀態能捕捉日期和晚數
+            "entities": ["adultCount", "childCount", "roomCount", "checkInDate", "nights"], 
+            
+            // 🚨 修正：新增 rules 解決實體完整時的流程卡住問題
+            "rules": [
+                {
+                    "condition": "checkInDate && nights",
+                    "next_state": "check_date_completeness" 
+                }
+            ],
+            
+            "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
+        },
         "ask_nights_and_dates": {
             "prompt": "請提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
             "entities": ["checkInDate", "nights"],
@@ -37,7 +37,7 @@
         "check_date_completeness": {
             "type": "logic_exec",
             "handler": "checkDateCompleteness",
-            "next_state": "set_default_child_count", // <-- 【修改點 1】從 ask_guest_count 變更為新的邏輯狀態
+            "next_state": "set_default_child_count", 
             "fallback_state": "handle_date_not_found"
         },
         "handle_date_not_found": {
@@ -45,17 +45,15 @@
             "next_state": "ask_nights_and_dates",
             "fallback": "請重新輸入完整的日期和晚數。"
         },
-        // 【新增狀態】確保 childCount 有預設值 0
         "set_default_child_count": {
             "type": "logic_exec",
-            "handler": "setDefaultChildCount", // 👈 需要您在後端實現此 Handler
+            "handler": "setDefaultChildCount",
             "next_state": "ask_guest_count",
-            // 即使 Handler 執行失敗或有任何錯誤，也應嘗試引導用戶到 ask_guest_count
             "fallback_state": "ask_guest_count"
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
-            "entities": ["adultCount", "childCount"], 
+            "entities": ["adultCount", "childCount"],
             "next_state": "ask_room_type",
             "fallback": "請提供準確的入住人數 (大人/兒童)，謝謝。",
             "fallback_state": "ask_guest_count"
@@ -87,9 +85,7 @@
             "type": "logic_exec",
             "handler": "checkBookingEssentials",
             "next_state": "lock_inventory",
-            // 【修改點 2】將 Fallback_state 從 ask_room_type 改為 ask_nights_and_dates 
-            // 這是為了處理日誌中觀察到的日期/晚數缺失問題，使其返回到流程起點收集日期，而非房型
-            "fallback_state": "ask_nights_and_dates" 
+            "fallback_state": "ask_nights_and_dates"
         },
         "lock_inventory": {
             "type": "logic_exec",
@@ -107,7 +103,7 @@
             "fallback_state": "ask_room_type"
         },
         "ask_member_login": {
-            "prompt": "已確認您的預訂資訊：{roomCount}間{roomType}，{nights}晚，入住日期{checkInDate}。含服務費最終總價為 **NT$ {finalPrice}**。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。", 
+            "prompt": "已確認您的預訂資訊：{roomCount}間{roomType}，{nights}晚，入住日期{checkInDate}。含服務費最終總價為 **NT$ {finalPrice}**。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。",
             "richCard": {
                 "type": "button_list",
                 "buttons": [
@@ -140,7 +136,7 @@
             "entities": ["memberPassword"],
             "fallback": "請輸入有效的會員密碼，或回覆『跳過』。",
             "next_state": "calculate_price_logic",
-            "fallback_state": "ask_member_password", 
+            "fallback_state": "ask_member_password",
             "intents": {
                 "skip": "ask_addons"
             }
