@@ -1,19 +1,21 @@
-// session_manager.js (V2.0 - 穩健性優化版)
+// session_manager.js (V2.1 - 最終穩健性修正版)
 
-import { v4 as uuidv4 } from 'uuid';
+// --- 修正 1: uuid 導入錯誤 (CommonJS 兼容性) ---
+import pkg from 'uuid';
+const { v4: uuidv4 } = pkg;
+
 
 /**
  * 模擬一個 FlowLoader 最小化接口，以確保服務能載入並啟動。
  */
 const mockFlowLoader = {
     getFlow: () => ({
-        initial_state: 'init', // 建議初始狀態統一設為 'init' (或 'ask_dates_and_nights')
+        initial_state: 'init', // 流程啟動的初始狀態
     })
 };
 
-// --- 輔助方法：獲取基礎 collectedData 結構 ---
+// --- 輔助方法：獲取基礎 collectedData 結構 (確保每次都是獨立的深層副本) ---
 function getInitialCollectedData() {
-    // 確保每次呼叫都返回一個新的、獨立的物件副本
     return {
         finalPrice: 0, totalPrice: 0, childCost: 0, serviceFee: 0, transferFee: 0,
         roomType: null, checkInDate: null, nights: null, roomCount: null, adultCount: null, childCount: 0,
@@ -30,27 +32,25 @@ class SessionManager {
         this.flowLoader = mockFlowLoader; 
         this.sessions = new Map(); 
         
-        // 🚨 優化：將清理間隔設為 10 分鐘，減少累積過期會話
+        // 定期清理過期的 session (每 10 分鐘檢查一次)
         setInterval(() => this.cleanupExpiredSessions(), 10 * 60 * 1000); 
         console.log('[SESSION_MGR] Manager initialized. Cleanup timer set.');
     }
 
-    /** 獲取或初始化會話 */
+    /** 1. 獲取或初始化會話 */
     getSession(sessionId) {
         if (!this.sessions.has(sessionId)) {
-            // 如果會話不存在，則創建新會話
             return this.createNewSession(sessionId);
         }
         
         const session = this.sessions.get(sessionId);
         const now = new Date().getTime();
         
-        // 🚨 優化 3：立即檢查會話是否已超時 (例如 60 分鐘未活動)
+        // 🚨 穩健性優化：立即檢查會話是否已超時 (60 分鐘未活動)
         const TIMEOUT_MS = 60 * 60 * 1000; 
         if (now - session.lastActive > TIMEOUT_MS) {
-            console.log(`[SESSION] Session ${sessionId} timed out (${(now - session.lastActive) / 60000} min). Resetting.`);
+            console.log(`[SESSION] Session ${sessionId} timed out. Resetting.`);
             this.resetSession(sessionId);
-            // 重置後返回新的會話狀態
             return this.sessions.get(sessionId);
         }
 
@@ -59,7 +59,7 @@ class SessionManager {
         return session;
     }
     
-    /** 創建新的會話 */
+    /** 2. 創建新的會話 */
     createNewSession(sessionId) {
         const initialState = this.flowLoader.getFlow().initial_state || 'init'; 
         const newSessionId = sessionId || uuidv4();
@@ -67,7 +67,7 @@ class SessionManager {
         
         const newSession = {
             id: newSessionId, 
-            // 🚨 修正 2：統一使用 currentState 
+            // 🚨 修正 3：統一使用 currentState
             currentState: initialState, 
             collectedData: getInitialCollectedData(),
             conversationHistory: [],
@@ -85,11 +85,11 @@ class SessionManager {
         return newSession;
     }
     
-    /** 🎯 新增：將 NLP 解析到的實體安全地合併到 collectedData */
+    /** 3. 🎯 核心功能：將 NLP 解析到的實體安全地合併到 collectedData */
     mergeEntities(sessionId, newEntities) {
         const session = this.getSession(sessionId);
         
-        // 🚨 修正 1：核心功能 - 安全合併實體
+        // 🚨 穩健性優化：安全合併實體
         Object.keys(newEntities).forEach(key => {
             const value = newEntities[key];
             // 確保值既不是 null 也不是 undefined，才進行覆蓋或設定
@@ -102,7 +102,7 @@ class SessionManager {
         return session.collectedData;
     }
 
-    /** 記錄使用者輸入與意圖，並更新 lastActive */
+    /** 4. 記錄使用者輸入與意圖，並更新 lastActive */
     updateSession(sessionId, message, intents) {
         const session = this.getSession(sessionId);
         session.conversationHistory.push({
@@ -118,7 +118,7 @@ class SessionManager {
         return session;
     }
 
-    /** 記錄助理回應 */
+    /** 5. 記錄助理回應 */
     addAssistantResponse(sessionId, reply, richCard) {
         if (this.sessions.has(sessionId)) {
             const session = this.sessions.get(sessionId);
@@ -129,14 +129,13 @@ class SessionManager {
         }
     }
     
-    /** 🎯 關鍵方法：重置會話 (取代舊的 endSession) */
+    /** 6. 🎯 關鍵方法：重置會話 (用於流程結束或全局取消) */
     resetSession(sessionId) {
         if (this.sessions.has(sessionId)) {
             const session = this.sessions.get(sessionId);
             const initialState = this.flowLoader.getFlow().initial_state || 'init'; 
 
             console.log(`🧹 會話重置：${sessionId}`);
-            // 🚨 修正 2：統一使用 currentState 
             session.currentState = initialState;
             session.collectedData = getInitialCollectedData(); 
             session.pausedState = null;
@@ -150,7 +149,7 @@ class SessionManager {
         }
     }
     
-    /** 清除過期的會話 */
+    /** 7. 清除過期的會話 */
     cleanupExpiredSessions() {
         const timeout = 60 * 60 * 1000; // 1 小時未活動
         const now = new Date().getTime();
@@ -167,7 +166,7 @@ class SessionManager {
         }
     }
     
-    // 💡 新增：用於 Rule Engine 變更狀態
+    /** 8. 用於 Rule Engine 變更狀態 */
     updateCurrentState(sessionId, newState) {
         const session = this.getSession(sessionId);
         session.currentState = newState;
