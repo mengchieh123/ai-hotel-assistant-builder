@@ -37,7 +37,7 @@
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
-            "entities": ["adultCount", "childCount"],
+            "entities": ["adultCount"],
             "next_state": "ask_room_type",
             "fallback": "請提供準確的入住人數 (大人/兒童)，謝謝。",
             "fallback_state": "ask_guest_count"
@@ -100,11 +100,10 @@
                 "skip": "ask_addons"
             },
             "fallback": "請點擊按鈕或回覆『登入』或『跳過』。",
-            "next_state": "ask_addons"  // 修正：從 ask_member_login 改為 ask_addons
+            "next_state": "ask_member_login"
         },
         "login_member_account": {
-            "type": "logic_exec",  // 修正：從 entity_collection 改為 logic_exec
-            "handler": "loginMemberAccount",
+            "type": "entity_collection",
             "prompt": "請輸入您的會員帳號 (手機號碼或 Email) 進行登入。",
             "entities": ["memberAccount"],
             "fallback": "請輸入有效的會員帳號，或回覆『跳過』。",
@@ -120,8 +119,8 @@
             "prompt": "請輸入您的會員密碼。",
             "entities": ["memberPassword"],
             "fallback": "請輸入有效的會員密碼，或回覆『跳過』。",
-            "next_state": "calculate_price_logic",  // 登入成功後重新計算價格（有折扣）
-            "fallback_state": "ask_member_password",
+            "next_state": "calculate_price_logic",
+            "fallback_state": "ask_member_password", 
             "intents": {
                 "skip": "ask_addons"
             }
@@ -256,8 +255,7 @@
                 "booking": "init",
                 "reset": "init"
             },
-            "fallback": "請回覆『繼續』以恢復訂房，或輸入『重新開始』。",
-            "fallback_state": "general_inquiry_response"  // 添加 fallback_state
+            "fallback": "請回覆『繼續』以恢復訂房，或輸入『重新開始』。"
         },
         "handle_llm_failure": {
             "prompt": "抱歉，目前所有通用資訊服務都連線失敗，無法回答您的問題。\n\n請問您現在需要：",
