@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.18",
-    "description": "流程穩定測試版 - V5.8 最終版：報價分離與容錯處理",
+    "version": "1.19",
+    "description": "流程穩定測試版 - V5.8 最終版：報價分離、容錯處理與 LLM 備援整合",
     "initial_state": "init",
     "states": {
         "init": {
@@ -26,7 +26,9 @@
                 "inventoryLockId",
                 "finalPrice",
                 "priceDetails",
-                "inventoryWarning"
+                "inventoryWarning",
+                "llm_response",
+                "llm_source"
             ],
             "entities": ["adultCount", "childCount", "roomCount"],
             "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
@@ -231,19 +233,55 @@
         },
         "end_conversation": {
             "prompt": "謝謝您的預訂！期待您的光臨。您可以輸入『重新開始』或『查詢訂單』。",
-            "allow_gemini_call": true,
             "intents": {
                 "booking": "init"
             },
             "fallback": "謝謝，祝您有美好的一天！",
             "next_state": "init"
         },
+        
+        // =================================================================
+        // 🚀 LLM 備援流程狀態 (新增/修改)
+        // =================================================================
+        
         "handle_general_inquiry": {
-            "prompt": "{inventoryWarning} {CUSTOM_PROMPT} 我是一個訂房助理，主要負責預訂服務。關於 {user_query}，您可以直接詢問我：\n\n1. 房價資訊\n2. 飯店設施\n3. 訂房流程問題",
-            "allow_gemini_call": true,
-            "next_state": "paused_waiting_for_resume",
-            "fallback": "請具體說明您的問題。"
+            "type": "logic_exec",
+            "prompt": "正在為您查詢通用資訊，請稍候...", 
+            "handler": "processGeneralInquiry", 
+            "next_state": "general_inquiry_response", // 成功：跳轉到回應展示
+            "fallback_state": "handle_llm_failure" // 失敗：跳轉到容錯提示
         },
+
+        "general_inquiry_response": {
+            "prompt": "🤖 這是來自 **{llm_source}** 的回應：\n\n{llm_response}\n\n請問您是否要回到之前的訂房流程？",
+            "richCard": {
+                "type": "button_list",
+                "buttons": [
+                    {"text": "繼續訂房", "value": "繼續", "intent": "affirm"},
+                    {"text": "重新預訂", "value": "重新預訂", "intent": "booking"}
+                ]
+            },
+            "intents": {
+                "affirm": "paused_waiting_for_resume", 
+                "booking": "init",
+                "reset": "init"
+            },
+            "fallback": "請回覆『繼續』以恢復訂房，或輸入『重新開始』。"
+        },
+        
+        "handle_llm_failure": {
+            "prompt": "抱歉，目前所有通用資訊服務都連線失敗，無法回答您的問題。\n\n請問您現在需要：",
+            "richCard": {
+                "type": "button_list",
+                "buttons": [
+                    {"text": "返回主流程", "value": "繼續訂房", "intent": "affirm"},
+                    {"text": "重新預訂", "value": "重新預訂", "intent": "booking"}
+                ]
+            },
+            "next_state": "paused_waiting_for_resume", // 暫存狀態，讓 Rule Engine 的 P:99 規則決定恢復到哪一步
+            "fallback": "請回覆『繼續』或『重新開始』。"
+        },
+        
         "paused_waiting_for_resume": {
             "prompt": "流程已暫停。請回覆『繼續』或點擊按鈕恢復訂房流程，或提出新的預訂請求。",
             "richCard": {
@@ -253,14 +291,14 @@
                     {"text": "重新預訂", "value": "重新預訂", "intent": "booking"}
                 ]
             },
-            "allow_gemini_call": true,
             "intents": {
-                "affirm": "",
+                "affirm": "", // 讓 Rule Engine 的 P:99 規則執行
                 "booking": "init",
                 "correction": "select_correction_target"
             },
             "fallback": "抱歉，無法恢復流程。請重新輸入『繼續』或『重新預訂』。",
             "next_state": "init"
         }
+        
     }
 }
