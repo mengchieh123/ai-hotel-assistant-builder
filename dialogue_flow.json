@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.23_Final_FlowFix",
-    "description": "V1.23 修正版：統一狀態名稱為 ask_dates_and_nights，並修正 init 狀態的 Rule，解決流程循環錯誤。",
+    "version": "2.0_Modular_Flow",
+    "description": "V2.0 模組化流程：將會員登入、加購服務和聯絡資訊徹底拆分。",
     "initial_state": "init",
     "states": {
         "init": {
@@ -99,19 +99,21 @@
             "fallback_state": "ask_room_type"
         },
         "ask_member_login": {
-            "prompt": "已確認您的預訂資訊：{roomCount}間{roomType}，{nights}晚，入住日期{checkInDate}。含服務費最終總價為 **NT$ {finalPrice}**。\n\n您是否擁有旅萌大酒店的會員帳號？現在登入可享 5% 房費折扣。",
+            "prompt": "已確認您的預訂資訊，當前房價總計為 **NT$ {finalPrice}**。\n\n您是否擁有旅萌大酒店的會員帳號？登入/註冊可享優惠。",
             "richCard": {
                 "type": "button_list",
                 "buttons": [
                     {"text": "我有會員，立即登入", "value": "登入會員", "intent": "login"},
-                    {"text": "暫不登入，查看加購服務", "value": "查看加購服務", "intent": "skip"}
+                    {"text": "註冊新會員", "value": "註冊會員", "intent": "register"},
+                    {"text": "暫不登入，進入加購服務", "value": "跳過登入", "intent": "skip"}
                 ]
             },
             "intents": {
                 "login": "login_member_account",
+                "register": "register_member_account",
                 "skip": "ask_addons"
             },
-            "fallback": "請點擊按鈕或回覆『登入』或『跳過』。",
+            "fallback": "請點擊按鈕或回覆『登入』、『註冊』或『跳過』。",
             "next_state": "ask_member_login"
         },
         "login_member_account": {
@@ -130,9 +132,21 @@
             "handler": "loginMemberAccount",
             "prompt": "請輸入您的會員密碼。",
             "entities": ["memberPassword"],
-            "fallback": "請輸入有效的會員密碼，或回覆『跳過』。",
+            "fallback": "密碼錯誤，請重新輸入，或回覆『跳過』。",
             "next_state": "calculate_price_logic",
             "fallback_state": "ask_member_password",
+            "intents": {
+                "skip": "ask_addons"
+            }
+        },
+        "register_member_account": {
+            "type": "logic_exec",
+            "handler": "registerMemberAccount",
+            "prompt": "我們將引導您註冊。請輸入您的手機號碼。",
+            "entities": ["memberAccount"],
+            "fallback": "註冊失敗，請輸入有效的手機號碼或回覆『跳過』。",
+            "next_state": "calculate_price_logic",
+            "fallback_state": "register_member_account",
             "intents": {
                 "skip": "ask_addons"
             }
@@ -153,6 +167,12 @@
         "execute_addons_selection": {
             "type": "logic_exec",
             "handler": "executeAddonsSelection",
+            "next_state": "calculate_price_logic_after_addons",
+            "fallback_state": "ask_addons"
+        },
+        "calculate_price_logic_after_addons": {
+            "type": "logic_exec",
+            "handler": "calculatePrice",
             "next_state": "ask_contact_info",
             "fallback_state": "ask_addons"
         },
