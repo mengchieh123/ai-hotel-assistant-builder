@@ -1,4 +1,4 @@
-// rule_engine.js (V5.5 - 流程收尾與庫存保護版)
+// rule_engine.js (V5.6 - 最終優化與容錯保護版)
 
 const sessionManager = require('./session_manager');
 const SmartIntentClassifier = require('./intent_classifier');
@@ -31,7 +31,7 @@ const PRIORITY = {
             RESUME: 99
         },
         AVAILABILITY_CHECK: 96,
-        ENTITY_SATISFIED_ADVANCE: 97
+        ENTITY_SATISFIED_ADVANCE: 97 // 實體補齊，推進到 next_state
     },
     GENERAL_RULE: 80
 };
@@ -65,7 +65,6 @@ class RuleEngine {
                 priority: PRIORITY.EMERGENCY,
                 endFlow: true
             })
-            // ... (其他錯誤處理邏輯)
         };
     }
     
@@ -114,21 +113,22 @@ class RuleEngine {
         return sortedResults.length > 0 ? sortedResults[0] : null;
     }
 
-    /** 生成狀態回應 (V5.5 修正：避免返回 null) */
+    /** * 生成狀態回應 (V5.6 修正：確保 logic_exec 狀態返回有效的 response 字段)
+     */
     static generateStateResponse(flow, stateKey, data, priority) {
         const state = flow.states[stateKey];
         if (!state) return null;
         
-        // 如果是 logic_exec 狀態且沒有 prompt，則不應直接生成回應
+        // 如果是 logic_exec 狀態且沒有 prompt
         if (state.type === 'logic_exec' && !state.prompt) {
              return {
-                shouldProcess: true,
-                priority: priority,
-                response: undefined, // 💡 修正：將 null 改為 undefined，避免 API 處理錯誤
-                nextStep: stateKey,
-                richCard: state.richCard,
-                allowGeminiCall: state.allow_gemini_call || false
-            };
+                 shouldProcess: true,
+                 priority: priority,
+                 response: "", // 🐞 修正 P:97 錯誤：將 undefined 改為空字串 ""
+                 nextStep: stateKey,
+                 richCard: state.richCard,
+                 allowGeminiCall: state.allow_gemini_call || false
+             };
         }
 
         return {
@@ -157,7 +157,8 @@ class RuleEngine {
         session.executedHandlers = {};
     }
 
-    /** 🚀 V5.3 修正：清理實體數據並防止核心實體覆蓋 */
+    /** * 🚀 V5.3 修正：清理實體數據並防止核心實體覆蓋 
+     */
     static sanitizeEntities(entities, sessionCollectedData) {
         if (typeof entities !== 'object' || entities === null) {
             return {};
@@ -170,11 +171,10 @@ class RuleEngine {
                 
                 // 核心保護邏輯：防止 adultCount 和 childCount 被分類器的預設值覆蓋
                 if (key === 'adultCount' || key === 'childCount') {
-                    // 如果 session 中已經有有效值（且不為 0），並且輸入值是分類器預設的 1 或 0
                     const sessionValue = parseInt(sessionCollectedData[key], 10);
                     const inputValue = parseInt(value, 10);
 
-                    // 如果 session 中已經有有效的人數（>0），且新的輸入值是預設值（1 或 0），則忽略新輸入。
+                    // 如果 session 中已經有有效的人數（>1 或 >0），且新的輸入值是預設值（1 或 0），則忽略新輸入。
                     if ((key === 'adultCount' && sessionValue > 1 && (inputValue === 1)) || 
                         (key === 'childCount' && sessionValue > 0 && (inputValue === 0)))
                     {
@@ -223,11 +223,10 @@ class RuleEngine {
             
             // 2. 執行高優先級規則 (P:100+)
             rulesResults.push(this.emergencyRule(intents, session));
-            // 修正：新增 await 確保非同步解鎖完成
             rulesResults.push(await this.resetFlowRule(intents, session)); 
-            rulesResults.push(await this.forceResumeBookingRule(intents, session)); // 修正：新增 await
+            rulesResults.push(await this.forceResumeBookingRule(intents, session)); 
             rulesResults.push(this.roomLimitRule(collectedData));
-            rulesResults.push(this.inventoryFailureRule(session)); // 💡 V5.5 NEW: 庫存/檢查失敗覆蓋 (P:105)
+            rulesResults.push(this.inventoryFailureRule(session)); 
             rulesResults.push(this.memberLoginRule(intents, session)); 
             rulesResults.push(this.generalInquiryOverrideRule(intents, session, message, extractedEntities)); // P:104
             
@@ -310,7 +309,7 @@ class RuleEngine {
     static async resetFlowRule(intents, session) {
         if (intents.includes('reset') || intents.includes('booking_start')) { 
             
-            // 💡 V5.5 優化：解除舊的庫存鎖定 (新增 await)
+            // 💡 V5.5 優化：解除舊的庫存鎖定
             if (session.collectedData.inventoryLockId) {
                 console.log(`🔒 [DEBUG] 重設流程時解除庫存鎖定：${session.collectedData.inventoryLockId}`);
                 await BookingFlowController.unlockInventory(session.collectedData.inventoryLockId);
@@ -338,7 +337,7 @@ class RuleEngine {
         if (currentStateKey === 'handle_general_inquiry' && intents.includes('booking')) {
             console.log("🚀 [DEBUG] 偵測到在通用查詢狀態下嘗試訂房，強制重設流程。");
 
-            // 💡 V5.5 優化：解除舊的庫存鎖定 (新增 await)
+            // 💡 V5.5 優化：解除舊的庫存鎖定
             if (session.collectedData.inventoryLockId) {
                 console.log(`🔒 [DEBUG] 強制重設流程時解除庫存鎖定：${session.collectedData.inventoryLockId}`);
                 await BookingFlowController.unlockInventory(session.collectedData.inventoryLockId);
@@ -404,8 +403,8 @@ class RuleEngine {
     // --- 規則 1.3: 會員登入覆蓋 (P:100) ---
     static memberLoginRule(intents, session) {
         const currentStateKey = session.currentStep;
-        // 🚨 檢查：此規則僅在 check_availability_and_price 狀態下觸發
-        if (currentStateKey === 'check_availability_and_price') {
+        // 🚨 修正狀態名稱：從 'check_availability_and_price' 改為 'ask_member_login'
+        if (currentStateKey === 'ask_member_login') {
             const state = flowConfig.states[currentStateKey];
             const loginIntent = state.intents?.login;
             
@@ -425,14 +424,13 @@ class RuleEngine {
     static generalInquiryOverrideRule(intents, session, message, entities) {
         const currentStateKey = session.currentStep;
         
-        // V5.4 修正：定義不應被 P:104 覆蓋的核心狀態列表
-        // 確保在這些狀態下，實體補齊 (P:97/P:95) 優先於通用查詢
+        // 確保在核心實體收集狀態，P:97/P:95 優先於通用查詢
         const isCollectingCoreEntities = CORE_COLLECTION_STATES.includes(currentStateKey);
 
         // 如果偵測到通用問題意圖，且當前不在中斷狀態，且當前**不在核心實體收集狀態**
         if (intents.includes('general_inquiry') && 
             !FORCED_BREAK_STATES.includes(currentStateKey) &&
-            !isCollectingCoreEntities // 檢查是否在核心收集狀態
+            !isCollectingCoreEntities 
             ) {
             
             const inquiryState = flowConfig.states['handle_general_inquiry'];
@@ -518,6 +516,7 @@ class RuleEngine {
         
         // 3. 處理 Handler 邏輯 (迭代執行器)
         let nextStateKey = session.currentStep; 
+        let handlerOutput = null; // 💡 追蹤 Handler 產生的回應
         
         // 檢查當前或推進後的狀態是否包含 handler，並且尚未執行過
         while (flow.states[nextStateKey]?.handler && !this.hasExecutedHandler(session, nextStateKey)) {
@@ -529,6 +528,12 @@ class RuleEngine {
             const handlerResult = await BookingFlowController[handlerKey](session, flowConfig); 
             
             this.markHandlerExecuted(session, nextStateKey); 
+
+            // 💡 修正 2：如果 Handler 成功執行並包含回應，則儲存
+            if (handlerResult.isHandled && handlerResult.response) {
+                // 假設 Handler 成功執行並產生的回應 (例如價格計算完成)
+                handlerOutput = handlerResult; 
+            }
 
             // 處理 Handler 返回結果
             if (!handlerResult.isHandled) {
@@ -547,6 +552,19 @@ class RuleEngine {
         }
         
         // 4. 輸出回應 - 檢查 Handler 迴圈結束後的最終狀態
+        // 💡 修正 2：如果 Handler 產生了回應，則優先輸出
+        if (handlerOutput) {
+            console.log(`[DEBUG] Handler 成功執行並產生了回應。`);
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.BOOKING_FLOW.BASE,
+                response: handlerOutput.response,
+                nextStep: nextStateKey,
+                richCard: handlerOutput.richCard,
+                allowGeminiCall: flow.states[nextStateKey]?.allow_gemini_call || false
+            };
+        }
+        
         if (nextStateKey !== currentStateKey) {
             // 如果 Handler 成功推進了狀態，則返回新的狀態回應 (P:95)
             return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
