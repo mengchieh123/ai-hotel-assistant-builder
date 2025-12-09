@@ -1,20 +1,20 @@
-// llm_manager.js (V1.0 - LLM 優先級切換與容錯)
+// llm_manager.js (V1.2 - LLM 優先級切換與容錯)
 
-const axios = require('axios'); // 假設用於外部 API 呼叫 (如 Hugging Face 或自託管 LLM)
-// TODO: 引入必要的 LLM SDKs 或配置 (例如 Gemini SDK)
-// const { GoogleGenAI } = require('@google/genai'); 
-// const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
-// const ai = new GoogleGenAI(GEMINI_API_KEY);
+const axios = require('axios');
+const { GoogleGenAI } = require('@google/genai');
+
+// --- 🔑 API 密鑰與 Client 初始化 ---
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY; 
+
+// 初始化 Gemini Client：如果密鑰不存在，ai 會是 null，呼叫時會被捕獲並觸發容錯
+const ai = GEMINI_API_KEY ? new GoogleGenAI({apiKey: GEMINI_API_KEY}) : null;
 
 // --- 配置區 ---
-// 配置 LLM 優先級
 const LLM_PRIORITY = {
     PRIMARY: 'Gemini',
     SECONDARY: 'HuggingFace'
-    // 未來可擴展: TERTIARY: 'LocalCache'
 };
-
-// 建議配置：設定呼叫 LLM 的逾時時間 (毫秒)
 const LLM_TIMEOUT = 10000; // 10 秒
 
 // --- 核心類別 ---
@@ -27,22 +27,39 @@ class LLMManager {
      * @returns {Promise<{response: string, source: string}>}
      */
     static async callGemini(query, context) {
-        // TODO: 實際的 Gemini API 呼叫邏輯
+        if (!ai) {
+            // 如果 Client 未初始化，直接拋出錯誤，讓容錯機制切換到備用 LLM
+            throw new Error("Gemini Client 未初始化，請檢查 GEMINI_API_KEY。");
+        }
+        
+        console.log("➡️ 呼叫 LLM: Gemini API");
+
+        // 構造系統提示：定義 LLM 的角色和風格
+        const systemInstruction = "您是一個專業的旅館聊天機器人。請用簡潔、友善的口吻回答用戶的通用問題，並引導他們回到訂房流程。";
+        // 構造用戶請求內容：包含當前會話收集到的上下文
+        const userPrompt = `用戶的通用問題是："${query}"。以下是當前會話收集到的數據（作為上下文）：${JSON.stringify(context)}`;
+
         try {
-            // 示例：使用 Gemini SDK (假設已引入)
-            /*
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
-                contents: [{ role: "user", parts: [{ text: `請根據以下上下文資訊回答問題：${query}。上下文：${JSON.stringify(context)}` }] }],
-                config: { timeout: LLM_TIMEOUT }
+                contents: [{ 
+                    role: "user", 
+                    parts: [{ text: userPrompt }] 
+                }],
+                config: {
+                    systemInstruction: systemInstruction,
+                    timeout: LLM_TIMEOUT 
+                }
             });
-            const textResponse = response.text;
-            */
 
-            // 模擬 API 成功回應
-            console.log("➡️ 呼叫 LLM: Gemini API");
+            const textResponse = response.text;
+            
+            if (!textResponse) {
+                 throw new Error("Gemini API 返回了空內容。");
+            }
+            
             return { 
-                response: `[Gemini 回覆]: 這是關於 **"${query}"** 的通用資訊。`, 
+                response: textResponse, 
                 source: 'Gemini' 
             };
             
@@ -54,56 +71,74 @@ class LLMManager {
     }
 
     /**
-     * 呼叫 Hugging Face LLM (假設是透過本地或託管服務的 API) (備用)
+     * 呼叫 Hugging Face LLM (透過 Inference API) (備用)
      * @param {string} query 使用者問題
      * @param {object} context 會話數據 (collectedData)
      * @returns {Promise<{response: string, source: string}>}
      */
     static async callHuggingFace(query, context) {
-        // TODO: 實際的 Hugging Face 模型 API 呼叫邏輯
+        if (!HUGGINGFACE_API_KEY) {
+             throw new Error("Hugging Face API Key 未設置。");
+        }
+        
+        console.log("➡️ 呼叫 LLM: HuggingFace LLM (備用)");
+
+        // 讀取 Render 中設置的 Endpoint URL
+        const hfApiEndpoint = process.env.HUGGINGFACE_API_ENDPOINT; 
+        
+        if (!hfApiEndpoint) {
+             throw new Error("Hugging Face API Endpoint 未設置。");
+        }
+
+        // 構造請求 Body：傳入問題和參數
+        const requestBody = {
+            inputs: `你是旅館聊天機器人。請簡潔地回答此問題：${query}。上下文數據：${JSON.stringify(context)}`,
+            parameters: { 
+                max_new_tokens: 256,
+                temperature: 0.7 
+            }
+        };
+
         try {
-            const hfApiEndpoint = process.env.HUGGINGFACE_API_ENDPOINT || 'http://localhost:8080/v1/generate';
-            
-            // 示例：使用 axios 呼叫外部 API
-            /*
-            const apiResponse = await axios.post(hfApiEndpoint, {
-                inputs: `請根據以下上下文資訊回答問題：${query}。上下文：${JSON.stringify(context)}`,
-                parameters: { max_new_tokens: 256 }
-            }, {
-                timeout: LLM_TIMEOUT
+            const apiResponse = await axios.post(hfApiEndpoint, requestBody, {
+                headers: {
+                    // 使用 Access Token 進行授權
+                    'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: LLM_TIMEOUT 
             });
+            
+            let textResponse = '';
+            
+            // 處理 Hugging Face Inference API 的常見響應格式
+            if (Array.isArray(apiResponse.data) && apiResponse.data[0]?.generated_text) {
+                 textResponse = apiResponse.data[0].generated_text;
+            } else if (apiResponse.data.generated_text) {
+                 textResponse = apiResponse.data.generated_text;
+            } else {
+                 throw new Error("Hugging Face API 返回的格式無法解析。");
+            }
 
-            const textResponse = apiResponse.data.generated_text; 
-            */
-
-            // 模擬 API 成功回應
-            console.log("➡️ 呼叫 LLM: HuggingFace LLM (備用)");
             return { 
-                response: `[HuggingFace 回覆]: 這是關於 **"${query}"** 的通用資訊。`, 
+                response: textResponse, 
                 source: 'HuggingFace' 
             };
             
         } catch (error) {
-            // 檢查是否為 axios 錯誤 (例如網路或超時)
             const errorMessage = error.response?.data?.error || error.message;
             console.error(`💥 Hugging Face LLM 呼叫錯誤: ${errorMessage}`);
-            // 拋出錯誤，觸發最終的失敗機制
             throw new Error(`HuggingFace Call Failed: ${errorMessage}`);
         }
     }
 
     /**
-     * 核心切換與容錯邏輯
-     * 優先嘗試主要 LLM，失敗後自動切換到備用 LLM。
-     * @param {string} query 使用者問題
-     * @param {object} sessionData 會話數據
-     * @returns {Promise<{response: string, source: string}>} 包含回應內容和來源
-     * @throws {Error} 如果所有 LLM 服務均不可用
+     * 核心切換與容錯邏輯：優先嘗試主要 LLM，失敗後自動切換到備用 LLM。
      */
     static async getGeneralAnswer(query, sessionData) {
         let result = null;
         
-        // 1. 嘗試主要 LLM (PRIMARY)
+        // 1. 嘗試主要 LLM (PRIMARY: Gemini)
         if (LLM_PRIORITY.PRIMARY === 'Gemini') {
             try {
                 result = await this.callGemini(query, sessionData);
@@ -113,7 +148,7 @@ class LLMManager {
             }
         }
 
-        // 2. 嘗試備用 LLM (SECONDARY)
+        // 2. 嘗試備用 LLM (SECONDARY: Hugging Face)
         if (LLM_PRIORITY.SECONDARY === 'HuggingFace') {
             try {
                 result = await this.callHuggingFace(query, sessionData);
@@ -125,14 +160,11 @@ class LLMManager {
             }
         }
         
-        // 3. 如果主要 LLM 失敗，但沒有設定備用 LLM (或 LLM_PRIORITY 設置錯誤)
+        // 3. 服務均不可用或設定錯誤
         if (!result) {
             console.error("❌ LLMManager 設定錯誤或所有 LLM 服務均不可用。");
             throw new Error("LLM 服務設定錯誤或服務均不可用。");
         }
-        
-        // 理論上不會執行到此處，但作為最終防禦
-        return result;
     }
 }
 
