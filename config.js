@@ -1,41 +1,43 @@
+// config.js (ESM 最終修正版 - 使用 export default)
+
 // --- 虛擬資料庫與配置 (最終修正版) ---
 
 const ROOM_RATES = {
-    '標準雙人房': 2200,
-    '豪華客房': 3200,
-    '行政套房': 4800,
-    '家庭四人房': 4500,
+    '標準雙人房': 2200,
+    '豪華客房': 3200,
+    '行政套房': 4800,
+    '家庭四人房': 4500,
 };
 
 // --- 價格與費用常數 ---
-const WEEKEND_MULTIPLIER = 1.2; // 週末（週五、週六）加價 20%
-const CHILD_FEE_PER_NIGHT = 500; // 兒童加價 NT$500/晚
-const PET_FEE_PER_PET_PER_NIGHT = 300; // ⭐️ 新增：寵物清潔費 NT$300/晚 (確保與 Controller 一致)
-const SERVICE_FEE_RATE = 0.1; // ⭐️ 新增：服務費率 (10%)
-const VIRTUAL_PAYMENT_BASE_URL = 'https://secure.payment.gateway.com/pay'; // ⭐️ 新增：虛擬金流 URL
+const WEEKEND_MULTIPLIER = 1.2; 
+const CHILD_FEE_PER_NIGHT = 500; 
+const PET_FEE_PER_PET_PER_NIGHT = 300; 
+const SERVICE_FEE_RATE = 0.1; 
+const VIRTUAL_PAYMENT_BASE_URL = 'https://secure.payment.gateway.com/pay'; 
 
 // --- 庫存與會員數據 ---
-const DEFAULT_ROOM_INVENTORY = 10; // 預設庫存數
+const DEFAULT_ROOM_INVENTORY = 10; 
 
 // 虛擬庫存表：以 YYYY-MM-DD 為 Key (當前年份是 2025)
 const VIRTUAL_INVENTORY = {
-    '2025-12-24': {
-        '標準雙人房': 5,
-        '豪華客房': 2,
-        '行政套房': 1,
-        '家庭四人房': 3,
-    },
-    '2025-12-25': {
-        '標準雙人房': 4,
-        '豪華客房': 3,
-        '行政套房': 0, // 故意設為 0 來測試庫存不足
-        '家庭四人房': 2,
-    },
+    '2025-12-24': {
+        '標準雙人房': 5,
+        '豪華客房': 2,
+        '行政套房': 1,
+        '家庭四人房': 3,
+    },
+    '2025-12-25': {
+        '標準雙人房': 4,
+        '豪華客房': 3,
+        '行政套房': 0, 
+        '家庭四人房': 2,
+    },
 };
 
 // 虛擬會員數據
 const VIRTUAL_MEMBERS = {
-    '123456789': { isMember: true, level: 'Gold', discount: 0.8 }
+    '123456789': { isMember: true, level: 'Gold', discount: 0.8 }
 };
 
 // --- AI 與系統配置 ---
@@ -50,19 +52,22 @@ const apiUrl = apiKey ? `${API_BASE}/${API_VERSION}/models/${MODEL_NAME}:generat
 const MAX_RETRIES = 2;
 const INITIAL_BACKOFF_MS = 1000;
 
-
-module.exports = {
-    ROOM_RATES,
-    WEEKEND_MULTIPLIER,
-    CHILD_FEE_PER_NIGHT,
-    PET_FEE_PER_PET_PER_NIGHT, // ⭐️ 導出
-    SERVICE_FEE_RATE, // ⭐️ 導出
-    VIRTUAL_PAYMENT_BASE_URL, // ⭐️ 導出
-    DEFAULT_ROOM_INVENTORY,
-    VIRTUAL_INVENTORY,
-    VIRTUAL_MEMBERS,
-    CHAT_INSTRUCTIONS,
-    apiUrl,
-    MAX_RETRIES,
-    INITIAL_BACKOFF_MS // 修正：此處已是物件的最後一個元素，**移除後面的逗號**
+// 整合所有配置到一個物件中
+const config = {
+    ROOM_RATES,
+    WEEKEND_MULTIPLIER,
+    CHILD_FEE_PER_NIGHT,
+    PET_FEE_PER_PET_PER_NIGHT,
+    SERVICE_FEE_RATE,
+    VIRTUAL_PAYMENT_BASE_URL,
+    DEFAULT_ROOM_INVENTORY,
+    VIRTUAL_INVENTORY,
+    VIRTUAL_MEMBERS,
+    CHAT_INSTRUCTIONS,
+    apiUrl,
+    MAX_RETRIES,
+    INITIAL_BACKOFF_MS
 };
+
+// 🏆 最終修正：使用 ES 模組的預設匯出 (Default Export)
+export default config;
