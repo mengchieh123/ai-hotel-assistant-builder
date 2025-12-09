@@ -14,20 +14,15 @@
                 "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
                 "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee"
             ],
-            // 確保 init 狀態能捕捉日期和晚數
             "entities": ["adultCount", "childCount", "roomCount", "checkInDate", "nights"],
-            
-            // 新增 rules 解決實體完整時的流程卡住問題
             "rules": [
                 {
                     "condition": "checkInDate && nights",
                     "next_state": "check_date_completeness"
                 }
             ],
-            
             "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
         },
-        // 🚨 修正狀態名稱
         "ask_dates_and_nights": {
             "prompt": "請提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
             "entities": ["checkInDate", "nights"],
@@ -43,7 +38,6 @@
         },
         "handle_date_not_found": {
             "prompt": "抱歉，我需要明確的【入住日期】和【住宿晚數】才能繼續。請再試一次。 (例如：12月24日, 2晚)",
-            // 🚨 修正引用
             "next_state": "ask_dates_and_nights",
             "fallback": "請重新輸入完整的日期和晚數。"
         },
@@ -87,7 +81,6 @@
             "type": "logic_exec",
             "handler": "checkBookingEssentials",
             "next_state": "lock_inventory",
-            // 🚨 修正引用
             "fallback_state": "ask_dates_and_nights"
         },
         "lock_inventory": {
@@ -229,7 +222,6 @@
                 ]
             },
             "intents": {
-                // 🚨 修正引用
                 "correction_date": "ask_dates_and_nights",
                 "correction_room": "ask_room_type",
                 "correction_addons": "ask_addons",
