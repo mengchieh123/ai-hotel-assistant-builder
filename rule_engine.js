@@ -1,12 +1,11 @@
-// rule_engine.js (V5.8 - 最終穩定版)
+// rule_engine.js (V5.8 - 最終修正統一版)
 
-// 🏆 ESM 導入：將所有 require() 替換為 import
-import sessionManager from './session_manager.js';
-import SmartIntentClassifier from './intent_classifier.js';
-
-// 🚨 修正：將 'BookingFlowController' 的預設導入改為命名導入
-// 假設 booking_controller.js 是使用 'export class BookingFlowController' 或 'export { BookingFlowController }'
-import { BookingFlowController } from './booking_controller.js'; 
+// ----------------------------------------------------
+// 🏆 修正 1: ESM 導入 (全部改為命名導入以避免衝突)
+// ----------------------------------------------------
+import sessionManager from './session_manager.js'; // 假設 sessionManager 仍為預設匯出
+import { SmartIntentClassifier } from './intent_classifier.js'; // ✅ 修正：改為命名導入 (與 intent_classifier.js 配合)
+import { BookingFlowController } from './booking_controller.js'; // ✅ 保持命名導入
 
 // 🏆 導入 Node.js 內建模組
 import path from 'path';
@@ -19,14 +18,13 @@ const __dirname = path.dirname(__filename);
 // ----------------------------------------------------
 
 
-// 載入 Flow Config - 🏆 修正: 使用同步 FS 載入 JSON (解決 assert 錯誤)
+// 載入 Flow Config - ✅ 保持使用同步 FS 載入 JSON (繞過 assert 錯誤)
 let flowConfig;
 try {
     const flowPath = path.join(__dirname, 'dialogue_flow.json');
     const flowJsonString = fs.readFileSync(flowPath, 'utf8');
     flowConfig = JSON.parse(flowJsonString);
     
-    // 🚨 【除錯日誌 - 確保檔案載入和結構正確】
     if (flowConfig && flowConfig.states) {
         console.log(`✅ [DEBUG] dialogue_flow.json 成功載入！狀態數: ${Object.keys(flowConfig.states).length}`);
     } else {
@@ -34,16 +32,15 @@ try {
     }
 } catch (error) {
     console.error(`💥 [DEBUG] 載入 dialogue_flow.json 失敗: ${error.message}`);
-    // 如果載入失敗，設置為空對象防止應用崩潰
     flowConfig = { states: {} }; 
 }
 // ---------------------------------------------
 
-// 優先級常量
+// 優先級常量 (保持不變)
 const PRIORITY = {
     EMERGENCY: 110,
     RESET_FLOW: 106,
-    INVENTORY_FAILURE_OVERRIDE: 105, // 💡 NEW: 庫存鎖定失敗
+    INVENTORY_FAILURE_OVERRIDE: 105, 
     ROOM_LIMIT: 103,
     GENERAL_INQUIRY_OVERRIDE: 104,
     MEMBER_LOGIN_OVERRIDE: 100,
@@ -54,7 +51,7 @@ const PRIORITY = {
             RESUME: 99
         },
         AVAILABILITY_CHECK: 96,
-        ENTITY_SATISFIED_ADVANCE: 97 // 實體補齊，推進到 next_state
+        ENTITY_SATISFIED_ADVANCE: 97 
     },
     GENERAL_RULE: 80
 };
@@ -66,16 +63,14 @@ const CORE_COLLECTION_STATES = ['ask_nights_and_dates', 'ask_guest_count', 'ask_
 
 class RuleEngine {
 
-    /** 輔助函數：插值處理 */
+    // --- 輔助函數 (保持不變) ---
     static interpolatePrompt(promptTemplate, data) {
         if (!promptTemplate || typeof promptTemplate !== 'string') return promptTemplate;
-        
         return promptTemplate.replace(/\{(\w+)\}/g, (match, key) => {
             return data[key] !== undefined ? data[key] : match;
         });
     }
 
-    /** 錯誤處理初始化 */
     static initializeErrorHandlers() { 
         this.errorResponses = {
             'RULE_ENGINE_ERROR': (message) => ({
@@ -91,7 +86,6 @@ class RuleEngine {
         };
     }
     
-    /** 取得錯誤回應 */
     static getErrorResponse(key, message) {
         const handler = this.errorResponses[key];
         if (handler) {
@@ -111,7 +105,6 @@ class RuleEngine {
         };
     }
 
-    /** 取得 Fallback 回應 */
     static getFallbackResponse(session, flow) {
         const stateKey = session.currentStep || 'init';
         const state = flow.states[stateKey];
@@ -119,7 +112,7 @@ class RuleEngine {
             return {
                 shouldProcess: true,
                 priority: PRIORITY.GENERAL_RULE,
-                response: this.interpolatePrompt(state.fallback, session.collectedData), 
+                response: this.interpolatePrompt(state.fallback, session.collectedData), 
                 nextStep: stateKey,
                 endFlow: false
             };
@@ -127,7 +120,6 @@ class RuleEngine {
         return null;
     }
     
-    /** 處理規則結果 */
     static processRules(rulesResults) {
         const sortedResults = rulesResults
             .filter(r => r && r.shouldProcess)
@@ -136,18 +128,15 @@ class RuleEngine {
         return sortedResults.length > 0 ? sortedResults[0] : null;
     }
 
-    /** * 生成狀態回應 (V5.6 修正：確保 logic_exec 狀態返回有效的 response 字段)
-      */
     static generateStateResponse(flow, stateKey, data, priority) {
         const state = flow.states[stateKey];
         if (!state) return null;
         
-        // 如果是 logic_exec 狀態且沒有 prompt
         if (state.type === 'logic_exec' && !state.prompt) {
              return {
                  shouldProcess: true,
                  priority: priority,
-                 response: "", // 修正：將 undefined 改為空字串 ""
+                 response: "", 
                  nextStep: stateKey,
                  richCard: state.richCard,
                  allowGeminiCall: state.allow_gemini_call || false
@@ -157,14 +146,13 @@ class RuleEngine {
         return {
             shouldProcess: true,
             priority: priority,
-            response: this.interpolatePrompt(state.prompt, data), 
+            response: this.interpolatePrompt(state.prompt, data), 
             nextStep: stateKey,
             richCard: state.richCard,
             allowGeminiCall: state.allow_gemini_call || false
         };
     }
     
-    // Handler 執行狀態管理
     static hasExecutedHandler(session, stateKey) {
         return session.executedHandlers && session.executedHandlers[stateKey];
     }
@@ -173,36 +161,31 @@ class RuleEngine {
         if (!session.executedHandlers) {
             session.executedHandlers = {};
         }
-        session.executedHandlers[stateKey] = true; 
+        session.executedHandlers[stateKey] = true; 
     }
 
     static resetHandlerExecution(session) {
         session.executedHandlers = {};
     }
 
-    /** * 🚀 V5.3 修正：清理實體數據並防止核心實體覆蓋 
-      */
     static sanitizeEntities(entities, sessionCollectedData) {
         if (typeof entities !== 'object' || entities === null) {
             return {};
         }
 
         const sanitized = {};
-        for (const [key, value] of Object.entries(entities)) { 
-            // 基礎清理
+        for (const [key, value] of Object.entries(entities)) { 
             if (value !== undefined && value !== null && value !== '' && String(value).toLowerCase() !== 'null') {
                 
-                // 核心保護邏輯：防止 adultCount 和 childCount 被分類器的預設值覆蓋
                 if (key === 'adultCount' || key === 'childCount') {
                     const sessionValue = parseInt(sessionCollectedData[key], 10);
                     const inputValue = parseInt(value, 10);
 
-                    // 如果 session 中已經有有效的人數（>1 或 >0），且新的輸入值是預設值（1 或 0），則忽略新輸入。
-                    if ((key === 'adultCount' && sessionValue > 1 && (inputValue === 1)) || 
+                    if ((key === 'adultCount' && sessionValue > 1 && (inputValue === 1)) || 
                         (key === 'childCount' && sessionValue > 0 && (inputValue === 0)))
                     {
                         console.log(`⚠️ [ENTITY GUARD] 忽略輸入中不合理的預設值: ${key}:${inputValue}，保留 Session 值:${sessionValue}`);
-                        continue; // 跳過此實體，不加入 sanitized
+                        continue; 
                     }
                 }
 
@@ -212,7 +195,7 @@ class RuleEngine {
         return sanitized;
     }
 
-    /** 核心執行函數 */
+    // --- 核心執行函數 (保持不變) ---
     static async executeRules(message, sessionId) {
         if (!sessionId || typeof sessionId !== 'string' || sessionId === 'undefined') {
             console.error("💥 [SECURITY FAIL] 接收到無效的 sessionId，拒絕處理。");
@@ -224,11 +207,10 @@ class RuleEngine {
             const flow = flowConfig;
             
             // 1. 意圖分類與實體抽取
-            const classificationResult = SmartIntentClassifier.classify(message, flow); 
+            const classificationResult = SmartIntentClassifier.classify(message, flow); // ✅ 使用修正後的命名導入
             let intents = classificationResult.intents;
-            let extractedEntities = classificationResult.entities || {}; 
+            let extractedEntities = classificationResult.entities || {}; 
 
-            // 🚀 V5.3 修正：將 session.collectedData 傳入 sanitizeEntities 進行保護性過濾
             const sanitizedEntities = this.sanitizeEntities(extractedEntities, session.collectedData);
             
             // 🎯 實體合併：直接合併和更新實體到 session 物件
@@ -236,7 +218,7 @@ class RuleEngine {
             session.lastIntent = intents[0] || session.lastIntent;
 
             // 🎯 記錄會話歷史
-            sessionManager.updateSession(sessionId, message, intents); 
+            sessionManager.updateSession(sessionId, message, intents); 
             
             const collectedData = session.collectedData;
 
@@ -246,15 +228,15 @@ class RuleEngine {
             
             // 2. 執行高優先級規則 (P:100+)
             rulesResults.push(this.emergencyRule(intents, session));
-            rulesResults.push(await this.resetFlowRule(intents, session)); 
-            rulesResults.push(await this.forceResumeBookingRule(intents, session)); 
+            rulesResults.push(await this.resetFlowRule(intents, session)); 
+            rulesResults.push(await this.forceResumeBookingRule(intents, session)); 
             rulesResults.push(this.roomLimitRule(collectedData));
-            rulesResults.push(this.inventoryFailureRule(session)); 
-            rulesResults.push(this.memberLoginRule(intents, session)); 
-            rulesResults.push(this.generalInquiryOverrideRule(intents, session, message, extractedEntities)); // P:104
+            rulesResults.push(this.inventoryFailureRule(session)); 
+            rulesResults.push(this.memberLoginRule(intents, session)); 
+            rulesResults.push(this.generalInquiryOverrideRule(intents, session, message, extractedEntities));
             
             // 3. 執行流程控制規則 (P:98/99)
-            rulesResults.push(this.pauseResumeRule(intents, session, message));
+            rulesResults.push(this.pauseResumeRule(intents, session));
             
             // 4. 執行核心訂房流程規則 (P:95+)
             const bookingResult = await this.bookingFlowRule(intents, session, message);
@@ -270,12 +252,11 @@ class RuleEngine {
                 if (finalResult.nextStep && finalResult.nextStep !== session.currentStep) {
                     session.previousStep = session.currentStep;
                     session.currentStep = finalResult.nextStep;
-                    // 如果流程推進了，重置 Handler 執行標記 
-                    this.resetHandlerExecution(session); 
+                    this.resetHandlerExecution(session); 
                 }
                 
                 if (finalResult.endFlow) {
-                    sessionManager.resetSession(sessionId); 
+                    sessionManager.resetSession(sessionId); 
                 }
                 
                 // 記錄助理回應
@@ -330,21 +311,19 @@ class RuleEngine {
 
     // --- 規則 1: 重新開始 (P:106) ---
     static async resetFlowRule(intents, session) {
-        if (intents.includes('reset') || intents.includes('booking_start')) { 
+        if (intents.includes('reset') || intents.includes('booking_start')) { 
             
-            // 💡 V5.5 優化：解除舊的庫存鎖定
             if (session.collectedData.inventoryLockId) {
                 console.log(`🔒 [DEBUG] 重設流程時解除庫存鎖定：${session.collectedData.inventoryLockId}`);
                 await BookingFlowController.unlockInventory(session.collectedData.inventoryLockId);
             }
             
-            // 清除所有舊數據，從 init 重新開始
             this.resetHandlerExecution(session);
-            session.collectedData = {}; // 重設後將所有實體傳入 init 狀態
+            session.collectedData = {}; 
 
             return {
                 shouldProcess: true,
-                priority: PRIORITY.RESET_FLOW, // P:106
+                priority: PRIORITY.RESET_FLOW, 
                 response: this.interpolatePrompt(flowConfig.states['init'].prompt, session.collectedData),
                 nextStep: 'init'
             };
@@ -356,23 +335,20 @@ class RuleEngine {
     static async forceResumeBookingRule(intents, session) {
         const currentStateKey = session.currentStep;
         
-        // 當流程卡在通用查詢狀態，且用戶嘗試發出訂房指令時，強制重啟。
         if (currentStateKey === 'handle_general_inquiry' && intents.includes('booking')) {
             console.log("🚀 [DEBUG] 偵測到在通用查詢狀態下嘗試訂房，強制重設流程。");
 
-            // 💡 V5.5 優化：解除舊的庫存鎖定
             if (session.collectedData.inventoryLockId) {
                 console.log(`🔒 [DEBUG] 強制重設流程時解除庫存鎖定：${session.collectedData.inventoryLockId}`);
                 await BookingFlowController.unlockInventory(session.collectedData.inventoryLockId);
             }
             
-            // 觸發重設邏輯
             session.collectedData = {};
             this.resetHandlerExecution(session);
             
             return {
                 shouldProcess: true,
-                priority: PRIORITY.RESET_FLOW, // P:106
+                priority: PRIORITY.RESET_FLOW, 
                 response: this.interpolatePrompt(flowConfig.states['init'].prompt, session.collectedData),
                 nextStep: 'init'
             };
@@ -384,24 +360,22 @@ class RuleEngine {
     static inventoryFailureRule(session) {
         const data = session.collectedData;
         
-        // 檢查 inventoryLockId 是否為空，且有庫存錯誤訊息旗標
-        if (!data.inventoryLockId && data.inventory_error) { 
+        if (!data.inventoryLockId && data.inventory_error) { 
             
             const errorDetails = data.inventory_error_details || "庫存或價格檢查失敗。";
             const remainingRooms = data.remainingRooms || 0;
             const roomType = data.roomType || "您選擇的房型";
             const requestedRooms = data.roomCount || 0;
             
-            // 清理錯誤旗標，防止無限迴圈
-            delete data.inventory_error; 
+            delete data.inventory_error; 
             delete data.inventory_error_details;
             delete data.remainingRooms;
 
             return {
                 shouldProcess: true,
-                priority: PRIORITY.INVENTORY_FAILURE_OVERRIDE, // P:105
+                priority: PRIORITY.INVENTORY_FAILURE_OVERRIDE, 
                 response: `抱歉，您想預訂的 **${requestedRooms} 間 ${roomType}** 目前庫存不足。目前僅剩 **${remainingRooms} 間**。\n\n請問您要更改房間數量為 ${remainingRooms} 間，還是選擇其他房型？`,
-                nextStep: 'ask_room_count', // 導回房間數詢問狀態
+                nextStep: 'ask_room_count', 
                 richCard: null,
                 allowGeminiCall: false
             };
@@ -417,7 +391,7 @@ class RuleEngine {
                 shouldProcess: true,
                 priority: PRIORITY.ROOM_LIMIT,
                 response: `抱歉，為確保服務品質，單次預訂房間數不能超過 ${MAX_ROOM_LIMIT} 間。請重新輸入。`,
-                nextStep: 'ask_room_count' 
+                nextStep: 'ask_room_count' 
             };
         }
         return { shouldProcess: false, priority: 0 };
@@ -426,7 +400,7 @@ class RuleEngine {
     // --- 規則 1.3: 會員登入覆蓋 (P:100) ---
     static memberLoginRule(intents, session) {
         const currentStateKey = session.currentStep;
-        // 🚨 修正狀態名稱：從 'check_availability_and_price' 改為 'ask_member_login'
+        
         if (currentStateKey === 'ask_member_login') {
             const state = flowConfig.states[currentStateKey];
             const loginIntent = state.intents?.login;
@@ -447,13 +421,11 @@ class RuleEngine {
     static generalInquiryOverrideRule(intents, session, message, entities) {
         const currentStateKey = session.currentStep;
         
-        // 確保在核心實體收集狀態，P:97/P:95 優先於通用查詢
         const isCollectingCoreEntities = CORE_COLLECTION_STATES.includes(currentStateKey);
 
-        // 如果偵測到通用問題意圖，且當前不在中斷狀態，且當前**不在核心實體收集狀態**
-        if (intents.includes('general_inquiry') && 
+        if (intents.includes('general_inquiry') && 
             !FORCED_BREAK_STATES.includes(currentStateKey) &&
-            !isCollectingCoreEntities 
+            !isCollectingCoreEntities 
             ) {
             
             const inquiryState = flowConfig.states['handle_general_inquiry'];
@@ -461,7 +433,7 @@ class RuleEngine {
             
             return {
                 shouldProcess: true,
-                priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE, // P:104
+                priority: PRIORITY.GENERAL_INQUIRY_OVERRIDE, 
                 response: this.interpolatePrompt(inquiryState.prompt, session.collectedData).replace('{user_query}', userQuery),
                 nextStep: 'handle_general_inquiry',
                 allowGeminiCall: inquiryState.allow_gemini_call
@@ -477,7 +449,7 @@ class RuleEngine {
         
         if (currentStateKey === 'paused_waiting_for_resume') {
             if (intents.includes('affirm') || intents.includes('continue')) {
-                // 恢復流程 (P:99) - 回到中斷前的步驟
+                
                 const resumeStep = session.previousStep && flow.states[session.previousStep] ? session.previousStep : 'init';
                 
                 return {
@@ -500,14 +472,14 @@ class RuleEngine {
         // 1. 流程啟動邏輯 (init)
         if (!currentStateKey || currentStateKey === 'init') {
             const hasBookingIntent = intents.includes('booking');
-            const hasDateOrNights = data.checkInDate || data.nights; 
+            const hasDateOrNights = data.checkInDate || data.nights; 
 
             if (hasBookingIntent || hasDateOrNights) {
-                const nextStepAfterInit = flow.states['init']?.next_state || 'ask_nights_and_dates'; 
+                const nextStepAfterInit = flow.states['init']?.next_state || 'ask_nights_and_dates'; 
                 
                 console.log(`[DEBUG] 啟動流程：推進到 ${nextStepAfterInit}`);
                 
-                // P:96 
+                // P:96 
                 return this.generateStateResponse(flow, nextStepAfterInit, data, PRIORITY.BOOKING_FLOW.AVAILABILITY_CHECK);
             }
             
@@ -522,7 +494,7 @@ class RuleEngine {
         
         if (currentState.entities && Array.isArray(currentState.entities)) {
             const requiredEntities = currentState.entities;
-            const hasRequiredEntities = requiredEntities.every(entity => 
+            const hasRequiredEntities = requiredEntities.every(entity => 
                 data[entity] !== undefined && data[entity] !== null && data[entity] !== ''
             );
             
@@ -533,40 +505,38 @@ class RuleEngine {
                 const nextStateKey = currentState.next_state || currentStateKey;
                 console.log(`[DEBUG] 實體滿足，推進流程到: ${nextStateKey}`);
                 // P:97
-                return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.ENTITY_SATISFIED_ADVANCE); 
+                return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.ENTITY_SATISFIED_ADVANCE); 
             }
         }
         
         // 3. 處理 Handler 邏輯 (迭代執行器)
-        let nextStateKey = session.currentStep; 
-        let handlerOutput = null; // 💡 追蹤 Handler 產生的回應
+        let nextStateKey = session.currentStep; 
+        let handlerOutput = null; 
         
-        // 檢查當前或推進後的狀態是否包含 handler，並且尚未執行過
         while (flow.states[nextStateKey]?.handler && !this.hasExecutedHandler(session, nextStateKey)) {
             
             const handlerKey = flow.states[nextStateKey].handler;
-            console.log(`💲 觸發 Handler: ${handlerKey} 於狀態: ${nextStateKey}`); 
+            console.log(`💲 觸發 Handler: ${handlerKey} 於狀態: ${nextStateKey}`); 
             
             // ⚠️ 確保使用 await 等待非同步 Handler 執行
-            const handlerResult = await BookingFlowController[handlerKey](session, flowConfig); 
+            const handlerResult = await BookingFlowController[handlerKey](session, flowConfig); 
             
-            this.markHandlerExecuted(session, nextStateKey); 
+            this.markHandlerExecuted(session, nextStateKey); 
 
             // 💡 修正 2：如果 Handler 成功執行並包含回應，則儲存
             if (handlerResult.isHandled && handlerResult.response) {
-                // 假設 Handler 成功執行並產生的回應 (例如價格計算完成)
-                handlerOutput = handlerResult; 
+                handlerOutput = handlerResult; 
             }
 
             // 處理 Handler 返回結果
             if (!handlerResult.isHandled) {
                 // 處理失敗，導向 fallback_state
                 nextStateKey = flow.states[nextStateKey].fallback_state || 'init';
-                break; 
+                break; 
             }
             
             // 處理成功，導向 next_state (如果 Handler 有指定 nextStep)
-            nextStateKey = handlerResult.nextStep || flow.states[nextStateKey].next_state; 
+            nextStateKey = handlerResult.nextStep || flow.states[nextStateKey].next_state; 
             
             if (nextStateKey === session.currentStep) {
                 // 防止無限迴圈
@@ -575,7 +545,6 @@ class RuleEngine {
         }
         
         // 4. 輸出回應 - 檢查 Handler 迴圈結束後的最終狀態
-        // 💡 修正 2：如果 Handler 產生了回應，則優先輸出
         if (handlerOutput) {
             console.log(`[DEBUG] Handler 成功執行並產生了回應。`);
             return {
@@ -618,7 +587,7 @@ class RuleEngine {
             return {
                 shouldProcess: true,
                 priority: PRIORITY.GENERAL_RULE,
-                response: this.interpolatePrompt(state.fallback, session.collectedData), 
+                response: this.interpolatePrompt(state.fallback, session.collectedData), 
                 nextStep: stateKey,
                 endFlow: false
             };
@@ -626,9 +595,11 @@ class RuleEngine {
         return { shouldProcess: false, priority: 0 };
     }
     
-} 
+} 
 
 RuleEngine.initializeErrorHandlers();
 
-// 🏆 ESM 匯出
-export default RuleEngine;
+// ----------------------------------------------------
+// 🏆 修正 3: ESM 匯出 (改為命名匯出，與所有導入保持一致)
+// ----------------------------------------------------
+export { RuleEngine };
