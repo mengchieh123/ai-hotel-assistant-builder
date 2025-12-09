@@ -3,7 +3,7 @@
 // ----------------------------------------------------
 // 🏆 修正 1: ESM 導入 (全部改為命名導入以避免衝突)
 // ----------------------------------------------------
-import sessionManager from './session_manager.js'; // 假設 sessionManager 仍為預設匯出
+import { sessionManager } from './session_manager.js';
 import { SmartIntentClassifier } from './intent_classifier.js'; // ✅ 修正：改為命名導入 (與 intent_classifier.js 配合)
 import { BookingFlowController } from './booking_controller.js'; // ✅ 保持命名導入
 
