@@ -52,7 +52,8 @@
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
-            "entities": ["adultCount", "childCount"],
+            // 修正點 1: 僅要求 adultCount，讓流程不再被缺失的 childCount 卡住
+            "entities": ["adultCount"], 
             "next_state": "ask_room_type",
             "fallback": "請提供準確的入住人數 (大人/兒童)，謝謝。"
         },
