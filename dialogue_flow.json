@@ -1,7 +1,7 @@
 {
     "name": "HotelBookingFlow",
-    "version": "1.20",
-    "description": "V1.20 穩定增強版：修正會員登入回彈邏輯，所有邏輯執行狀態加入明確 fallback。",
+    "version": "1.20_Stable",
+    "description": "V1.20 穩定增強版：修正會員登入回彈邏輯，所有 logic_exec/entity_collection 狀態加入明確 fallback。",
     "initial_state": "init",
     "states": {
         "init": {
@@ -12,7 +12,7 @@
                 "contactName", "contactPhone", "contactEmail", "specialRequest",
                 "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons",
                 "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
-                "inventoryWarning", "llm_response", "llm_source"
+                "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee" // 確保所有價格相關的實體都清除
             ],
             "entities": ["adultCount", "childCount", "roomCount"],
             "fallback": "您可以直接告訴我預計入住日期和晚數，例如：『我想訂明天兩晚的房間』。"
@@ -21,7 +21,8 @@
             "prompt": "請提供【入住日期】和【住宿晚數】 (例如：12月24日, 2晚)。",
             "entities": ["checkInDate", "nights"],
             "next_state": "check_date_completeness",
-            "fallback": "請提供入住日期及住宿晚數，我會為您查詢空房與價格。"
+            "fallback": "請提供入住日期及住宿晚數，我會為您查詢空房與價格。",
+            "fallback_state": "ask_nights_and_dates" // 確保 entity_collection 停留在自身
         },
         "check_date_completeness": {
             "type": "logic_exec",
@@ -38,7 +39,8 @@
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
             "entities": ["adultCount"],
             "next_state": "ask_room_type",
-            "fallback": "請提供準確的入住人數 (大人/兒童)，謝謝。"
+            "fallback": "請提供準確的入住人數 (大人/兒童)，謝謝。",
+            "fallback_state": "ask_guest_count" // 確保 entity_collection 停留在自身
         },
         "ask_room_type": {
             "prompt": "我們有以下四種熱門房型：\n\n- 標準雙人房 (NT$ 2,200/晚)\n- 豪華客房 (NT$ 3,200/晚)\n- 行政套房 (NT$ 4,800/晚)\n- 家庭四人房 (NT$ 4,500/晚)\n\n請問您想預訂哪一種房型？",
@@ -53,13 +55,15 @@
             },
             "entities": ["roomType"],
             "next_state": "ask_room_count",
-            "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。"
+            "fallback": "請告訴我您想預訂的房型名稱，例如：豪華客房。",
+            "fallback_state": "ask_room_type" // 確保 entity_collection 停留在自身
         },
         "ask_room_count": {
             "prompt": "好的，您選擇了 {roomType}。請問您需要預訂【幾間】呢？",
             "entities": ["roomCount"],
             "next_state": "check_essentials_before_price",
-            "fallback": "請提供您需要的房間間數，例如：2間。"
+            "fallback": "請提供您需要的房間間數，例如：2間。",
+            "fallback_state": "ask_room_count" // 確保 entity_collection 停留在自身
         },
         "check_essentials_before_price": {
             "type": "logic_exec",
@@ -106,7 +110,8 @@
             "next_state": "ask_member_password",
             "intents": {
                 "skip": "ask_addons"
-            }
+            },
+            "fallback_state": "login_member_account" // 確保 entity_collection 停留在自身
         },
         "ask_member_password": {
             "type": "logic_exec",
@@ -145,7 +150,8 @@
             "prompt": "當前總價: **NT$ {finalPrice}**\n\n請提供【聯絡人姓名】、【手機號碼】和【電子郵件】 (例如：王大明, 0912345678, test@mail.com)。",
             "entities": ["contactName", "contactPhone", "contactEmail"],
             "next_state": "ask_special_requests",
-            "fallback": "請務必提供有效的聯絡資訊，這關係到您的訂單接收。"
+            "fallback": "請務必提供有效的聯絡資訊，這關係到您的訂單接收。",
+            "fallback_state": "ask_contact_info" // 🚨 修正點 1
         },
         "ask_special_requests": {
             "type": "logic_exec",
@@ -153,7 +159,8 @@
             "prompt": "當前總價: **NT$ {finalPrice}**\n\n請問您有任何特殊需求嗎？ (例如：高樓層、素食早餐、嬰兒床等)\n\n若無，請回覆『無』。",
             "entities": ["specialRequest"],
             "next_state": "ask_payment_method",
-            "fallback": "請提供特殊要求或回覆『無』。"
+            "fallback": "請提供特殊要求或回覆『無』。",
+            "fallback_state": "ask_special_requests" // 🚨 修正點 2
         },
         "ask_payment_method": {
             "type": "logic_exec",
@@ -169,7 +176,8 @@
             },
             "entities": ["paymentMethod"],
             "next_state": "confirm_booking",
-            "fallback": "請選擇一種付款方式。"
+            "fallback": "請選擇一種付款方式。",
+            "fallback_state": "ask_payment_method" // 確保 entity_collection/logic_exec 停留在自身
         },
         "confirm_booking": {
             "type": "logic_exec",
@@ -187,7 +195,8 @@
                 "correction": "select_correction_target"
             },
             "fallback": "請回覆『確認送出』或『修改資訊』。",
-            "next_state": "select_correction_target"
+            "next_state": "select_correction_target",
+            "fallback_state": "confirm_booking" // 確保 logic_exec 停留在自身
         },
         "select_correction_target": {
             "prompt": "請問您想修改哪部分資訊？",
@@ -214,7 +223,8 @@
             "handler": "submitBooking",
             "prompt": "🎉 訂房完成！您的訂單號為 **{orderId}**。最終總價: **NT$ {finalPrice}**。{paymentMessage}",
             "end": true,
-            "fallback": "訂單已送出，無法修改。"
+            "fallback": "訂單已送出，無法修改。",
+            "fallback_state": "end_conversation" // 確保提交失敗後能正常結束或引導
         },
         "end_conversation": {
             "prompt": "謝謝您的預訂！期待您的光臨。您可以輸入『重新開始』或『查詢訂單』。",
