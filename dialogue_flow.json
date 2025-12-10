@@ -13,7 +13,8 @@
                 "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons",
                 "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
                 "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee",
-                "roomBasePrice", "discountAmount", "roomPriceAfterDiscount", "totalAddonCost"
+                "roomBasePrice", "discountAmount", "roomPriceAfterDiscount", "totalAddonCost",
+                "pauseFromState"
             ],
             "entities": ["adultCount", "childCount", "roomCount", "checkInDate", "nights"],
             "rules": [
@@ -45,7 +46,7 @@
         "set_default_child_count": {
             "type": "logic_exec",
             "handler": "setDefaultChildCount",
-            "next_state": "ask_room_type",  "fallback_state": "ask_guest_count"
+            "next_state": "ask_room_type",  "fallback_state": "ask_guest_count"
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
@@ -235,10 +236,10 @@
             "richCard": {
                 "type": "button_list",
                 "buttons": [
-                    {"text": "修改日期/晚數", "value": "修改日期"},
-                    {"text": "修改房型/間數", "value": "修改房型"},
-                    {"text": "修改加購服務", "value": "修改加購"},
-                    {"text": "修改聯絡資訊", "value": "修改聯絡"}
+                    {"text": "修改日期/晚數", "value": "修改日期", "intent": "correction_date"},
+                    {"text": "修改房型/間數", "value": "修改房型", "intent": "correction_room"},
+                    {"text": "修改加購服務", "value": "修改加購", "intent": "correction_addons"},
+                    {"text": "修改聯絡資訊", "value": "修改聯絡", "intent": "correction_contact"}
                 ]
             },
             "intents": {
@@ -283,7 +284,7 @@
                 ]
             },
             "intents": {
-                "affirm": "paused_waiting_for_resume",
+                "affirm": "resume_booking_flow", 
                 "booking": "init",
                 "reset": "init"
             },
@@ -311,11 +312,18 @@
                 ]
             },
             "intents": {
-                "affirm": "ask_member_login", "booking": "init",
+                "affirm": "resume_booking_flow", 
+                "booking": "init",
                 "correction": "select_correction_target"
             },
             "fallback": "抱歉，無法恢復流程。請重新輸入『繼續』或『重新預訂』。",
             "next_state": "init"
+        },
+        "resume_booking_flow": {
+            "type": "logic_exec",
+            "handler": "resumeFlowFromPause",
+            "next_state": "ask_member_login", 
+            "fallback_state": "ask_member_login"
         }
     }
 }
