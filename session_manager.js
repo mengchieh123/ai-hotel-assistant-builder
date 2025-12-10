@@ -1,4 +1,4 @@
-// session_manager.js (V2.1 - 最終穩健性修正版)
+// session_manager.js (V2.1 - 最終穩健性修正版 - 配合 V8.3 流程恢復版)
 
 import pkg from 'uuid';
 const { v4: uuidv4 } = pkg;
@@ -26,6 +26,7 @@ function getInitialCollectedData() {
         priceDetails: null, CUSTOM_PROMPT: null, addons: [],
         inventoryLockId: null,
         customRichCard: null, // 新增：用於 UI 控制
+        pauseFromState: null, // 🎯 修正：新增流程暫停狀態，配合 BookingController V8.3 的流程恢復
     };
 }
 
@@ -90,6 +91,10 @@ class SessionManager {
         
         Object.keys(newEntities).forEach(key => {
             const value = newEntities[key];
+            // 🎯 注意：這裡不應允許 collectedData 內的 pauseFromState 被外部實體覆蓋
+            if (key === 'pauseFromState') {
+                return; 
+            }
             if (value !== null && value !== undefined) {
                 session.collectedData[key] = value;
             }
@@ -111,6 +116,10 @@ class SessionManager {
         }
         session.lastActive = new Date().getTime();
         session.lastIntent = intents[0]?.name || null;
+        
+        // 🎯 修正：記錄最後一則訊息，供 LLM 查詢使用
+        session.lastMessage = message; 
+
         return session;
     }
 
@@ -142,6 +151,8 @@ class SessionManager {
             session.handlerExecutedStates = []; 
             session.conversationHistory = []; 
             session.lastActive = new Date().getTime();
+            // 🎯 新增：重置 lastMessage
+            session.lastMessage = null; 
         }
     }
     
