@@ -20,7 +20,13 @@ import { RuleEngine } from './rule_engine.js'; // 命名導入 (Named Import)
 // ----------------------------------------------------
 // 🏆 核心修復點：伺服器啟動時，強制執行 RuleEngine 的配置初始化
 // ----------------------------------------------------
-RuleEngine.initializeFlowConfig(); 
+try {
+    RuleEngine.initializeFlowConfig(); 
+} catch (error) {
+    console.error(`💥 應用程式啟動失敗：RuleEngine 初始化錯誤。訊息: ${error.message}`);
+    // 嚴重錯誤：終止應用程式啟動，防止後續運行時錯誤
+    process.exit(1); 
+}
 // ----------------------------------------------------
 
 
@@ -116,7 +122,7 @@ app.post('/api/chat', async (req, res) => {
 // 🖥️ 伺服器啟動
 // ---------------------------------------------
 app.listen(PORT, HOST, () => {
-    console.log(`✅ Rule Engine 配置已強制初始化完成。`);
+    console.log(`✅ Rule Engine 配置已通過檢查。`);
     console.log(`🚀 伺服器運行在 http://${HOST}:${PORT}`);
     console.log(`Gemini API Key: ${apiUrl ? '已設定' : '未設定 ⚠️'}`); 
 });
