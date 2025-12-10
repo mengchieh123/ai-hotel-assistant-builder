@@ -46,14 +46,14 @@
         "set_default_child_count": {
             "type": "logic_exec",
             "handler": "setDefaultChildCount",
-            "next_state": "ask_room_type", **"fallback_state": "ask_guest_count"** // 🎯 修正：這裡應該是逗號
+            "next_state": "ask_room_type",
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
             "entities": ["adultCount", "childCount"],
             "next_state": "ask_room_type",
             "fallback": "請提供準確的入住人數 (大人/兒童)，謝謝。",
-            "fallback_state": "ask_guest_count"
+            "fallback_state": "ask_guest_count",
         },
         "ask_room_type": {
             "prompt": "我們有以下四種熱門房型：\n\n- 標準雙人房 (NT$ 2,200/晚)\n- 豪華客房 (NT$ 3,200/晚)\n- 行政套房 (NT$ 4,800/晚)\n- 家庭四人房 (NT$ 4,500/晚)\n\n請問您想預訂哪一種房型？",
