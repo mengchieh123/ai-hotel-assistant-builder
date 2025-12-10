@@ -1,4 +1,4 @@
-// rule_engine.js (V7.6 - 完整功能版)
+// rule_engine.js (V7.7 - 完整功能版，包含 INIT-ADVANCE 修復)
 
 // ----------------------------------------------------
 // 🏆 ESM 導入
@@ -95,7 +95,6 @@ class RuleEngine {
     }
     
     static getErrorResponse(code, message) {
-        // ... (錯誤處理邏輯) ...
         const handler = RuleEngine.errorResponses && RuleEngine.errorResponses[code];
         
         if (handler) {
@@ -436,7 +435,6 @@ class RuleEngine {
 
     /** 🎯 RuleEngine 核心執行器 */
     static async executeRules(message, sessionId) {
-        // ... (省略錯誤處理和會話準備邏輯，與您提供的版本相同) ...
         if (!RuleEngine.config || !RuleEngine.config.states) {
             return RuleEngine.getErrorResponse('FLOW_CONFIG_MISSING', 'Rule Engine 尚未初始化。');
         }
@@ -505,6 +503,23 @@ class RuleEngine {
             
             // 7. 通用規則 (P:80) - 最終 Fallback (狀態提示)
             const generalResult = RuleEngine.generalRule(session); 
+            
+            // <--- 🎯 INIT-ADVANCE 強制轉移邏輯 (修復流程卡在 'init' 問題) --->
+            if (session.currentStep === 'init' && (collectedData.checkInDate || collectedData.nights || collectedData.roomType)) {
+                console.log("[INIT-ADVANCE] 檢測到關鍵實體，從 init 狀態強制轉移到 ask_dates_and_nights。");
+                session.currentStep = 'ask_dates_and_nights'; 
+                
+                // 重新調用 GeneralRule 獲取新狀態的提示 (例如 ask_dates_and_nights)
+                const advancedResult = RuleEngine.generalRule(session);
+                if (advancedResult) {
+                    session.fallbackCount = 0;
+                    sessionManager.addAssistantResponse(sessionId, advancedResult.response, advancedResult.richCard);
+                    return advancedResult;
+                }
+            }
+            // <--- 🎯 INIT-ADVANCE 強制轉移邏輯結束 --->
+
+
             if (generalResult) {
                 session.fallbackCount = (session.fallbackCount || 0) + 1;
                 session.currentStep = generalResult.nextStep;
