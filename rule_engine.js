@@ -288,8 +288,8 @@ class RuleEngine {
 
     /** 🎯 規則 6: 會員登入覆蓋規則 (P:100) */
     static memberLoginRule(intents, session) {
-        if (intents.includes('login') && session.currentStep !== 'login_state') {
-            // 假設 'login_state' 是一個定義好的狀態
+        if (intents.includes('login') && session.currentStep !== 'login_member_account') {
+            // 假設 'login_member_account' 是一個定義好的狀態
             return RuleEngine.generateStateResponse(flowConfig, 'login_state', session.collectedData, PRIORITY.MEMBER_LOGIN_OVERRIDE);
         }
         return { shouldProcess: false, priority: 0 };
