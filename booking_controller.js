@@ -1,4 +1,4 @@
-// booking_controller.js (V8.2 - 完整修正與流程完善版)
+// booking_controller.js (V8.3 - 最終修正與價格摘要優化版)
 
 import dayjs from 'dayjs';
 import { MockAPI } from './service_mock_api.js';
@@ -82,7 +82,7 @@ function checkDateCompleteness(session) {
             };
         }
         if (!data.adultCount) {
-             data.adultCount = 1;
+            data.adultCount = 1;
         }
         return { isHandled: true, nextStep: 'set_default_child_count' };
     }
@@ -167,7 +167,7 @@ async function lockInventoryLogic(session) {
 // --- 7. 業務邏輯：價格計算 (calculatePrice) ---
 async function calculatePriceLogic(session) {
     const data = session.collectedData;
-    cleanRichCard(data); 
+    cleanRichCard(data);
     const { roomType, checkInDate, nights, roomCount, adultCount } = data;
 
     data.addons = data.addons || [];
@@ -176,7 +176,7 @@ async function calculatePriceLogic(session) {
     try {
         const pricing = await MockAPI.getPricingDetails(roomType);
         const roomDetails = pricing.roomDetails;
-        let totalPrice = 0;
+        let totalPrice = 0; // 房間總價 (折扣前)
         let priceDetails = [];
         let totalAddonCost = 0;
         const totalGuests = parseInt(adultCount) + parseInt(data.childCount || 0);
@@ -194,44 +194,47 @@ async function calculatePriceLogic(session) {
 
         // --- 2. 計算加購服務總價 ---
         // 僅當狀態為 calculate_price_logic_after_addons 或後續才計算 Addon 費用
-        if (session.currentState === 'calculate_price_logic_after_addons' && addons.length > 0) {
-            const allAddons = pricing.addons;
-            for (const addonId of addons) {
-                const addonItem = allAddons[addonId];
-                if (addonItem) {
-                    let cost = addonItem.price;
-                    if (addonItem.isPerNight) cost *= nights;
-                    if (addonItem.type === 'per_person') cost *= totalGuests;
-                    totalAddonCost += cost;
+        if (session.currentState === 'calculate_price_logic_after_addons' || session.currentState === 'ask_contact_info') {
+            if (addons.length > 0) {
+                const allAddons = pricing.addons;
+                for (const addonId of addons) {
+                    const addonItem = allAddons[addonId];
+                    if (addonItem) {
+                        let cost = addonItem.price;
+                        if (addonItem.isPerNight) cost *= nights;
+                        if (addonItem.type === 'per_person') cost *= totalGuests;
+                        totalAddonCost += cost;
+                    }
                 }
             }
         }
-
-        // --- 3. 服務費/稅費 ---
-        const serviceFee = (totalPrice + totalAddonCost) * 0.05;
-
-        // --- 4. 最終價格 (含 Addon 費用和服務費) ---
-        let finalPrice = totalPrice + totalAddonCost + serviceFee;
-
-        // --- 5. 會員折扣 (在任何階段的 calculatePrice 裡，如果 isLoggedIn 為 true，則套用折扣) ---
+        
+        // --- 3. 套用會員折扣 (只針對房間總價 totalPrice) ---
         let discountAmount = 0;
+        let roomPriceAfterDiscount = totalPrice;
         if (data.isLoggedIn) {
-            // 💡 折扣應該只針對房間總價 (totalPrice)
-            const roomPriceAfterDiscount = totalPrice * 0.95; 
+            roomPriceAfterDiscount = totalPrice * 0.95;
             discountAmount = totalPrice - roomPriceAfterDiscount;
-            
-            // 重新計算最終價格： (房間折扣後價格 + 加購費用 + 服務費)
-            finalPrice = roomPriceAfterDiscount + totalAddonCost + serviceFee;
         }
 
+        // --- 4. 服務費/稅費 (基於房間折扣後價格 + 加購費用) ---
+        const priceBeforeFee = roomPriceAfterDiscount + totalAddonCost;
+        const serviceFee = priceBeforeFee * 0.05;
+
+        // --- 5. 最終價格 (折扣後房價 + 加購費用 + 服務費) ---
+        let finalPrice = priceBeforeFee + serviceFee;
+
+        // 儲存所有價格細節，並四捨五入到整數
         Object.assign(data, {
-            roomBasePrice: Math.round(totalPrice),
+            roomBasePrice: Math.round(totalPrice), // 房間原價 (折扣前)
+            discountAmount: Math.round(discountAmount), // 折扣金額
+            roomPriceAfterDiscount: Math.round(roomPriceAfterDiscount), // 房間總價 (折扣後)
             totalAddonCost: Math.round(totalAddonCost),
             serviceFee: Math.round(serviceFee),
             finalPrice: Math.round(finalPrice),
             priceDetails: priceDetails
         });
-        
+
         // --- 6. 決定下一步 ---
         let targetStep;
         if (session.currentState === 'calculate_price_logic_after_addons') {
@@ -365,7 +368,7 @@ async function registerMemberAccountLogic(session) {
 // --- 11. 加購牌卡生成 (generateAddonsCarousel) ---
 async function generateAddonsCarouselLogic(session) {
     const data = session.collectedData;
-    cleanRichCard(data); 
+    cleanRichCard(data);
 
     try {
         const pricing = await MockAPI.getPricingDetails(data.roomType);
@@ -411,7 +414,7 @@ function executeAddonsSelectionLogic(session) {
     if (addonAction === '加購' && addonId) {
         if (!data.addons.includes(addonId)) {
             data.addons.push(addonId);
-             // 清除實體，準備接收下一個加購指令
+            // 清除實體，準備接收下一個加購指令
             delete data.addonAction;
             delete data.addonId;
             // 🎯 修正：重新生成牌卡並留在 ask_addons
@@ -423,7 +426,7 @@ function executeAddonsSelectionLogic(session) {
         } else {
             delete data.addonAction;
             delete data.addonId;
-             return {
+            return {
                 isHandled: true,
                 nextStep: 'ask_addons',
                 prompt: `您已加購 ${addonId}。請選擇其他服務或回覆「完成」。`
@@ -458,54 +461,55 @@ function handleSpecialRequestsLogic(session) {
     return { isHandled: true, nextStep: 'ask_payment_method' };
 }
 
-// --- 15. 生成付款選項 (generatePaymentOptions) ---
-// 💡 注意: 由於 ask_payment_method 狀態已經在 dialogue_flow.json 裡用 logic_exec 呼叫 calculatePrice，
-// 且已經有 richCard 定義，此 handler 暫時不需使用。
-// 如果要用，必須確保 dialogue_flow.json 中移除 richCard 定義。
-// 這裡將其保留，但不在 exports 中使用，以避免與流程圖中的靜態定義衝突。
-function generatePaymentOptionsLogic(session) {
-    // ... 
-    return { isHandled: true };
-}
-
-// --- 16. 生成訂單摘要 (generateOrderSummary) ---
+// --- 15. 生成訂單摘要 (generateOrderSummary) ---
 async function generateOrderSummaryLogic(session) {
     const data = session.collectedData;
     cleanRichCard(data);
 
-    // 💡 修正：房間折扣金額的計算應該基於 calculatePriceLogic 的結果
-    const roomBasePrice = data.roomBasePrice || 0;
-    const finalRoomPrice = roomBasePrice - (data.totalAddonCost || 0) - (data.serviceFee || 0);
-    const roomBasePriceAfterDiscount = data.isLoggedIn ? roomBasePrice * 0.95 : roomBasePrice;
-    const discountAmount = Math.round(roomBasePrice - roomBasePriceAfterDiscount);
+    // 🎯 最終修正：直接使用 calculatePriceLogic 儲存的精確價格細節
+    const roomBasePrice = data.roomBasePrice || 0; // 房間原價 (折扣前)
+    const discountAmount = data.discountAmount || 0; // 折扣金額
+    const roomPriceAfterDiscount = data.roomPriceAfterDiscount || 0; // 房間總價 (折扣後)
+    const totalAddonCost = data.totalAddonCost || 0; // 加購服務費用
+    const serviceFee = data.serviceFee || 0; // 服務費/稅費
+    const finalPrice = data.finalPrice || 0; // 最終總價
+    
+    // 檢查是否有遺漏的計算，若無 finalPrice，則重新計算一次
+    if (finalPrice === 0 && roomBasePrice !== 0) {
+        // 為了確保價格數據存在，這裡進行一次保險調用
+        await calculatePriceLogic(session);
+    }
+    
+    // 重新從 data 中讀取 (確保四捨五入後的價格)
+    const summaryData = session.collectedData;
 
     data.finalSummary = `
 🏨 預訂資訊
-- 入住日期: ${data.checkInDate} (共 ${data.nights} 晚)
-- 房型/間數: ${data.roomType} / ${data.roomCount} 間
-- 入住人數: ${data.adultCount} 大 ${data.childCount || 0} 小
-- 會員身份: **${data.isLoggedIn ? '已登入 (享 95 折)' : '未登入'}**
-- 加購服務: ${data.addons && data.addons.length > 0 ? data.addons.join(', ') : '無'}
-- 特殊需求: ${data.specialRequest || '無'}
+- 入住日期: ${summaryData.checkInDate} (共 ${summaryData.nights} 晚)
+- 房型/間數: ${summaryData.roomType} / ${summaryData.roomCount} 間
+- 入住人數: ${summaryData.adultCount} 大 ${summaryData.childCount || 0} 小
+- 會員身份: **${summaryData.isLoggedIn ? '已登入 (享 95 折)' : '未登入'}**
+- 加購服務: ${summaryData.addons && summaryData.addons.length > 0 ? summaryData.addons.join(', ') : '無'}
+- 特殊需求: ${summaryData.specialRequest || '無'}
 
 👤 聯絡人
-- 姓名: ${data.contactName}
-- 電話/Email: ${data.contactPhone} / ${data.contactEmail}
+- 姓名: ${summaryData.contactName}
+- 電話/Email: ${summaryData.contactPhone} / ${summaryData.contactEmail}
 
 💳 付款資訊
-- 付款方式: **${data.paymentMethod || '未選擇'}**
+- 付款方式: **${summaryData.paymentMethod || '未選擇'}**
 ---
 💰 **價格明細**
 - 房間原價 (折扣前): NT$ ${roomBasePrice}
 - 折扣金額: NT$ ${discountAmount}
-- 房間總價 (折扣後): NT$ ${Math.round(roomBasePriceAfterDiscount)}
-- 加購服務費用: NT$ ${data.totalAddonCost || 0}
-- 服務費/稅費 (5%): NT$ ${data.serviceFee || 0}
+- 房間總價 (折扣後): NT$ ${roomPriceAfterDiscount}
+- 加購服務費用: NT$ ${totalAddonCost}
+- 服務費/稅費 (5%): NT$ ${serviceFee}
 ---
-**🎉 最終總價: NT$ ${data.finalPrice}**
+**🎉 最終總價: NT$ ${finalPrice}**
     `.trim();
 
-    // 增加確認/修改按鈕 (與 dialogue_flow.json 中的 richCard 重複，但為保險起見保留)
+    // 增加確認/修改按鈕
     data.customRichCard = {
         type: "button_list",
         buttons: [
@@ -517,7 +521,7 @@ async function generateOrderSummaryLogic(session) {
     return { isHandled: true };
 }
 
-// --- 17. 提交訂單 (submitBooking) ---
+// --- 16. 提交訂單 (submitBooking) ---
 async function submitBooking(session) {
     const data = session.collectedData;
     cleanRichCard(data);
@@ -532,7 +536,7 @@ async function submitBooking(session) {
                 : '付款連結已透過郵件寄給您。';
             await unlockInventory(session);
             // 🎯 修正：移除 nextStep，讓流程在 booking_complete 結束
-            return { isHandled: true }; 
+            return { isHandled: true };
         } else {
             return {
                 isHandled: true,
@@ -550,7 +554,7 @@ async function submitBooking(session) {
     }
 }
 
-// --- 18. 通用查詢處理 (processGeneralInquiry) ---
+// --- 17. 通用查詢處理 (processGeneralInquiry) ---
 async function processGeneralInquiry(session) {
     const data = session.collectedData;
     // 🎯 修正：確保清除 Rich Card
@@ -558,7 +562,8 @@ async function processGeneralInquiry(session) {
     const lastMessage = session.lastMessage;
 
     try {
-        const llmResponse = await LLMManager.getLLMResponse(lastMessage);
+        // 🎯 修正：LLMManager.getLLMResponse 的回傳是 { text: ..., source: ... }
+        const llmResponse = await LLMManager.getLLMResponse(lastMessage, data); 
         data.llm_response = llmResponse.text;
         data.llm_source = llmResponse.source || 'LLM';
         return { isHandled: true, nextStep: 'general_inquiry_response' };
@@ -586,17 +591,15 @@ class BookingFlowController {
     static lockInventory = lockInventoryLogic;
     static calculatePrice = calculatePriceLogic;
     // 💡 保持此名稱，雖然內部邏輯與 calculatePriceLogic 相同
-    static calculatePriceAfterAddons = calculatePriceAfterAddons; 
+    static calculatePriceAfterAddons = calculatePriceAfterAddons;
     static loginMemberAccount = processMemberLogin;
     static registerMemberAccount = registerMemberAccountLogic;
 
     // IV. 其他 Handler
     static generateAddonsCarousel = generateAddonsCarouselLogic;
     static executeAddonsSelection = executeAddonsSelectionLogic;
-    // 🎯 修正：使用 checkContactInfoLogic (新名稱)
-    static validateContactInfo = checkContactInfoLogic; // 保持原本的 export 名稱，以匹配流程圖
+    static validateContactInfo = checkContactInfoLogic;
     static handleSpecialRequests = handleSpecialRequestsLogic;
-    // 🎯 移除 generatePaymentOptions 的匯出，避免衝突
     static generateOrderSummary = generateOrderSummaryLogic;
     static submitBooking = submitBooking;
     static processGeneralInquiry = processGeneralInquiry;
