@@ -1,80 +1,106 @@
-# 旅萌大酒店 AI 訂房系統 (Hotel Booking AI System)
+🏨 AI 飯店訂房助理 (AI Hotel Assistant)
 
-## 💡 專案概述
+🌟 專案簡介 (Introduction)
 
-本系統旨在提供一個高度穩定、可配置的對話式 AI 介面，以實現端到端的酒店訂房服務。系統核心由 **Rule Engine** 驅動，結合後端 **Handler** 服務，提供精準的狀態追蹤與業務邏輯處理，確保用戶從查詢到訂單提交的順暢體驗。
+AI 飯店訂房助理是一個基於 Node.js 和 Express 框架構建的對話式 AI 系統。它使用一個強大的規則引擎 (Rule Engine) 結合意圖分類 (Intent Classification) 和 實體抽取 (Entity Extraction)，來精準地管理複雜的訂房流程，並在無法處理時自動切換至 LLM（如 Google Gemini）進行通用查詢處理。專案核心目標是提供一個高效率、高穩定性的狀態機流程，以確保用戶體驗一致性，並減少對昂貴的 LLM 呼叫的依賴。
 
----
+🛠️ 環境要求 (Prerequisites)
+Node.js: 版本 18.x 或更高
 
-## 🛠️ 系統架構 (System Architecture)
+npm: 最新版本
 
-本系統採三層架構設計：
+Google Gemini API Key: 用於 LLM 輔助和通用查詢回退。
 
-1.  **使用者介面 (Frontend/Channel)**：接收用戶輸入。
-2.  **對話管理層 (Rule Engine Core)**：處理自然語言理解 (NLU) 與流程狀態管理。
-3.  **業務邏輯層 (Backend Handlers/APIs)**：執行關鍵業務操作和數據查詢。
+⚙️ 安裝與設置 (Installation and Setup)
 
-### 核心組成部分
+步驟 1: 複製專案
 
-| 組成部分 | 關鍵技術 | 職責 |
-| :--- | :--- | :--- |
-| **Rule Engine** | `dialogue_flow.json` (JSON) | **對話核心**。負責狀態機的推進、意圖 (Intent) 識別、實體 (Entity) 收集，以及定義流程的轉移規則。 |
-| **NLU Module** | (外部或內建分類器) | 將用戶的自然語言輸入分類為流程中定義的 Intent 和 Entity。 |
-| **Handlers** | (業務服務層) | 處理複雜業務邏輯，例如：價格計算、庫存鎖定、資料驗證、API 呼叫。 |
-| **Backend API** | (庫存/訂單系統) | 提供即時庫存、會員服務、支付處理、訂單提交等關鍵數據與服務。 |
+Bash
+git clone [(https://github.com/mengchieh123/ai-hotel-assistant-builder/edit/main/README.md)]
+cd AI-Hotel-Assistant
 
----
+步驟 2: 安裝依賴
 
-## ⚙️ 核心流程機制
+Bash
+npm install
 
-### 1. 狀態機 (State Machine)
+步驟 3: 設定環境變數
 
-流程定義於 `dialogue_flow.json`。每個 State 定義了：
-* **`type`**：`entity_collection` (收集實體), `logic_exec` (執行 Handler), `prompt` (提示/結束)。
-* **`next_state`**：成功時的跳轉目標。
-* **`fallback_state`**：當 NLU 或 Handler 失敗時的明確回彈點 (**V1.20 穩定版的核心增強點**)。
+在專案根目錄下創建一個 .env 檔案，並填入您的 Gemini API Key：
 
-### 2. 實體與意圖 (Entities & Intents)
+程式碼片段
+# .env 檔案內容
+GEMINI_API_KEY="YOUR_GOOGLE_GEMINI_API_KEY_HERE"
+# 可選：設定伺服器運行端口
+PORT=10000 
+步驟 4: 配置對話流程 (Dialogue Flow)
 
-* **關鍵實體 (Entities)**：`checkInDate`, `nights`, `roomType`, `contactName`, `finalPrice` 等，用於追蹤訂單數據。
-* **關鍵意圖 (Intents)**：`booking` (開始預訂), `affirm` (確認), `skip` (跳過), `login` (登入), `correction` (修改)。
+確保 dialogue_flow.json 檔案存在於專案的根目錄下，並且格式正確。這是 Rule Engine 的核心配置文件。
 
-### 3. Handler 邏輯執行 (Logic Execution)
+注意：在啟動前，Rule Engine 會執行嚴格的配置檢查，要求 dialogue_flow.json 必須包含 states 屬性，且其中必須有 init 狀態。
 
-Handler 負責與後端服務進行數據交換，主要分為兩大類：
+🚀 專案啟動 (Running the Project)
 
-| Handler 類型 | 範例 Handler | 描述 |
-| :--- | :--- | :--- |
-| **資料驗證/流程控制** | `checkDateCompleteness`, `validateContactInfo` | 驗證輸入的有效性，控制流程的轉向。 |
-| **關鍵交易/API 呼叫** | `lockInventory`, `calculatePrice`, `submitBooking` | 呼叫後端 API，執行房型鎖定、價格計算和最終訂單提交。 **(當靜態資料無法支援時，則調用此類 API)** |
+使用 npm 啟動伺服器：
 
----
+測試環境：https://ai-hotel-assistant-builder.onrender.com
 
-## 🛡️ V1.20_Stable 版本重點增強 (Stability & Robustness)
+Bash
+npm start
+# 或直接使用 node
+# node server.js
+伺服器啟動後，您將看到類似以下的日誌輸出：
 
-V1.20 版本的重點是解決流程中的「**無預警回彈**」和「**實體數據污染**」問題，從而大幅提升系統的健壯性。
+✅ [DEBUG] dialogue_flow.json 成功載入！
+✅ [DEBUG] RuleEngine 靜態配置完成並已通過結構檢查。
+✅ Rule Engine 配置已通過檢查。
+🚀 伺服器運行在 http://0.0.0.0:10000
+Gemini API Key: 已設定
+🗺️ API 端點 (API Endpoints)
+方法	路徑	說明
+GET	/	伺服器根目錄，通常返回前端靜態頁面 (index.html)。
+GET	/health	健康檢查端點，返回伺服器狀態。
+POST	/api/chat	主要的對話 API 端點。 接收用戶訊息並返回 Rule Engine 的回應。
+/api/chat 請求/回應格式
 
-| 改善項目 | 實作細節 | 影響範圍 |
-| :--- | :--- | :--- |
-| **強化 Fallback 機制** | 在所有 `logic_exec` 狀態 (如 `ask_contact_info`) 設置明確的 `fallback_state`。 | 確保 Handler 執行失敗時，流程穩定停留在當前狀態，要求用戶重試，而非回彈至 `init`。 |
-| **清除實體數據** | 擴大 `init` 狀態中的 `clear_entities` 列表。 | 解決實體殘留 (Stale Entity) 問題，確保每次新訂單從「乾淨」的狀態開始。 |
-| **登入流程穩定** | 修正 `login_member_account` 和 `ask_member_password` 的跳轉邏輯。 | 提升會員登入環節的穩定性，優化跳過登入至加購服務的路徑。 |
+請求 (Request Body)
 
----
+參數	類型	說明
+sessionId	string	當前會話 ID。如果為空或無效，系統將自動生成新的 UUID。
+message	string	用戶輸入的文字訊息。
+回應 (Response Body)
 
-## 📘 系統操作與部署
+參數	類型	說明
+reply	string	助理的回覆文字。
+sessionId	string	當前的會話 ID。
+nextStep	string	規則引擎導向的下一個狀態名稱 (例如: ask_dates_and_nights)。
+richCard	object	null
+endFlow	boolean	指示會話是否已結束並重置。
+🧠 核心架構：Rule Engine 流程
+本系統的核心是 RuleEngine.js，它負責處理每一條傳入的訊息，並決定對話的下一步。
 
-### 前置要求
-* [列出所需的環境或框架，例如 Node.js / Python Runtime]
-* 後端 Booking API 服務需正常運行。
+初始化檢查 (server.js)：伺服器啟動時，強制執行 RuleEngine.initializeFlowConfig()，確保 dialogue_flow.json 被正確載入到靜態配置 (RuleEngine.config)。
 
-### 部署步驟
-1.  **Clone 專案：** `git clone [https://github.com/mengchieh123/ai-hotel-assistant-builder/]`
-2.  前端測試網址：https://ai-hotel-assistant-builder.onrender.com/
-3.  **配置 Rule Engine：** 將 `dialogue_flow.json` 載入 Rule Engine 伺服器。
-4.  **配置 Handlers：** 確保所有 Handler 服務已部署並正確配置 API 呼叫路徑。
-5.  **啟動服務：** 執行 Rule Engine 服務和 Handler 服務。
+執行規則 (RuleEngine.executeRules)：
 
-### 貢獻與除錯
-* **Bug 報告：** 請附上 **Session ID** 和詳細的 **DEBUG 日誌**。
-* **除錯原則：** 優先檢查 `fallback_state` 設定，確保沒有流程無頭狀態。
+意圖/實體抽取: 解析用戶輸入，識別意圖 (如 booking, reset) 和實體 (如 checkInDate, nights)。
+
+高優先級規則 (P:110-100): 處理緊急指令 (end_conversation) 和流程控制 (reset)。
+
+核心訂房流程 (P:95+): 根據當前狀態 (session.currentStep) 和已收集的實體，決定是繼續收集實體、執行後端 Handler 邏輯，還是推進到下一個狀態。
+
+LLM 輔助回退 (P:79): 如果系統連續兩次無法理解用戶，將流程導向 handle_general_inquiry 狀態，並允許呼叫 Gemini 處理通用查詢。
+
+通用規則回退 (P:80): 如果沒有更高優先級的規則被觸發，則重複輸出當前狀態的提示 (state.prompt)。
+
+關鍵檔案結構
+
+server.js: Express 伺服器，負責 API 路由和 Rule Engine 的初始化調度。
+
+rule_engine.js: 規則引擎核心，包含所有狀態轉換邏輯和優先級規則。
+
+dialogue_flow.json: 流程配置檔，定義了所有狀態 (states)、所需實體 (entities) 和狀態間的轉換邏輯。
+
+session_manager.js: 處理用戶會話狀態的儲存和管理。
+
+booking_controller.js: 包含所有需要與後端服務（如庫存 API）交互的業務邏輯 Handler。
