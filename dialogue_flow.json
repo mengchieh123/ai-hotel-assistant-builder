@@ -198,7 +198,7 @@
         },
         "ask_payment_method": {
             "type": "logic_exec",
-            "handler": "calculatePrice",
+            "handler": "processPaymentMethod",
             "prompt": "最終總價為 **NT$ {finalPrice}**。請選擇您的付款方式：",
             "richCard": {
                 "type": "button_list",
