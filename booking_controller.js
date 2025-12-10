@@ -1,4 +1,4 @@
-// booking_controller.js (V8.4 - 完整修復版)
+// booking_controller.js (V8.5 - 修復付款跳轉問題)
 
 import dayjs from 'dayjs';
 import { MockAPI } from './service_mock_api.js';
@@ -219,6 +219,15 @@ async function lockInventoryLogic(session) {
 async function calculatePriceLogic(session) {
     const data = ensureCollectedData(session);
     cleanRichCard(data);
+    
+    // 🎯 關鍵日誌：調試付款跳轉問題
+    log('DEBUG', 'calculatePriceLogic called', {
+        currentState: session.currentState,
+        currentStep: session.currentStep,
+        paymentMethod: data.paymentMethod,
+        isLoggedIn: data.isLoggedIn
+    });
+    
     const { roomType, checkInDate, nights, roomCount, adultCount } = data;
 
     // 確保必要資料存在
@@ -255,20 +264,17 @@ async function calculatePriceLogic(session) {
         }
 
         // --- 2. 計算加購服務總價 ---
-        // 確保在需要時計算 Addon 費用 (流程已到 ask_addons 之後)
-        if (data.addons.length > 0 && 
-           (session.currentState === 'calculate_price_logic_after_addons' || 
-            session.currentState === 'ask_contact_info' ||
-            session.currentState === 'ask_payment_method')) {
-            
-            const allAddons = pricing.addons;
+        // 🎯 修復：只要 data.addons 有內容就計算加購費用
+        if (data.addons && data.addons.length > 0) {
+            const allAddons = pricing.addons || {};
             for (const addonId of addons) {
                 const addonItem = allAddons[addonId];
                 if (addonItem) {
-                    let cost = addonItem.price;
+                    let cost = addonItem.price || 0;
                     if (addonItem.isPerNight) cost *= nights;
                     if (addonItem.type === 'per_person') cost *= totalGuests;
                     totalAddonCost += cost;
+                    log('DEBUG', `Addon ${addonId} cost: ${cost}, total: ${totalAddonCost}`);
                 }
             }
         }
@@ -301,22 +307,36 @@ async function calculatePriceLogic(session) {
 
         // --- 6. 決定下一步 & 儲存暫停點 ---
         let targetStep;
-        // 判斷是從加購後返回還是從一開始的鎖定庫存後
-        if (session.currentState === 'calculate_price_logic_after_addons') {
+        
+        // 🎯 關鍵修復：優先檢查付款方式狀態
+        if (data.paymentMethod && (session.currentState === 'ask_payment_method' || session.currentStep === 'ask_payment_method')) {
+            // 如果有付款方式且當前是付款狀態，直接去確認訂單
+            targetStep = 'confirm_booking';
+            log('DEBUG', 'Payment method detected, forcing to confirm_booking', {
+                paymentMethod: data.paymentMethod,
+                currentState: session.currentState
+            });
+            
+        } else if (session.currentState === 'calculate_price_logic_after_addons') {
             targetStep = 'ask_contact_info';
-            saveCurrentState(session, targetStep); // 📌 儲存聯絡資訊狀態
+            
         } else if (data.isLoggedIn) {
             // 已登入，跳過詢問會員，直接問加購服務
             targetStep = 'ask_addons';
-            saveCurrentState(session, targetStep); // 📌 儲存加購服務狀態
+            
         } else {
             // 未登入，詢問是否登入
             targetStep = 'ask_member_login';
-            saveCurrentState(session, targetStep); // 📌 儲存會員登入狀態
         }
 
+        saveCurrentState(session, targetStep);
+
         log('INFO', `Price calculated: NT$${data.finalPrice}. Next step: ${targetStep}`);
-        return { isHandled: true, nextStep: targetStep };
+        return { 
+            isHandled: true, 
+            nextStep: targetStep,
+            prompt: `價格已更新：NT$${data.finalPrice}`
+        };
 
     } catch (error) {
         log('ERROR', 'Price calculation failed:', { error: error, stack: error.stack });
@@ -640,7 +660,34 @@ async function submitBooking(session) {
     }
 }
 
-// --- 18. 通用查詢處理 (processGeneralInquiry) ---
+// --- 18. 付款方式處理 (processPaymentMethod) ---
+async function processPaymentMethod(session) {
+    const data = ensureCollectedData(session);
+    cleanRichCard(data);
+    const { paymentMethod } = data;
+
+    // 📌 確保當前流程是 ask_payment_method 時，儲存暫停點
+    saveCurrentState(session, 'ask_payment_method');
+
+    if (paymentMethod) {
+        log('INFO', `Payment method selected: ${paymentMethod}`);
+        
+        // 🎯 關鍵：選擇付款方式後，確保價格是最新的
+        // 但不要調用 calculatePriceLogic，因為它會錯誤跳轉
+        // 直接導向 confirm_booking
+        saveCurrentState(session, 'confirm_booking');
+        return { 
+            isHandled: true, 
+            nextStep: 'confirm_booking',
+            prompt: `已選擇付款方式：${paymentMethod}。請確認您的訂單資訊。`
+        };
+    } else {
+        // 付款方式未選擇，交給 Rule Engine 根據 entity_check 重新詢問
+        return { isHandled: false };
+    }
+}
+
+// --- 19. 通用查詢處理 (processGeneralInquiry) ---
 async function processGeneralInquiry(session) {
     const data = ensureCollectedData(session);
     cleanRichCard(data);
@@ -689,6 +736,7 @@ class BookingFlowController {
     static handleSpecialRequests = handleSpecialRequestsLogic;
     static generateOrderSummary = generateOrderSummaryLogic;
     static submitBooking = submitBooking;
+    static processPaymentMethod = processPaymentMethod; // 🎯 新增付款處理
     static processGeneralInquiry = processGeneralInquiry;
 }
 
