@@ -1,4 +1,4 @@
-// rule_engine.js (V7.8 - 修復 session.collectedData undefined 問題)
+// rule_engine.js (V7.9 - 修復付款跳轉和狀態同步問題)
 
 // ----------------------------------------------------
 // 🏆 ESM 導入
@@ -321,6 +321,16 @@ class RuleEngine {
         if (!session.collectedData) {
             session.collectedData = {};
         }
+        
+        // 🎯 修復：同步 currentState
+        if (!session.currentState) {
+            session.currentState = currentStateKey;
+        } else if (session.currentState !== currentStateKey) {
+            // 如果不同步，記錄日誌並修正
+            console.log(`[DEBUG] currentState (${session.currentState}) 與 currentStep (${currentStateKey}) 不同步，進行修正`);
+            session.currentState = currentStateKey;
+        }
+        
         const data = session.collectedData;
 
         if (!currentState) {
@@ -334,6 +344,10 @@ class RuleEngine {
             if (currentState.intents && currentState.intents[intent]) {
                 nextState = currentState.intents[intent];
                 console.log(`[RULE 3.1] 意圖導航：${currentStateKey} -> ${nextState} (意圖: ${intent})`);
+                
+                // 🎯 修復：更新 session.currentState
+                session.currentState = nextState;
+                
                 return RuleEngine.generateStateResponse(nextState, data, PRIORITY.BOOKING_FLOW.ENTITY_SATISFIED_ADVANCE);
             }
         }
@@ -346,6 +360,10 @@ class RuleEngine {
             if (isSatisfied && currentState.next_state && currentState.next_state !== currentStateKey) {
                 nextState = currentState.next_state;
                 console.log(`[RULE 3.2] 實體滿足：${currentStateKey} -> ${nextState}`);
+                
+                // 🎯 修復：更新 session.currentState
+                session.currentState = nextState;
+                
                 return RuleEngine.generateStateResponse(nextState, data, PRIORITY.BOOKING_FLOW.ENTITY_SATISFIED_ADVANCE);
             }
         }
@@ -365,6 +383,9 @@ class RuleEngine {
                         nextState = handlerResult.nextStep || currentState.next_state;
                         console.log(`[RULE 3.3] Handler 成功：${currentStateKey} -> ${nextState}`);
                         
+                        // 🎯 修復：更新 session.currentState
+                        session.currentState = nextState;
+                        
                         // 合併 Handler 返回的數據到 session.collectedData
                         if (handlerResult) {
                             Object.assign(data, handlerResult);
@@ -381,6 +402,10 @@ class RuleEngine {
                     console.error(`💥 Handler 執行失敗 (${handler}):`, e);
                     nextState = currentState.fallback_state || currentStateKey;
                     data.errorMessage = e.message;
+                    
+                    // 🎯 修復：更新 session.currentState
+                    session.currentState = nextState;
+                    
                     return RuleEngine.generateStateResponse(nextState, data, PRIORITY.BOOKING_FLOW.BASE);
                 }
             }
@@ -464,12 +489,21 @@ class RuleEngine {
                 };
             }
             
-            // 初始化 session 屬性
+            // 🎯 關鍵修復：確保 currentState 與 currentStep 同步
             session.currentStep = session.currentStep || RuleEngine.config.initial_state || 'init';
-            session.currentState = session.currentStep; // 保持同步
+            if (!session.currentState) {
+                session.currentState = session.currentStep; // 初始化 currentState
+            } else if (session.currentStep !== session.currentState) {
+                // 如果不同步，以 currentStep 為準
+                console.log(`[DEBUG] 狀態同步：currentState(${session.currentState}) -> currentStep(${session.currentStep})`);
+                session.currentState = session.currentStep;
+            }
+            
             if (!session.collectedData) {
                 session.collectedData = {};
             }
+            
+            console.log(`[DEBUG] Session ${sessionId} state: ${session.currentStep} (currentState: ${session.currentState})`);
             
             // 1. 意圖分類與實體抽取
             const classificationResult = SmartIntentClassifier.classify(message, RuleEngine.config);
@@ -518,7 +552,8 @@ class RuleEngine {
 
                 if (finalResult.nextStep && finalResult.nextStep !== session.currentStep) {
                     session.currentStep = finalResult.nextStep;
-                    session.currentState = finalResult.nextStep; // 同步更新
+                    session.currentState = finalResult.nextStep; // 🎯 同步更新
+                    console.log(`[DEBUG] 更新狀態：${session.currentStep} (同步 currentState)`);
                 }
                 
                 if (finalResult.endFlow) {
@@ -537,7 +572,7 @@ class RuleEngine {
             if (session.currentStep === 'init' && (collectedData.checkInDate || collectedData.nights || collectedData.roomType)) {
                 console.log("[INIT-ADVANCE] 檢測到關鍵實體，從 init 狀態強制轉移到 ask_dates_and_nights。");
                 session.currentStep = 'ask_dates_and_nights'; 
-                session.currentState = 'ask_dates_and_nights'; // 同步更新
+                session.currentState = 'ask_dates_and_nights'; // 🎯 同步更新
                 
                 // 重新調用 GeneralRule 獲取新狀態的提示 (例如 ask_dates_and_nights)
                 const advancedResult = RuleEngine.generalRule(session);
@@ -553,7 +588,7 @@ class RuleEngine {
             if (generalResult) {
                 session.fallbackCount = (session.fallbackCount || 0) + 1;
                 session.currentStep = generalResult.nextStep;
-                session.currentState = generalResult.nextStep; // 同步更新
+                session.currentState = generalResult.nextStep; // 🎯 同步更新
                 sessionManager.addAssistantResponse(sessionId, generalResult.response, generalResult.richCard);
                 return generalResult;
             }
