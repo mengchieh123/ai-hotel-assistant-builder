@@ -12,7 +12,8 @@
                 "contactName", "contactPhone", "contactEmail", "specialRequest",
                 "paymentMethod", "addonAction", "addonId", "isLoggedIn", "addons",
                 "memberPassword", "inventoryLockId", "finalPrice", "priceDetails",
-                "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee"
+                "inventoryWarning", "llm_response", "llm_source", "totalPrice", "serviceFee", "childCost", "transferFee",
+                "roomBasePrice", "discountAmount", "roomPriceAfterDiscount", "totalAddonCost"
             ],
             "entities": ["adultCount", "childCount", "roomCount", "checkInDate", "nights"],
             "rules": [
@@ -44,8 +45,7 @@
         "set_default_child_count": {
             "type": "logic_exec",
             "handler": "setDefaultChildCount",
-            "next_state": "ask_guest_count",
-            "fallback_state": "ask_guest_count"
+            "next_state": "ask_room_type",  "fallback_state": "ask_guest_count"
         },
         "ask_guest_count": {
             "prompt": "請提供【入住人數】 (大人/兒童數，例如：2大1小)，這會影響房型建議。",
@@ -311,8 +311,7 @@
                 ]
             },
             "intents": {
-                "affirm": "ask_addons",
-                "booking": "init",
+                "affirm": "ask_member_login", "booking": "init",
                 "correction": "select_correction_target"
             },
             "fallback": "抱歉，無法恢復流程。請重新輸入『繼續』或『重新預訂』。",
