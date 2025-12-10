@@ -1,4 +1,4 @@
-// rule_engine.js (V7.1 - 業界優化與錯誤修復版)
+// rule_engine.js (V7.2 - 核心方法補全版)
 
 // ----------------------------------------------------
 // 🏆 ESM 導入
@@ -17,7 +17,7 @@ const __dirname = path.dirname(__filename);
 // ----------------------------------------------------
 
 // 載入 Flow Config 邏輯 (保持 V7.0 的載入和回退邏輯)
-let flowConfig = {}; // 避免外部載入失敗，初始化為空物件
+let flowConfig = {}; 
 try {
     const flowPath = path.join(__dirname, 'dialogue_flow.json');
     if (fs.existsSync(flowPath)) {
@@ -30,9 +30,9 @@ try {
             initial_state: "init",
             states: {
                 init: { prompt: "您好，歡迎使用訂房助理。", next_state: "ask_dates_and_nights" },
-                end_conversation: { prompt: "感謝您的使用。", end: true },
-                handle_general_inquiry: { prompt: "請提供更多細節。", allow_gemini_call: true },
-                ask_dates_and_nights: { entities: ["checkInDate", "nights"] } 
+                end_conversation: { prompt: "感謝您的使用。", end: true },
+                handle_general_inquiry: { prompt: "請提供更多細節。", allow_gemini_call: true, next_state: "ask_dates_and_nights" },
+                ask_dates_and_nights: { entities: ["checkInDate", "nights"], prompt: "請問您希望入住的日期和晚數？" } 
             } 
         };
         console.warn(`⚠️ [DEBUG] dialogue_flow.json 缺失，使用 Rule Engine 內建的最小配置結構。`);
@@ -70,8 +70,8 @@ const CORE_COLLECTION_STATES = ['ask_nights_and_dates', 'ask_guest_count', 'ask_
 
 class RuleEngine {
     
-    /** 靜態屬性用於錯誤處理的配置 */
-    static errorResponses = {};
+    /** 靜態屬性用於錯誤處理的配置 */
+    static errorResponses = {};
 
     // 初始化錯誤處理
     static initializeErrorHandlers() { 
@@ -89,54 +89,53 @@ class RuleEngine {
         };
     }
     
-    // 🏆 新增: 處理 Rule Engine 執行中的致命錯誤。
-    static getErrorResponse(code, message) {
-        const handler = RuleEngine.errorResponses && RuleEngine.errorResponses[code];
-        
-        if (handler) {
-            const errorData = handler(message);
-            return {
-                shouldProcess: true,
-                priority: PRIORITY.EMERGENCY,
-                response: errorData.response,
-                nextStep: 'init',
-                richCard: null,
-                allowGeminiCall: false,
-                endFlow: true
-            };
-        }
+    // 🏆 處理 Rule Engine 執行中的致命錯誤。
+    static getErrorResponse(code, message) {
+        const handler = RuleEngine.errorResponses && RuleEngine.errorResponses[code];
+        
+        if (handler) {
+            const errorData = handler(message);
+            return {
+                shouldProcess: true,
+                priority: PRIORITY.EMERGENCY,
+                response: errorData.response,
+                nextStep: 'init',
+                richCard: null,
+                allowGeminiCall: false,
+                endFlow: true
+            };
+        }
 
-        // 最終安全回退
-        console.error(`💥 [FATAL] 未知的 RuleEngine 錯誤類型: ${code}. 訊息: ${message}`);
-        return {
-            shouldProcess: true,
-            priority: PRIORITY.EMERGENCY,
-            response: `系統發生無法復原的錯誤：${code}。請重新開始。`,
-            nextStep: 'init',
-            endFlow: true
-        };
-    }
-    
-    // 🏆 新增: 規則 0 - 緊急規則 (P:110)
-    static emergencyRule(intents, session) {
-        const flow = flowConfig;
-        const currentStep = session.currentStep;
+        // 最終安全回退
+        console.error(`💥 [FATAL] 未知的 RuleEngine 錯誤類型: ${code}. 訊息: ${message}`);
+        return {
+            shouldProcess: true,
+            priority: PRIORITY.EMERGENCY,
+            response: `系統發生無法復原的錯誤：${code}。請重新開始。`,
+            nextStep: 'init',
+            endFlow: true
+        };
+    }
+    
+    // 🏆 規則 0 - 緊急規則 (P:110)
+    static emergencyRule(intents, session) {
+        const flow = flowConfig;
+        const currentStep = session.currentStep;
 
-        if (intents.includes('end_conversation') || intents.includes('cancel_booking')) {
-            console.log(`[RULE 0] 觸發：終止/取消訂房。`);
-            sessionManager.resetSession(session.id);
-            return RuleEngine.generateStateResponse(flow, 'end_conversation', session.collectedData, PRIORITY.EMERGENCY);
-        }
+        if (intents.includes('end_conversation') || intents.includes('cancel_booking')) {
+            console.log(`[RULE 0] 觸發：終止/取消訂房。`);
+            sessionManager.resetSession(session.id);
+            return RuleEngine.generateStateResponse(flow, 'end_conversation', session.collectedData, PRIORITY.EMERGENCY);
+        }
 
-        if (intents.includes('unrecognized') && currentStep !== 'init') {
-            // 讓優先級較低的規則 (P:80/79) 處理。
-            return { shouldProcess: false, priority: 0 };
-        }
-        
-        return { shouldProcess: false, priority: 0 };
-    }
+        if (intents.includes('unrecognized') && currentStep !== 'init') {
+            return { shouldProcess: false, priority: 0 };
+        }
+        
+        return { shouldProcess: false, priority: 0 };
+    }
 
-    // --- 輔助函數 (保持 V7.0 邏輯) ---
+    // --- 輔助函數 (V7.0 邏輯) ---
     static interpolatePrompt(promptTemplate, data) {
         if (!promptTemplate || typeof promptTemplate !== 'string') return promptTemplate;
         return promptTemplate.replace(/\{(\w+)\}/g, (match, key) => {
@@ -150,7 +149,6 @@ class RuleEngine {
     }
 
     static generateStateResponse(flow, stateKey, data, priority) {
-        // ... (V7.0 邏輯不變，使用 this.interpolatePrompt) ...
         const state = flow.states[stateKey];
         if (!state) {
             console.error(`❌ [FLOW ERROR] 嘗試導向的狀態 '${stateKey}' 在 dialogue_flow.json 中不存在！`);
@@ -170,7 +168,7 @@ class RuleEngine {
              return {
                  shouldProcess: true,
                  priority: priority,
-                 response: "", // 回應文本為空，但流程正常推進
+                 response: "", 
                  nextStep: stateKey,
                  richCard: finalRichCard, 
                  allowGeminiCall: state.allow_gemini_call || false
@@ -190,7 +188,6 @@ class RuleEngine {
         };
     }
 
-    // ... (sanitizeEntities 保持 V7.0 邏輯) ...
     static sanitizeEntities(entities, sessionCollectedData, currentStateKey) {
         if (typeof entities !== 'object' || entities === null) {
             return {};
@@ -228,12 +225,137 @@ class RuleEngine {
         return sanitized;
     }
 
-    // ... (其他輔助函數保持 V7.0 邏輯不變) ...
+    // --- 【START】 補全 V7.1 執行時缺失的核心靜態方法定義 ---
+
+    /** 🎯 規則 1: 重設流程規則 (P:106) */
+    static async resetFlowRule(intents, session) {
+        if (intents.includes('reset') || intents.includes('start_over')) {
+            console.log(`[RULE 1] 觸發：重設流程。`);
+            sessionManager.resetSession(session.id);
+            const nextStep = flowConfig.states['init']?.next_state || 'ask_dates_and_nights';
+            return RuleEngine.generateStateResponse(flowConfig, nextStep, session.collectedData, PRIORITY.RESET_FLOW);
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    /** 🎯 規則 2: 強制恢復訂房規則 (P:99) */
+    static async forceResumeBookingRule(intents, session) {
+        // 通常用於從 'paused_waiting_for_resume' 恢復。
+        if (intents.includes('continue') && session.currentStep === 'paused_waiting_for_resume') {
+             const originalStep = session.collectedData.generalInquiryPreviousStep || 'ask_dates_and_nights';
+             session.currentStep = originalStep; // 恢復狀態
+             return RuleEngine.generateStateResponse(flowConfig, originalStep, session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.RESUME);
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    /** 🎯 規則 3: 庫存失敗覆蓋規則 (P:105) */
+    static inventoryFailureRule(session) {
+        if (session.collectedData.inventoryFailure === true) {
+             session.collectedData.inventoryFailure = false; // 清除旗標
+             return RuleEngine.generateStateResponse(flowConfig, 'ask_dates_and_nights', {
+                ...session.collectedData,
+                llm_response: "很抱歉，您選擇的日期/房型目前沒有足夠庫存。請重新選擇入住日期和晚數。"
+             }, PRIORITY.INVENTORY_FAILURE_OVERRIDE);
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+    
+    /** 🎯 規則 4: 通用查詢結束規則 (P:107) */
+    static handleGeneralQueryCompletionRule(intents, session) {
+        if (session.currentStep === 'handle_general_inquiry' && intents.includes('booking')) {
+            const previousStep = session.generalInquiryPreviousStep || 'ask_dates_and_nights';
+            session.currentStep = previousStep;
+            session.fallbackCount = 0; // 重設 Fallback
+            // 讓 BookingFlowRule (P:95) 處理原狀態的提示。
+            return { shouldProcess: false, priority: 0 };
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    /** 🎯 規則 5: 房間數量限制規則 (P:103) */
+    static roomLimitRule(collectedData) {
+        const roomCount = parseInt(collectedData.roomCount, 10);
+        if (roomCount > MAX_ROOM_LIMIT) {
+             collectedData.roomCount = MAX_ROOM_LIMIT; // 強制限制
+             return RuleEngine.generateStateResponse(flowConfig, 'ask_room_count', {
+                ...collectedData,
+                llm_response: `抱歉，為確保服務品質，一次最多只能預訂 ${MAX_ROOM_LIMIT} 間房。已將數量調整為 ${MAX_ROOM_LIMIT} 間。`
+             }, PRIORITY.ROOM_LIMIT);
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    /** 🎯 規則 6: 會員登入覆蓋規則 (P:100) */
+    static memberLoginRule(intents, session) {
+        if (intents.includes('login') && session.currentStep !== 'login_state') {
+            // 假設 'login_state' 是一個定義好的狀態
+            return RuleEngine.generateStateResponse(flowConfig, 'login_state', session.collectedData, PRIORITY.MEMBER_LOGIN_OVERRIDE);
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+
+    /** 🎯 規則 7: 通用查詢覆蓋規則 (P:104) */
+    static generalInquiryOverrideRule(intents, session, message) {
+        if (intents.includes('general_inquiry') && session.currentStep !== 'handle_general_inquiry') {
+            session.generalInquiryPreviousStep = session.currentStep; // 儲存當前狀態
+            // 導向 LLM 處理狀態
+            return RuleEngine.generateStateResponse(flowConfig, 'handle_general_inquiry', {
+                ...session.collectedData,
+                llm_response: `好的，關於您的問題：「${message}」。我會請我的 AI 助手來協助您。`
+            }, PRIORITY.GENERAL_INQUIRY_OVERRIDE);
+        }
+        return { shouldProcess: false, priority: 0 };
+    }
+    
+    /** 🎯 規則 8: 暫停/恢復規則 (P:98/99) */
+    static pauseResumeRule(intents, session) {
+        if (intents.includes('pause') && !FORCED_BREAK_STATES.includes(session.currentStep)) {
+            session.generalInquiryPreviousStep = session.currentStep;
+            return RuleEngine.generateStateResponse(flowConfig, 'paused_waiting_for_resume', session.collectedData, PRIORITY.BOOKING_FLOW.PAUSE_RESUME.PAUSE);
+        }
+        // RESUME 邏輯被 forceResumeBookingRule 處理
+        return { shouldProcess: false, priority: 0 };
+    }
+    
+    /** 🎯 輔助函數: 處理規則結果 */
+    static processRules(results) {
+        const validResults = results.filter(r => r && r.shouldProcess);
+        if (validResults.length === 0) return null;
+
+        validResults.sort((a, b) => b.priority - a.priority);
+        return validResults[0];
+    }
+    
+    /** 🎯 輔助函數: 檢查 Handler 是否已執行 */
+    static hasExecutedHandler(session, stateKey) {
+        session.executedHandlers = session.executedHandlers || {};
+        return session.executedHandlers[stateKey] === true;
+    }
+    
+    /** 🎯 輔助函數: 標記 Handler 已執行 */
+    static markHandlerExecuted(session, stateKey) {
+        session.executedHandlers = session.executedHandlers || {};
+        session.executedHandlers[stateKey] = true;
+    }
+
+    /** 🎯 規則 9: 通用規則 (P:80) - 最終狀態提示回退 */
+    static generalRule(session, flow) {
+        const currentStateKey = session.currentStep;
+        const currentState = flow.states[currentStateKey];
+        if (currentState && currentState.prompt) {
+            return RuleEngine.generateStateResponse(flow, currentStateKey, session.collectedData, PRIORITY.GENERAL_RULE);
+        }
+        return null;
+    }
+
+
+    // --- 【END】 補全核心靜態方法定義 ---
 
     static async executeRules(message, sessionId) {
         if (!sessionId || typeof sessionId !== 'string' || sessionId === 'undefined') {
             console.error("💥 [SECURITY FAIL] 接收到無效的 sessionId，拒絕處理。");
-            return RuleEngine.getErrorResponse('INVALID_SESSION_ID', '會話 ID 無效，請重新初始化。'); // 🎯 修正
+            return RuleEngine.getErrorResponse('INVALID_SESSION_ID', '會話 ID 無效，請重新初始化。'); 
         }
 
         try {
@@ -244,7 +366,7 @@ class RuleEngine {
             let intents = classificationResult.intents;
             let extractedEntities = classificationResult.entities || {}; 
 
-            const sanitizedEntities = RuleEngine.sanitizeEntities(extractedEntities, session.collectedData, session.currentStep); // 🎯 傳入當前狀態鍵
+            const sanitizedEntities = RuleEngine.sanitizeEntities(extractedEntities, session.collectedData, session.currentStep); 
             
             // 🎯 實體合併：直接合併和更新實體到 session 物件
             Object.assign(session.collectedData, sanitizedEntities);
@@ -255,12 +377,10 @@ class RuleEngine {
             
             const collectedData = session.collectedData;
 
-            // ... (DEBUG 輸出略) ...
-            
             const rulesResults = [];
             
             // 2. 執行高優先級規則 (P:100+)
-            rulesResults.push(RuleEngine.emergencyRule(intents, session)); // 🎯 修正: 確保呼叫靜態方法
+            rulesResults.push(RuleEngine.emergencyRule(intents, session)); 
             rulesResults.push(await RuleEngine.resetFlowRule(intents, session)); 
             rulesResults.push(await RuleEngine.forceResumeBookingRule(intents, session)); 
             rulesResults.push(RuleEngine.inventoryFailureRule(session)); 
@@ -277,7 +397,7 @@ class RuleEngine {
             rulesResults.push(bookingResult);
 
             // 5. 執行 LLM Fallback 嘗試 (P:79) - 用於多次失敗時的友好提示
-            rulesResults.push(await RuleEngine.handleRepeatedFallbackRule(session, message)); // 🎯 新增 LLM Fallback Rule
+            rulesResults.push(await RuleEngine.handleRepeatedFallbackRule(session, message)); 
             
             // 6. 處理規則結果：從 rulesResults 中選出最高優先級的結果
             const finalResult = RuleEngine.processRules(rulesResults);
@@ -309,7 +429,6 @@ class RuleEngine {
             // 7. 通用規則 (P:80) - 最終 Fallback (狀態提示)
             const generalResult = RuleEngine.generalRule(session, flowConfig);
             if (generalResult) {
-                // ... (V7.0 的 generalRule 處理邏輯不變) ...
                 session.fallbackCount = (session.fallbackCount || 0) + 1; // 🎯 記錄 Fallback
                 session.currentStep = generalResult.nextStep;
                 sessionManager.addAssistantResponse(sessionId, generalResult.response, generalResult.richCard);
@@ -317,7 +436,6 @@ class RuleEngine {
             }
             
             // 8. 🏆 最終 Fallback (P:0) - 清晰引導
-            // ... (V7.0 的最終 Fallback 邏輯不變) ...
             
             session.fallbackCount = (session.fallbackCount || 0) + 1; 
 
@@ -343,13 +461,13 @@ class RuleEngine {
             
         } catch (error) {
             console.error('💥 RuleEngine 執行錯誤:', error);
-            return RuleEngine.getErrorResponse('RULE_ENGINE_ERROR', error.message); // 🎯 修正: 確保呼叫靜態方法
+            return RuleEngine.getErrorResponse('RULE_ENGINE_ERROR', error.message); 
         }
     }
 
-    // ... (其他規則方法略，假設已在 V7.0 中存在並保持靜態) ...
+    //... (bookingFlowRule, handleRepeatedFallbackRule 保持不變)
 
-    /** 規則 3: 訂房流程規則 (核心邏輯 P:95) */
+    /** 規則 3: 訂房流程規則 (核心邏輯 P:95) */
     static async bookingFlowRule(intents, session, message) {
         const currentStateKey = session.currentStep || 'init';
         const flow = flowConfig;
@@ -488,11 +606,6 @@ class RuleEngine {
         }
         return { shouldProcess: false, priority: 0 };
     }
-    
-    // **注意：其他規則方法 (resetFlowRule, forceResumeBookingRule, inventoryFailureRule,
-    // handleGeneralQueryCompletionRule, roomLimitRule, memberLoginRule, generalInquiryOverrideRule,
-    // pauseResumeRule, processRules, hasExecutedHandler, markHandlerExecuted, generalRule) 
-    // 必須在 RuleEngine 類別內定義為靜態方法 (static)。**
 } 
 
 // 必須在類別定義後調用初始化，以填充 RuleEngine.errorResponses
