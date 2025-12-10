@@ -1,4 +1,4 @@
-// rule_engine.js (V7.7 - 完整功能版，包含 INIT-ADVANCE 修復)
+// rule_engine.js (V7.8 - 修復 session.collectedData undefined 問題)
 
 // ----------------------------------------------------
 // 🏆 ESM 導入
@@ -121,8 +121,11 @@ class RuleEngine {
     // --- 輔助函數 ---
     static interpolatePrompt(promptTemplate, data) {
         if (!promptTemplate || typeof promptTemplate !== 'string') return promptTemplate;
+        
+        // 確保 data 是物件
+        const safeData = data || {};
         return promptTemplate.replace(/\{(\w+)\}/g, (match, key) => {
-            return data[key] !== undefined ? data[key] : match;
+            return safeData[key] !== undefined ? safeData[key] : match;
         });
     }
 
@@ -154,11 +157,13 @@ class RuleEngine {
 
         // 處理動態或靜態 Rich Card
         const stateRichCard = state.richCardGenerator ? state.richCardGenerator(data) : state.richCard;
-        const finalRichCard = data.customRichCard || stateRichCard;
+        const finalRichCard = (data && data.customRichCard) || stateRichCard;
         
         // 處理 LLM 回應或標準 prompt
-        const finalPrompt = data.llm_response || RuleEngine.interpolatePrompt(state.prompt, data);
-        delete data.llm_response; // 清理一次性 LLM 回應
+        const finalPrompt = (data && data.llm_response) || RuleEngine.interpolatePrompt(state.prompt, data);
+        if (data && data.llm_response) {
+            delete data.llm_response; // 清理一次性 LLM 回應
+        }
         
         return {
             shouldProcess: true,
@@ -171,7 +176,9 @@ class RuleEngine {
     }
     
     static sanitizeEntities(entities, sessionCollectedData, currentStateKey) {
-        // ... (淨化實體邏輯不變) ...
+        // 確保 sessionCollectedData 存在
+        const safeCollectedData = sessionCollectedData || {};
+        
         if (typeof entities !== 'object' || entities === null) {
             return {};
         }
@@ -184,12 +191,12 @@ class RuleEngine {
             const isKeyRequired = requiredEntities.includes(key);
 
             if (isEntityEmpty) {
-                if (!isKeyRequired && sessionCollectedData[key]) {
+                if (!isKeyRequired && safeCollectedData[key]) {
                     continue;
                 }
             } else {
                 if (key === 'adultCount' || key === 'childCount' || key === 'roomCount') {
-                    const sessionValue = parseInt(sessionCollectedData[key], 10);
+                    const sessionValue = parseInt(safeCollectedData[key], 10);
                     const inputValue = parseInt(value, 10);
 
                     const isDefaultValue = (key !== 'childCount' && inputValue === 1) || (key === 'childCount' && inputValue === 0);
@@ -238,7 +245,9 @@ class RuleEngine {
 
     /** 規則 4: 房型數量限制 (P:103) */
     static roomLimitRule(collectedData) {
-        const roomCount = parseInt(collectedData.roomCount, 10);
+        // 確保 collectedData 存在
+        const safeData = collectedData || {};
+        const roomCount = parseInt(safeData.roomCount, 10);
         if (roomCount > MAX_ROOM_LIMIT) {
             console.log(`[RULE 4] 觸發：房間數超過限制 (${MAX_ROOM_LIMIT} 間)。`);
             return {
@@ -256,8 +265,6 @@ class RuleEngine {
     static handleGeneralQueryCompletionRule(intents, session) {
         if (session.currentStep === 'general_inquiry_response' && intents.includes('affirm')) {
             console.log(`[RULE 5] 觸發：通用查詢完畢，恢復流程。`);
-            // 由於 general_inquiry_response 狀態的 affirm 意圖直接導向 resume_booking_flow，
-            // 這裡只需檢查並確保導向。
             return RuleEngine.generateStateResponse('resume_booking_flow', session.collectedData, PRIORITY.GENERAL_QUERY_COMPLETE);
         }
         return { shouldProcess: false, priority: 0 };
@@ -272,7 +279,7 @@ class RuleEngine {
 
         // 當前流程要求關鍵實體 (如 roomType, checkInDate) 且未被滿足時，不允許通用查詢覆蓋
         const requiredEntities = RuleEngine.getRequiredEntities(session.currentStep);
-        const missingEntities = requiredEntities.filter(e => !session.collectedData[e]);
+        const missingEntities = requiredEntities.filter(e => !(session.collectedData && session.collectedData[e]));
 
         if (intents.includes('general_inquiry') && missingEntities.length === 0) {
             console.log(`[RULE 6] 觸發：通用查詢覆蓋。`);
@@ -309,7 +316,12 @@ class RuleEngine {
         const flow = RuleEngine.config;
         let currentStateKey = session.currentStep;
         let currentState = flow.states[currentStateKey];
-        const data = session.collectedData || {};
+        
+        // 🔧 關鍵修復：確保 session.collectedData 存在
+        if (!session.collectedData) {
+            session.collectedData = {};
+        }
+        const data = session.collectedData;
 
         if (!currentState) {
             return { shouldProcess: false, priority: 0 };
@@ -343,34 +355,27 @@ class RuleEngine {
             const handler = currentState.handler;
             if (handler && typeof BookingFlowController[handler] === 'function') {
                 try {
-                    const handlerResult = await BookingFlowController[handler](data, session, message);
+                    // 🔧 修正：傳遞正確的參數順序
+                    // 根據 booking_controller.js，Handler 需要 session 作為第一個參數
+                    const handlerResult = await BookingFlowController[handler](session);
                     
-                    // Handler 必須返回 { success: boolean, nextState?: string, ... }
-                    if (handlerResult.success) {
-                        nextState = handlerResult.nextState || currentState.next_state;
+                    // 🔧 修正：檢查 Handler 返回格式
+                    // booking_controller.js 返回 { isHandled: boolean, nextStep?: string, prompt?: string, ... }
+                    if (handlerResult && handlerResult.isHandled !== false) {
+                        nextState = handlerResult.nextStep || currentState.next_state;
                         console.log(`[RULE 3.3] Handler 成功：${currentStateKey} -> ${nextState}`);
-                        // 確保將 Handler 返回的任何數據（例如 customRichCard, llm_response）合併到 session.collectedData
-                        Object.assign(data, handlerResult); 
+                        
+                        // 合併 Handler 返回的數據到 session.collectedData
+                        if (handlerResult) {
+                            Object.assign(data, handlerResult);
+                        }
                         
                         return RuleEngine.generateStateResponse(nextState, data, PRIORITY.BOOKING_FLOW.HANDLER_SUCCESS_ADVANCE);
                     } else {
-                        nextState = handlerResult.fallbackState || currentState.fallback_state || currentStateKey;
-                        console.log(`[RULE 3.3] Handler 失敗：${currentStateKey} -> ${nextState}。錯誤: ${handlerResult.errorMessage || 'N/A'}`);
-                        Object.assign(data, handlerResult); 
-                        // 如果 Handler 提供了錯誤回覆，優先使用它，否則使用 fallback prompt
-                        if (handlerResult.response) {
-                             return {
-                                shouldProcess: true,
-                                priority: PRIORITY.BOOKING_FLOW.BASE,
-                                response: handlerResult.response,
-                                nextStep: nextState,
-                                richCard: handlerResult.richCard || null,
-                                allowGeminiCall: currentState.allow_gemini_call || false
-                            };
-                        }
-                        
-                        // 否則，導航到 fallback 狀態並使用其提示
-                        return RuleEngine.generateStateResponse(nextState, data, PRIORITY.BOOKING_FLOW.BASE);
+                        // Handler 未處理 (isHandled: false)
+                        // 讓流程繼續往下走
+                        console.log(`[RULE 3.3] Handler 未處理：${currentStateKey}，繼續流程`);
+                        return { shouldProcess: false, priority: 0 };
                     }
                 } catch (e) {
                     console.error(`💥 Handler 執行失敗 (${handler}):`, e);
@@ -400,6 +405,11 @@ class RuleEngine {
     /** 規則 10: LLM Fallback 嘗試 (P:79) */
     static async handleRepeatedFallbackRule(session, message) {
         const currentState = RuleEngine.config.states[session.currentStep];
+        
+        // 確保 session.collectedData 存在
+        if (!session.collectedData) {
+            session.collectedData = {};
+        }
         
         // 檢查是否達到最大回退次數，並且當前狀態允許 LLM 呼叫
         if (session.fallbackCount >= MAX_FALLBACK_ATTEMPTS && currentState && currentState.allow_gemini_call) {
@@ -441,11 +451,29 @@ class RuleEngine {
 
         try {
             const session = sessionManager.getSession(sessionId);
-            session.currentStep = session.currentStep || RuleEngine.config.initial_state || 'init';
             
-            // 1. 意圖分類與實體抽取 (略)
+            // 🔧 關鍵修復：確保 session 存在且所有必要屬性已初始化
+            if (!session) {
+                console.error(`❌ [SESSION ERROR] Session ${sessionId} 不存在`);
+                return {
+                    shouldProcess: true,
+                    priority: PRIORITY.EMERGENCY,
+                    response: '會話不存在，請重新開始預訂流程。',
+                    nextStep: 'init',
+                    allowGeminiCall: false
+                };
+            }
+            
+            // 初始化 session 屬性
+            session.currentStep = session.currentStep || RuleEngine.config.initial_state || 'init';
+            session.currentState = session.currentStep; // 保持同步
+            if (!session.collectedData) {
+                session.collectedData = {};
+            }
+            
+            // 1. 意圖分類與實體抽取
             const classificationResult = SmartIntentClassifier.classify(message, RuleEngine.config);
-            let intents = classificationResult.intents;
+            let intents = classificationResult.intents || [];
             let extractedEntities = classificationResult.entities || {}; 
 
             const sanitizedEntities = RuleEngine.sanitizeEntities(extractedEntities, session.collectedData, session.currentStep); 
@@ -453,7 +481,7 @@ class RuleEngine {
             session.lastIntent = intents[0] || session.lastIntent;
             sessionManager.updateSession(sessionId, message, intents); 
             
-            const collectedData = session.collectedData;
+            const collectedData = session.collectedData || {};
 
             const rulesResults = [];
             
@@ -490,6 +518,7 @@ class RuleEngine {
 
                 if (finalResult.nextStep && finalResult.nextStep !== session.currentStep) {
                     session.currentStep = finalResult.nextStep;
+                    session.currentState = finalResult.nextStep; // 同步更新
                 }
                 
                 if (finalResult.endFlow) {
@@ -508,6 +537,7 @@ class RuleEngine {
             if (session.currentStep === 'init' && (collectedData.checkInDate || collectedData.nights || collectedData.roomType)) {
                 console.log("[INIT-ADVANCE] 檢測到關鍵實體，從 init 狀態強制轉移到 ask_dates_and_nights。");
                 session.currentStep = 'ask_dates_and_nights'; 
+                session.currentState = 'ask_dates_and_nights'; // 同步更新
                 
                 // 重新調用 GeneralRule 獲取新狀態的提示 (例如 ask_dates_and_nights)
                 const advancedResult = RuleEngine.generalRule(session);
@@ -523,6 +553,7 @@ class RuleEngine {
             if (generalResult) {
                 session.fallbackCount = (session.fallbackCount || 0) + 1;
                 session.currentStep = generalResult.nextStep;
+                session.currentState = generalResult.nextStep; // 同步更新
                 sessionManager.addAssistantResponse(sessionId, generalResult.response, generalResult.richCard);
                 return generalResult;
             }
