@@ -1,4 +1,4 @@
-// rule_engine.js (V6.2 - 修正通用查詢回退邏輯與 Handler 回應採納)
+// rule_engine.js (V6.3 - 修正登入實體映射與 Handler 靜默推進問題)
 
 // ----------------------------------------------------
 // 🏆 ESM 導入
@@ -38,12 +38,12 @@ try {
 // 優先級常量
 const PRIORITY = {
     EMERGENCY: 110,
-    GENERAL_QUERY_COMPLETE: 107, // 修正: 通用查詢完成後返回原流程的優先級
+    GENERAL_QUERY_COMPLETE: 107, 
     RESET_FLOW: 106,
     INVENTORY_FAILURE_OVERRIDE: 105, 
-    GENERAL_INQUIRY_OVERRIDE: 104, // 修正: 通用查詢介入的優先級
+    GENERAL_INQUIRY_OVERRIDE: 104, 
     ROOM_LIMIT: 103,
-    MEMBER_LOGIN_OVERRIDE: 100,
+    MEMBER_LOGIN_OVERRIDE: 100, // 修正: P:100 用於強制處理登入實體
     BOOKING_FLOW: {
         BASE: 95,
         PAUSE_RESUME: {
@@ -148,13 +148,14 @@ class RuleEngine {
         }
 
         // 檢查狀態是否有提示。如果沒有，則返回一個有效的空回應
-        if (!state.prompt && !state.richCard && !data.customRichCard && !data.llm_response) { // 增加對 llm_response 的檢查
+        if (!state.prompt && !state.richCard && !data.customRichCard && !data.llm_response) { 
              return {
                  shouldProcess: true,
                  priority: priority,
+                 // 修正: 即使 response 為空，richCard 也要能被帶出
                  response: "", 
                  nextStep: stateKey,
-                 richCard: state.richCard || data.customRichCard, // 採納 customRichCard
+                 richCard: state.richCard || data.customRichCard, 
                  allowGeminiCall: state.allow_gemini_call || false
              };
         }
@@ -258,13 +259,14 @@ class RuleEngine {
             rulesResults.push(await this.forceResumeBookingRule(intents, session)); 
             rulesResults.push(this.inventoryFailureRule(session)); 
             
-            // 🏆 P:107 修正: 通用查詢結束後，高優先級返回原流程
-            rulesResults.push(this.handleGeneralQueryCompletionRule(intents, session)); // 傳入 intents
+            // 🏆 P:107 通用查詢結束後，高優先級返回原流程
+            rulesResults.push(this.handleGeneralQueryCompletionRule(intents, session)); 
 
             rulesResults.push(this.roomLimitRule(collectedData));
+            // 🏆 修正: 會員登入實體映射及狀態推進
             rulesResults.push(this.memberLoginRule(intents, session)); 
             
-            // 🏆 P:104 修正: 通用查詢覆蓋規則
+            // 🏆 P:104 通用查詢覆蓋規則
             rulesResults.push(this.generalInquiryOverrideRule(intents, session, message)); 
             
             // 3. 執行流程控制規則 (P:98/99)
@@ -283,7 +285,6 @@ class RuleEngine {
                 // 更新 session 狀態
                 if (finalResult.nextStep && finalResult.nextStep !== session.currentStep) {
                     session.currentStep = finalResult.nextStep;
-                    // 在此處不重設 Handler 標記，因為這會在下一個循環開始時自動檢查並在必要時重設
                 }
                 
                 if (finalResult.endFlow) {
@@ -424,7 +425,7 @@ class RuleEngine {
     }
     
     // --- 規則 1.1.1: 通用查詢結束後返回原流程 (P:107) ---
-    static handleGeneralQueryCompletionRule(intents, session) { // 🏆 傳入 intents
+    static handleGeneralQueryCompletionRule(intents, session) { 
         const currentStateKey = session.currentStep;
 
         // 🏆 修正邏輯: Handler 已執行 and 新意圖不是 general_inquiry -> 強制返回
@@ -440,9 +441,9 @@ class RuleEngine {
             
             // 清理暫存的狀態
             delete session.generalInquiryPreviousStep;
-            // 💡 修正：清除 LLM response 避免汙染 generateStateResponse
-            delete session.collectedData.llm_response; 
-            delete session.collectedData.llm_source;
+            // 💡 清除 LLM response 避免汙染 generateStateResponse
+            delete session.collectedData.llm_response; 
+            delete session.collectedData.llm_source;
             
             // 清理 Handler 執行標記，確保返回原狀態後如果 Handler 需要執行可以再次執行
             delete session.executedHandlers['handle_general_inquiry'];
@@ -472,23 +473,35 @@ class RuleEngine {
     static memberLoginRule(intents, session) {
         const currentStateKey = session.currentStep;
         
-        if (currentStateKey === 'ask_member_login') {
+        // 🏆 修正點 1: 新增檢查是否處於需要帳號輸入的狀態
+        if (currentStateKey === 'ask_member_login' || currentStateKey === 'login_member_account') {
             const state = flowConfig.states[currentStateKey];
             const loginIntent = state.intents?.login;
             
-            if (loginIntent && intents.includes('login')) {
-                // 🏆 修正: 登入實體預處理
+            // 確保至少進入過登入流程，或當前意圖為 login
+            if (loginIntent && intents.includes('login') || currentStateKey === 'login_member_account') {
+                
+                // 🏆 修正: 登入實體預處理 (核心修正)
                 const data = session.collectedData;
+                // 檢查是否沒有 memberAccount，但有 contactPhone 或 rawNumber
                 if (!data.memberAccount && (data.contactPhone || data.rawNumber)) {
-                    data.memberAccount = data.contactPhone || String(data.rawNumber); 
+                    // 將 contactPhone/rawNumber 設為 memberAccount，以便後續實體滿足檢查
+                    data.memberAccount = data.contactPhone || String(data.rawNumber); 
+                    // 為了避免汙染 contactPhone 實體，我們暫時保留它，讓 login_member_account 狀態的 Handler 去處理
                     console.log(`🔑 [DEBUG] 在登入狀態下將 contactPhone/rawNumber 賦值給 memberAccount: ${data.memberAccount}`);
                 }
 
+                // 如果已經在 login_member_account，則交由 bookingFlowRule 的 Handler 推進
+                if (currentStateKey === 'login_member_account') {
+                    return { shouldProcess: false, priority: 0 }; 
+                }
+
+                // 推進到實際的輸入帳號狀態 (通常是 login_member_account)
                 return {
                     shouldProcess: true,
                     priority: PRIORITY.MEMBER_LOGIN_OVERRIDE,
                     response: this.interpolatePrompt(flowConfig.states[loginIntent].prompt, data),
-                    nextStep: loginIntent
+                    nextStep: loginIntent // 這裡的 loginIntent 應為 'login_member_account'
                 };
             }
         }
@@ -591,7 +604,7 @@ class RuleEngine {
         // 3. 處理 Handler 邏輯 (迭代執行器)
         let nextStateKey = session.currentStep; 
         let handlerOutput = null; 
-        let lastSuccessfulHandlerResult = null; // 🏆 追蹤上一次成功的 Handler 結果
+        let lastSuccessfulHandlerResult = null; // 🏆 追蹤上一次成功的 Handler 結果
 
         while (flow.states[nextStateKey]?.handler && !this.hasExecutedHandler(session, nextStateKey)) {
             
@@ -606,12 +619,12 @@ class RuleEngine {
             // 💡 如果 Handler 成功執行並包含回應/RichCard，則儲存
             if (handlerResult.isHandled && (handlerResult.response || handlerResult.prompt || handlerResult.richCard || data.customRichCard)) {
                 handlerOutput = handlerResult;
-                handlerOutput.response = handlerOutput.response || handlerOutput.prompt; // 統一回應欄位
+                handlerOutput.response = handlerOutput.response || handlerOutput.prompt; // 統一回應欄位
             }
-            
-            if (handlerResult.isHandled) {
-                lastSuccessfulHandlerResult = handlerResult; // 追蹤成功 Handler 結果
-            }
+            
+            if (handlerResult.isHandled) {
+                lastSuccessfulHandlerResult = handlerResult; // 追蹤成功 Handler 結果
+            }
 
 
             // 處理 Handler 返回結果
@@ -635,7 +648,7 @@ class RuleEngine {
             console.log(`[DEBUG] Handler 成功執行並產生了回應。`);
             // 採用 Handler 指定的 nextStep，如果 Handler 沒有指定，則使用迭代後的 nextStateKey
             const finalNextStep = handlerOutput.nextStep || nextStateKey;
-            
+            
             return {
                 shouldProcess: true,
                 priority: PRIORITY.BOOKING_FLOW.BASE,
@@ -646,9 +659,10 @@ class RuleEngine {
             };
         }
         
-        // 💡 關鍵修正：如果 Handler 成功執行，但沒有回應 (例如 checkBookingEssentials)，只要狀態有推進，就返回新的狀態回應。
-        if (nextStateKey !== currentStateKey) {
+        // 💡 關鍵修正點 2：如果 Handler 成功執行，但沒有回應 (例如 checkBookingEssentials)，只要狀態有推進，就返回新的狀態回應。
+        if (lastSuccessfulHandlerResult && nextStateKey !== currentStateKey) {
             console.log(`[DEBUG] Handler 成功推進狀態到: ${nextStateKey} (無 Handler 回應)`);
+            // 🏆 使用 generateStateResponse 確保輸出有 Prompt
             return this.generateStateResponse(flow, nextStateKey, data, PRIORITY.BOOKING_FLOW.BASE);
         }
 
