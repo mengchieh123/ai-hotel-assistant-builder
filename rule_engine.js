@@ -1,4 +1,4 @@
-// rule_engine.js (V1.8 - 核心業務邏輯整合)
+// rule_engine.js (V2.0 - 支援 prompt/next_state/rules 結構)
 
 import { ModularIntentClassifier } from './modular_intent_classifier.js';
 import { sessionManager } from './session_manager.js';
@@ -12,11 +12,11 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// 🎯 注意：根據您的 JSON 結構，initialState 應從 dialogueFlowConfig.initial_state 讀取
 const FLOW_CONFIG_PATH = path.join(__dirname, 'dialogue_flow.json');
 
 /**
  * 🎯 對話流程配置 (靜態變數)
- * 應在服務啟動時載入，避免重複讀取。
  */
 let dialogueFlowConfig = null;
 
@@ -38,9 +38,9 @@ export class RuleEngine {
             const data = fs.readFileSync(FLOW_CONFIG_PATH, 'utf8');
             dialogueFlowConfig = JSON.parse(data);
 
-            // 執行配置的結構檢查（簡化版）
-            if (!dialogueFlowConfig.initialState || !dialogueFlowConfig.states) {
-                throw new Error('對話流程配置缺少 initialState 或 states 結構');
+            // 執行配置的結構檢查：使用您 JSON 中的 "initial_state" 鍵名
+            if (!dialogueFlowConfig.initial_state || !dialogueFlowConfig.states) {
+                throw new Error('對話流程配置缺少 initial_state 或 states 結構');
             }
 
             console.log('✅ [DEBUG] dialogue_flow.json 成功載入！');
@@ -53,6 +53,33 @@ export class RuleEngine {
     }
     
     /**
+     * 靜態方法：安全地評估 condition 字符串
+     * @param {string} conditionString - JSON 中 rule 的 condition 字符串，例如 "checkInDate && nights"
+     * @param {object} data - 包含會話 collectedData 的物件
+     * @returns {boolean} 條件是否滿足
+     */
+    static _evaluateCondition(conditionString, data) {
+        if (!conditionString) return false;
+        
+        // 解析 "key1 && key2" 格式，檢查所有鍵值是否在 data 中存在且非空
+        try {
+            // 處理 '&&' 邏輯
+            let conditions = conditionString.split('&&').map(key => key.trim());
+            
+            // 檢查所有 required keys 在 data 中是否存在且非空 (非 null, 非 undefined, 且長度大於 0)
+            return conditions.every(key => 
+                data[key] !== null && 
+                data[key] !== undefined && 
+                (typeof data[key] === 'string' ? data[key].length > 0 : true)
+            );
+
+        } catch (e) {
+            console.error(`💥 條件解析錯誤: ${conditionString}`, e);
+            return false;
+        }
+    }
+
+    /**
      * 靜態方法：執行規則引擎的核心邏輯
      * @param {string} message - 使用者輸入訊息
      * @param {string} sessionId - 會話 ID
@@ -60,19 +87,14 @@ export class RuleEngine {
      */
     static async executeRules(message, sessionId) {
         if (!dialogueFlowConfig) {
-             // 確保配置已載入
-            this.initializeFlowConfig(); 
+             this.initializeFlowConfig(); 
         }
 
         // 1. 獲取會話狀態
         const session = sessionManager.getSession(sessionId);
 
         // 2. 模擬傳統 NLU（這裡簡化為返回空結構）
-        // 如果您有外部服務 (例如 Google Dialogflow/Rasa/自研 NLU) 則在此處呼叫
-        const traditionalResult = {
-            intents: [],
-            entities: {}
-        }; 
+        const traditionalResult = { intents: [], entities: {} }; 
 
         // 3. 執行模組化智慧分類 (NLU Layer)
         const modularResult = ModularIntentClassifier.classify(
@@ -86,7 +108,8 @@ export class RuleEngine {
         let finalEntities = modularResult.enhancedData;
 
         // 4. 根據當前狀態和意圖進行決策
-        const currentStateKey = session.currentStep || dialogueFlowConfig.initialState;
+        // 🚨 使用 JSON 中的 initial_state 鍵名
+        const currentStateKey = session.currentStep || dialogueFlowConfig.initial_state;
         const currentStateConfig = dialogueFlowConfig.states[currentStateKey];
 
         // 🎯 處理高優先級/緊急意圖 (例如：取消、登入)
@@ -97,74 +120,97 @@ export class RuleEngine {
             return this._handleEmergencyFlow(session, 'login');
         }
 
-        // 5. 狀態轉換邏輯
+        // 5a. 實體收集：先將 NLU 實體合併到 session
+        session.collectedData = { ...session.collectedData, ...finalEntities };
+
+        // 5b. 初始化狀態轉換變數
         let nextStateKey = currentStateKey;
-        let responseMessage = currentStateConfig.response;
-        let endFlow = false;
-        let richCard = null;
+        // 🚨 優先讀取 prompt，如果沒有才讀取 response
+        let responseMessage = currentStateConfig.prompt || currentStateConfig.response || ""; 
+        let endFlow = currentStateConfig.end || false; // JSON 使用 "end" 而非 "endFlow"
+        let richCard = currentStateConfig.richCard || null;
 
-        // 檢查是否有匹配的意圖轉換規則
-        const transitionRule = currentStateConfig.transitions.find(t => 
-            t.onIntent === finalIntent
-        );
 
-        if (transitionRule) {
-            nextStateKey = transitionRule.nextState;
+        // --- 6. 狀態轉換邏輯 (匹配新 JSON 結構) ---
 
-            // 🎯 執行數據檢查和實體收集
-            const requiredData = dialogueFlowConfig.states[nextStateKey]?.requires || [];
-            let missingData = [];
+        // 6a. 檢查意圖驅動的跳轉 (適用於 ask_member_login 或 ask_addons 等狀態)
+        const intentTransition = currentStateConfig.intents?.[finalIntent];
+        if (intentTransition) {
+             nextStateKey = intentTransition;
+             console.log(`➡️ [INTENT_JUMP] 意圖 ${finalIntent} 驅動跳轉至 ${nextStateKey}`);
+        }
 
-            // 5a. 合併實體
-            session.collectedData = { ...session.collectedData, ...finalEntities };
-            
-            // 5b. 檢查遺漏數據
-            for (const key of requiredData) {
-                if (!session.collectedData[key]) {
-                    missingData.push(key);
-                }
+        // 6b. 檢查條件規則驅動的跳轉 (適用於 init 或 entity_collection 狀態)
+        else if (currentStateConfig.rules && Array.isArray(currentStateConfig.rules)) {
+            const matchedRule = currentStateConfig.rules.find(rule => {
+                return this.constructor._evaluateCondition(rule.condition, session.collectedData);
+            });
+
+            if (matchedRule) {
+                nextStateKey = matchedRule.next_state;
+                console.log(`➡️ [RULE_JUMP] 規則 ${matchedRule.condition} 滿足，跳轉至 ${nextStateKey}`);
             }
+        }
+        
+        // 6c. 處理流程啟動意圖 (特例：當在 init 且意圖為 booking_start 時，強制使用 next_state)
+        // 🚨 這是解決您 log 問題的關鍵！當使用者輸入「我要訂房」但沒有提供日期時，走這裡。
+        else if (currentStateKey === dialogueFlowConfig.initial_state && finalIntent === 'booking_start') {
+             nextStateKey = currentStateConfig.next_state; // next_state: "ask_dates_and_nights"
+             console.log(`➡️ [INIT_START] 意圖 ${finalIntent} 啟動流程，跳轉至 ${nextStateKey}`);
+        }
+        
+        // 6d. 預設線性推進 (如果以上規則或意圖都不匹配，且狀態有 next_state 鍵)
+        else if (currentStateConfig.next_state && currentStateKey !== nextStateKey) {
+             nextStateKey = currentStateConfig.next_state;
+             console.log(`➡️ [LINEAR] 預設線性跳轉至 ${nextStateKey}`);
+        }
 
-            if (missingData.length > 0) {
-                // 如果缺少數據，則進入數據收集的子步驟
-                nextStateKey = missingData[0]; // 簡單地以第一個缺失項作為下一步
-                responseMessage = this._generateMissingDataPrompt(missingData[0]);
-                console.log(`⚠️ [DATA_COLLECT] 缺少數據: ${missingData.join(', ')}. 跳轉至 ${nextStateKey}`);
-            } else {
-                // 數據收集完整，跳轉到目標狀態並產生回應
-                const nextConfig = dialogueFlowConfig.states[nextStateKey];
-                responseMessage = nextConfig.response;
-                richCard = nextConfig.richCard || null;
-                endFlow = nextConfig.endFlow || false;
-            }
 
-        } else if (currentStateConfig.transitions.length === 0) {
-            // 當前狀態是葉節點（如：訂單完成、流程結束）
-            endFlow = currentStateConfig.endFlow || true;
-            responseMessage = currentStateConfig.response;
-        } else {
-            // 意圖不匹配：處理回退 (Fallback)
-            nextStateKey = currentStateKey; // 留在當前狀態
+        // --- 7. 處理跳轉後的行為 (LogicExec & EntityCollection) ---
+
+        // 🚨 獲取跳轉後狀態的配置，並更新回應訊息
+        const nextStateConfig = dialogueFlowConfig.states[nextStateKey];
+        if (nextStateConfig) {
+            responseMessage = nextStateConfig.prompt || nextStateConfig.response || responseMessage;
+            richCard = nextStateConfig.richCard || richCard;
+            endFlow = nextStateConfig.end || endFlow;
+        }
+
+        // 🎯 這裡應該加入遞迴邏輯來處理 "type": "logic_exec" 的狀態，但為了保持程式碼簡潔，
+        // 我們假設 server.js 或一個中介層會處理邏輯執行狀態。
+        // 如果 nextStateKey 是 logic_exec 狀態，它會在下一次執行時被處理。
+
+
+        // --- 8. Fallback 處理 ---
+
+        // 如果在任何邏輯處理後，流程仍停留在當前狀態，則進行回退
+        if (nextStateKey === currentStateKey) {
             session.fallbackCount = (session.fallbackCount || 0) + 1;
             
             if (session.fallbackCount >= 2) {
-                // 連續回退，跳轉到人工客服或重新開始
                 responseMessage = "抱歉，我似乎無法理解您的意思。我將為您轉接人工客服或重置預訂流程。請問您是否需要重置？";
                 nextStateKey = 'fallback_end';
                 endFlow = false;
             } else {
-                // 簡單回退回應
                 responseMessage = currentStateConfig.fallback || "抱歉，我不太明白您的意思。您是否可以換個方式說呢？";
             }
+            // 檢查是否有 fallback_state
+            if (currentStateConfig.fallback_state) {
+                 nextStateKey = currentStateConfig.fallback_state;
+            }
+        } else {
+             // 如果成功跳轉，則重置 Fallback 計數
+             session.fallbackCount = 0;
         }
-        
-        // 6. 更新會話狀態
+
+
+        // 9. 更新會話狀態
         session.lastMessage = message;
         session.lastIntent = finalIntent;
         session.currentStep = nextStateKey;
         sessionManager.updateSession(session);
         
-        // 7. 返回結果
+        // 10. 返回結果
         return {
             response: responseMessage,
             nextStep: nextStateKey,
@@ -179,51 +225,43 @@ export class RuleEngine {
         };
     }
     
-    /**
-     * 處理緊急或高優先級的流程中斷
-     * @param {object} session - 當前會話
-     * @param {string} flowType - 流程類型 ('cancel' 或 'login')
-     */
+    // ... (其他靜態方法 _handleEmergencyFlow 和 _generateMissingDataPrompt 保持不變)
     static _handleEmergencyFlow(session, flowType) {
+        // ... (保持不變)
         if (flowType === 'cancel') {
-            session.currentStep = 'cancel_request';
-            sessionManager.updateSession(session);
-            return {
-                response: "您好，您啟動了取消流程。請問您要取消哪一筆訂單呢？請提供訂單號碼。",
-                nextStep: 'cancel_request',
-                endFlow: false
-            };
-        }
-        if (flowType === 'login') {
-             session.currentStep = 'login_prompt';
+             session.currentStep = 'cancel_request';
              sessionManager.updateSession(session);
              return {
-                 response: "好的，請您提供會員帳號或手機號碼以便登入，享受會員專屬優惠。",
-                 nextStep: 'login_prompt',
+                 response: "您好，您啟動了取消流程。請問您要取消哪一筆訂單呢？請提供訂單號碼。",
+                 nextStep: 'cancel_request',
                  endFlow: false
              };
         }
-        // 默認返回一般回退
-        return {
-            response: "抱歉，我目前無法處理這個緊急流程。",
-            nextStep: session.currentStep,
-            endFlow: false
-        };
+        if (flowType === 'login') {
+              session.currentStep = 'login_prompt';
+              sessionManager.updateSession(session);
+              return {
+                  response: "好的，請您提供會員帳號或手機號碼以便登入，享受會員專屬優惠。",
+                  nextStep: 'login_prompt',
+                  endFlow: false
+              };
+         }
+         return {
+             response: "抱歉，我目前無法處理這個緊急流程。",
+             nextStep: session.currentStep,
+             endFlow: false
+         };
     }
 
-    /**
-     * 根據缺失的數據生成提示語句
-     * @param {string} dataKey - 缺失數據的鍵值
-     */
     static _generateMissingDataPrompt(dataKey) {
+        // ... (保持不變)
         const prompts = {
-            checkInDate: "請問您預計入住的日期是哪一天呢？",
-            nights: "請問您要住幾晚呢？",
-            adultCount: "請問有幾位大人入住呢？",
-            roomType: "請問您喜歡哪種房型？（例如：雙人房、豪華套房、家庭房）",
-            contactName: "請問您的聯絡人姓名是？",
-            contactPhone: "請問您的手機號碼是？",
-            // ... 可擴展其他數據提示
+             checkInDate: "請問您預計入住的日期是哪一天呢？",
+             nights: "請問您要住幾晚呢？",
+             adultCount: "請問有幾位大人入住呢？",
+             roomType: "請問您喜歡哪種房型？（例如：雙人房、豪華套房、家庭房）",
+             contactName: "請問您的聯絡人姓名是？",
+             contactPhone: "請問您的手機號碼是？",
         };
         return prompts[dataKey] || `請問關於 ${dataKey} 的資訊？`;
     }
