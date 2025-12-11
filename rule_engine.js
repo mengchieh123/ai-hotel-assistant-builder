@@ -1,4 +1,4 @@
-// rule_engine.js (V7.9 - 修復付款跳轉和狀態同步問題)
+// rule_engine.js (V8.0 - 支援新版意圖分類器)
 
 // ----------------------------------------------------
 // 🏆 ESM 導入
@@ -505,8 +505,16 @@ class RuleEngine {
             
             console.log(`[DEBUG] Session ${sessionId} state: ${session.currentStep} (currentState: ${session.currentState})`);
             
-            // 1. 意圖分類與實體抽取
-            const classificationResult = SmartIntentClassifier.classify(message, RuleEngine.config);
+            // 1. 🎯 關鍵修改：使用新版 SmartIntentClassifier（傳入 session 數據作為上下文）
+            const classificationResult = SmartIntentClassifier.classify(
+                message, 
+                RuleEngine.config,
+                {
+                    ...(session.collectedData || {}),
+                    currentState: session.currentStep
+                }
+            );
+            
             let intents = classificationResult.intents || [];
             let extractedEntities = classificationResult.entities || {}; 
 
