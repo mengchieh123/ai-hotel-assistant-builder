@@ -1,6 +1,6 @@
 // rule_engine.js (V2.2 - 最終優化：包含實體隔離、靜默跳轉和 Handler 遞迴鏈式執行)
 
-import { ModularIntentClassifier } from './modular_intent_classifier.js';
+import { ModularIntentClassifier } from './intent_classifier.js';
 import { sessionManager } from './session_manager.js';
 import config from './config.js';
 import fs from 'fs';
