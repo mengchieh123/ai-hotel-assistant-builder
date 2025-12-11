@@ -1,0 +1,143 @@
+name: Deploy Readiness Check
+
+on:
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check Deployment Readiness
+    runs-on: ubuntu-latest
+    
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+      issues: ${{ steps.check.outputs.issues }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Deployment Readiness Check
+        id: check
+        run: |
+          echo "🔍 檢查部署就緒狀態..."
+          
+          ISSUES=()
+          READY=true
+          
+          # 1. 檢查必要文件
+          echo "## 文件檢查"
+          for file in "package.json" "server.js"; do
+            if [ -f "$file" ]; then
+              echo "✅ $file 存在"
+            else
+              echo "❌ $file 缺失"
+              ISSUES+=("缺失文件: $file")
+              READY=false
+            fi
+          done
+          
+          # 2. 檢查 render.yaml
+          if [ -f "render.yaml" ]; then
+            echo "✅ render.yaml 存在"
+            # 驗證 YAML 語法
+            if command -v yq &> /dev/null; then
+              yq e '.' render.yaml > /dev/null && echo "✅ render.yaml 語法正確" || {
+                echo "❌ render.yaml 語法錯誤"
+                ISSUES+=("render.yaml 語法錯誤")
+                READY=false
+              }
+            fi
+          else
+            echo "⚠️  render.yaml 缺失 (Render Blueprint 部署需要)"
+          fi
+          
+          # 3. 檢查 package.json
+          echo "## package.json 檢查"
+          if [ -f "package.json" ]; then
+            # 檢查啟動腳本
+            START_SCRIPT=$(node -e "try { console.log(JSON.parse(require('fs').readFileSync('package.json', 'utf8')).scripts?.start || '') } catch(e) { console.log('') }")
+            if [ -n "$START_SCRIPT" ]; then
+              echo "✅ 啟動腳本: $START_SCRIPT"
+            else
+              echo "❌ 缺少啟動腳本"
+              ISSUES+=("package.json 缺少 scripts.start")
+              READY=false
+            fi
+            
+            # 檢查 Node.js 版本
+            NODE_VERSION=$(node -e "try { console.log(JSON.parse(require('fs').readFileSync('package.json', 'utf8')).engines?.node || '') } catch(e) { console.log('') }")
+            if [ -n "$NODE_VERSION" ]; then
+              echo "✅ Node.js 版本要求: $NODE_VERSION"
+            else
+              echo "⚠️  未指定 Node.js 版本"
+            fi
+          fi
+          
+          # 4. 檢查環境變量
+          echo "## 環境變量檢查"
+          if [ -f ".env.example" ] || [ -f ".env" ]; then
+            echo "✅ 環境變量配置文件存在"
+          else
+            echo "⚠️  缺少環境變量配置文件"
+          fi
+          
+          # 5. 檢查健康檢查端點
+          echo "## 健康檢查檢查"
+          if grep -r "/health" server.js 2>/dev/null | grep -q "get\|app.get"; then
+            echo "✅ 健康檢查端點存在"
+          else
+            echo "⚠️  未找到健康檢查端點"
+            ISSUES+=("建議添加 /health 端點")
+          fi
+          
+          # 輸出結果
+          echo "## 檢查結果"
+          if [ "$READY" = true ]; then
+            echo "✅ 部署就緒檢查通過"
+            echo "ready=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ 部署就緒檢查未通過"
+            echo "ready=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # 輸出問題列表
+          if [ ${#ISSUES[@]} -gt 0 ]; then
+            echo "issues=${ISSUES[*]}" >> $GITHUB_OUTPUT
+            echo "## 發現的問題:"
+            printf "  - %s\n" "${ISSUES[@]}"
+          fi
+      
+      - name: Create Check Run
+        uses: actions/github-script@v6
+        env:
+          READY: ${{ steps.check.outputs.ready }}
+          ISSUES: ${{ steps.check.outputs.issues }}
+        with:
+          script: |
+            const { READY, ISSUES } = process.env;
+            const issues = ISSUES ? ISSUES.split(',') : [];
+            
+            const conclusion = READY === 'true' ? 'success' : 'failure';
+            const title = READY === 'true' 
+              ? '✅ 部署就緒檢查通過' 
+              : `❌ 部署就緒檢查失敗 (${issues.length} 個問題)`;
+            
+            const summary = READY === 'true'
+              ? '所有部署必要條件都已滿足。'
+              : `發現 ${issues.length} 個問題需要修復:\n\n${issues.map(issue => `- ${issue}`).join('\n')}`;
+            
+            github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: '部署就緒檢查',
+              head_sha: context.sha,
+              status: 'completed',
+              conclusion: conclusion,
+              output: {
+                title: title,
+                summary: summary
+              }
+            });
+            
