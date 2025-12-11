@@ -1,33 +1,55 @@
 name: Deploy to Render
 
+<<<<<<< HEAD
+=======
+# 觸發條件
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
 on:
   push:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+<<<<<<< HEAD
   workflow_dispatch:  # 允許手動觸發
 
 env:
   NODE_VERSION: '18'
+=======
+  workflow_dispatch:  # 允許手動觸發
+
+env:
+  # 將 Node.js 版本更新為 20 (LTS)
+  NODE_VERSION: '20' 
+  # RENDER_SERVICE_ID 來自 GitHub Secrets
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
   RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
 
 jobs:
   # 測試階段
   test:
+<<<<<<< HEAD
     name: Test and Build
+=======
+    name: Test and Build Verification
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       
+<<<<<<< HEAD
       - name: Setup Node.js
+=======
+      - name: Setup Node.js v${{ env.NODE_VERSION }}
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       
       - name: Install dependencies
+<<<<<<< HEAD
         run: npm ci
       
       - name: Run tests
@@ -56,19 +78,73 @@ jobs:
             kill $SERVER_PID
           else
             echo "❌ 服務器啟動失敗"
+=======
+        # 使用 ci 確保版本鎖定
+        run: npm ci
+      
+      - name: Run tests
+        # 即使沒有測試腳本，也不會失敗
+        run: |
+          echo "🔍 運行測試..."
+          npm test 2>/dev/null || echo "⚠️  沒有測試腳本 (npm test)，跳過測試"
+      
+      - name: Check server startup
+        # 確保服務能在 CI 環境中啟動
+        timeout-minutes: 2
+        run: |
+          echo "🚀 測試服務器啟動..."
+          # 啟動服務器在後台，使用 &
+          npm start &
+          SERVER_PID=$!
+          
+          # 等待服務器啟動。在 CI 環境中，等待時間可能需要調整。
+          sleep 5 
+          
+          # 檢查服務器是否運行
+          if ps -p $SERVER_PID > /dev/null; then
+            echo "✅ 服務器啟動成功，PID: $SERVER_PID"
+            # 測試健康檢查端點 (假定服務器使用 PORT 3000)
+            if curl -f http://localhost:3000/health; then
+                echo "✅ 健康檢查通過"
+            elif curl -f http://localhost:8080/health; then # 嘗試常見的替代埠號
+                echo "✅ 健康檢查通過 (Port 8080)"
+            else
+                echo "❌ 健康檢查失敗 (無法連接到 /health)"
+                kill $SERVER_PID
+                exit 1
+            fi
+            
+            # 停止服務器
+            kill $SERVER_PID
+          else
+            echo "❌ 服務器啟動失敗 (Process not found)"
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
             exit 1
           fi
       
       - name: Build verification
+<<<<<<< HEAD
         run: |
           echo "📦 構建驗證..."
           npm run build --if-present || echo "⚠️  沒有構建腳本"
+=======
+        # 執行 build 腳本（如果存在）
+        run: |
+          echo "📦 構建驗證..."
+          npm run build --if-present || echo "⚠️  沒有構建腳本 (npm run build)，檢查完成"
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
           echo "✅ 構建檢查完成"
 
   # 部署階段
   deploy:
     name: Deploy to Render
+<<<<<<< HEAD
     needs: test
+=======
+    # 必須在測試通過後才執行
+    needs: test
+    # 僅在 main 或 master 分支推送時執行部署
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     
@@ -76,44 +152,72 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
+<<<<<<< HEAD
       - name: Setup Node.js
+=======
+      - name: Setup Node.js v${{ env.NODE_VERSION }}
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       
+<<<<<<< HEAD
       - name: Install dependencies
+=======
+      - name: Install production dependencies only
+        # 只安裝生產環境依賴
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
         run: npm ci --only=production
       
       - name: Deploy to Render via API
         env:
+<<<<<<< HEAD
+=======
+          # RENDER_API_KEY 必須在 GitHub Secrets 中設置
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
           echo "🚀 開始部署到 Render..."
           
+<<<<<<< HEAD
           # 檢查必要的密鑰
           if [ -z "$RENDER_API_KEY" ]; then
             echo "❌ RENDER_API_KEY 未設置"
             echo "請在 GitHub Secrets 中設置 RENDER_API_KEY"
+=======
+          # 密鑰檢查
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "❌ 錯誤：RENDER_API_KEY 未設置，無法觸發部署。"
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
             exit 1
           fi
           
           if [ -z "$RENDER_SERVICE_ID" ]; then
+<<<<<<< HEAD
             echo "❌ RENDER_SERVICE_ID 未設置"
             echo "請在 GitHub Secrets 中設置 RENDER_SERVICE_ID"
+=======
+            echo "❌ 錯誤：RENDER_SERVICE_ID 未設置，無法觸發部署。"
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
             exit 1
           fi
           
           echo "使用服務 ID: $RENDER_SERVICE_ID"
           
+<<<<<<< HEAD
           # 方法1: 使用 Render API 觸發部署
           echo "觸發 Render 部署..."
+=======
+          # 觸發 Render 部署 API (帶有 clearCache: true)
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
           DEPLOY_RESPONSE=$(curl -s -X POST \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Content-Type: application/json" \
             -d '{"clearCache": true}')
           
+<<<<<<< HEAD
           if [ $? -eq 0 ]; then
             echo "✅ 部署觸發成功"
             echo "響應: $DEPLOY_RESPONSE"
@@ -151,6 +255,65 @@ jobs:
           fi
       
       - name: Get service URL
+=======
+          # 檢查 API 呼叫是否成功
+          if [ $? -ne 0 ]; then
+             echo "❌ 部署觸發失敗：CURL 錯誤。"
+             echo "響應: $DEPLOY_RESPONSE"
+             exit 1
+          fi
+          
+          # 提取部署 ID
+          DEPLOY_ID=$(echo $DEPLOY_RESPONSE | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+          
+          if [ -z "$DEPLOY_ID" ]; then
+             echo "❌ 部署觸發失敗：無法從響應中提取 DEPLOY_ID。"
+             echo "響應: $DEPLOY_RESPONSE"
+             exit 1
+          fi
+          
+          echo "✅ 部署觸發成功，部署 ID: $DEPLOY_ID"
+          
+          # 等待部署完成 (最多 30 * 10 秒 = 5 分鐘)
+          echo "⏳ 等待部署完成..."
+          for i in {1..30}; do
+            sleep 10
+            STATUS_CHECK=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID")
+            
+            STATUS=$(echo $STATUS_CHECK | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+            
+            echo "檢查狀態 ($i/30): $STATUS"
+            
+            case $STATUS in
+              "live")
+                echo "🎉 部署成功！服務已上線"
+                break
+                ;;
+              "failed"|"canceled"|"post_deploy_failed")
+                echo "❌ 部署失敗或取消: $STATUS"
+                exit 1
+                ;;
+              "in_progress"|"build_in_progress"|"pre_deploy")
+                continue # 繼續等待
+                ;;
+              *)
+                if [ -z "$STATUS" ]; then
+                    echo "⚠️  無法獲取狀態，可能是 API 錯誤，繼續等待..."
+                fi
+                continue 
+            esac
+          done
+          
+          if [ "$STATUS" != "live" ]; then
+              echo "❌ 部署超時 (Timeout)，狀態停留在 $STATUS"
+              exit 1
+          fi
+      
+      - name: Get service URL
+        # 獲取服務的最終 URL，方便後續檢查或通知
+        id: get_url 
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
@@ -158,18 +321,31 @@ jobs:
           SERVICE_INFO=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID")
           
+<<<<<<< HEAD
+=======
+          # 使用 JSON 處理工具（jq）來更可靠地提取 URL，如果環境中沒有 jq，則使用原本的 grep/cut 方式。
+          # 為了保持兼容性，我們繼續使用 grep/cut，但加入錯誤檢查。
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
           SERVICE_URL=$(echo $SERVICE_INFO | grep -o '"serviceDetails":{[^}]*"url":"[^"]*"' | head -1 | cut -d'"' -f6)
           
           if [ -n "$SERVICE_URL" ]; then
             echo "服務 URL: $SERVICE_URL"
+<<<<<<< HEAD
             echo "::set-output name=service_url::$SERVICE_URL"
           else
             echo "⚠️  無法獲取服務 URL"
+=======
+            # 設置輸出變數給後續 Job 使用 (注意：GitHub Actions V4 建議使用 $GITHUB_OUTPUT)
+            echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  無法獲取服務 URL。響應截斷或格式錯誤。"
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
           fi
 
   # 通知階段
   notify:
     name: Send Notification
+<<<<<<< HEAD
     needs: deploy
     if: always()
     runs-on: ubuntu-latest
@@ -216,10 +392,47 @@ jobs:
             `;
             
             // 創建部署狀態
+=======
+    # 依賴於部署 Job，確保部署完成後才通知
+    needs: deploy
+    # 確保無論部署 Job 成功或失敗都會執行
+    if: always() 
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Create Deployment Summary
+        # 使用 actions/github-script 生成詳細的部署摘要
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const deployResult = '${{ needs.deploy.result }}';
+            const statusState = deployResult === 'success' ? 'success' : 'failure';
+            const emoji = deployResult === 'success' ? '🎉' : '❌';
+
+            // 從部署 Job 的輸出中獲取 URL (使用 needs.deploy.outputs.<step_id>.<output_name>)
+            const serviceUrl = '${{ needs.deploy.outputs.get_url.service_url }}' || 'N/A';
+
+            const summary = `
+            # ${emoji} 部署報告 - AI Chatbot
+            
+            ## 基本資訊
+            - **狀態**: **${deployResult.toUpperCase()}**
+            - **觸發分支**: ${context.ref}
+            - **觸發提交**: [\`${context.sha.substring(0, 7)}\`](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${context.sha})
+            - **應用 URL**: ${serviceUrl !== 'N/A' ? `[點擊訪問](${serviceUrl})` : serviceUrl}
+            
+            ## 執行狀態
+            - **測試階段**: **${{ needs.test.result }}**
+            - **部署階段**: **${deployResult}**
+            `;
+            
+            // 1. 設置提交狀態 (Commit Status)
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
             github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha: context.sha,
+<<<<<<< HEAD
               state: '${{ needs.deploy.result }}' === 'success' ? 'success' : 'failure',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               description: '${{ needs.deploy.result }}' === 'success' ? '部署成功' : '部署失敗',
@@ -227,4 +440,13 @@ jobs:
             });
             
             // 添加為檢查運行摘要
+=======
+              state: statusState,
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              description: statusState === 'success' ? 'Render 部署成功' : 'Render 部署失敗',
+              context: 'Render Deployment Status'
+            });
+            
+            // 2. 添加到 Actions 運行摘要 (Summary)
+>>>>>>> 166416443ea715093cf042ceb999254b34cc57d9
             core.summary.addRaw(summary).write();
