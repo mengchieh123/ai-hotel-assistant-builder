@@ -1,4 +1,6 @@
-// modular_intent_classifier.js (ESM - 完整優化版 V1.1)
+// modular_intent_classifier.js (ESM - 完整優化版 V1.2)
+
+import { DateParser } from './date_parser.js'; // 假設 DateParser 位於同一目錄
 
 /**
  * 模組化意圖分類器
@@ -8,7 +10,7 @@ export class ModularIntentClassifier {
     
     // --- 靜態配置與工具 ---
     
-    /** 💡 優化 1: 提取中文數字對應表 */
+    /** 提取中文數字對應表 */
     static CHINESE_NUMBER_MAP = { 
         '一': 1, '兩': 2, '二': 2, '三': 3, '四': 4, '五': 5, 
         '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 
@@ -19,7 +21,13 @@ export class ModularIntentClassifier {
      */
     static _parseChineseNumber(str) {
         if (!str) return null;
-        return this.CHINESE_NUMBER_MAP[str] || parseInt(str);
+        // 移除所有非數字和非中文數字的字符
+        str = str.replace(/[^0-9一兩二三四五六七八九十]/g, '');
+        
+        if (str.length === 1 && this.CHINESE_NUMBER_MAP[str]) {
+            return this.CHINESE_NUMBER_MAP[str];
+        }
+        return parseInt(str) || null;
     }
 
     /**
@@ -35,14 +43,14 @@ export class ModularIntentClassifier {
         },
         DATE_SELECTION: {
             name: '日期選擇模組',
-            keywords: ['今天', '明天', '後天', '週一', '週二', '週三', '週四', '週五', '週六', '週日', '聖誕節', '跨年', '春節', '端午', '中秋'],
+            keywords: ['今天', '明天', '後天', '週一', '週二', '週三', '週四', '週五', '週六', '週日', '聖誕節', '跨年', '春節', '端午', '中秋', '幾號', '幾月'],
             primaryIntent: 'booking',
             color: '📅',
             priority: 90 // 重要的數據收集環節
         },
         ROOM_SELECTION: {
             name: '房型選擇模組',
-            keywords: ['標準', '豪華', '行政', '家庭', '套房', '雙人房', '四人房', '親子房', '海景房'],
+            keywords: ['標準', '豪華', '行政', '家庭', '套房', '雙人房', '四人房', '親子房', '海景房', '幾間'],
             primaryIntent: 'booking',
             color: '🏨',
             priority: 80
@@ -84,7 +92,7 @@ export class ModularIntentClassifier {
         },
         CONTACT: {
             name: '聯繫模組',
-            keywords: ['聯絡', '電話', 'email', '郵件', '客服', 'help', '協助', '姓名', '手機', '號碼'],
+            keywords: ['聯絡', '電話', 'email', '郵件', '客服', 'help', '協助', '姓名', '手機', '號碼', '聯絡資訊'],
             primaryIntent: 'contact_info_update',
             color: '🟠',
             priority: 75
@@ -151,7 +159,7 @@ export class ModularIntentClassifier {
             
             totalConfidence += module.confidence;
             
-            // 💡 優化 4: 計算並儲存加權分數，用於最終決策
+            // 計算並儲存加權分數，用於最終決策
             const weightedConfidence = module.confidence * (module.priority / 100);
             module.weightedConfidence = weightedConfidence;
             totalWeightedConfidence += weightedConfidence;
@@ -217,26 +225,19 @@ export class ModularIntentClassifier {
         switch(module) {
             case 'BOOKING':
             case 'DATE_SELECTION':
-                // 智慧日期解析
+                // 智慧日期解析與標準化 (使用 DateParser 模組)
                 if (!enhancedData.checkInDate) {
-                    const datePatterns = [
-                        /(\d{1,2})[月\/\-](\d{1,2})[日號]?/, // 12/25, 12月25日
-                        /(今天|明天|後天|大後天)/,
-                        /(週[一二三四五六日]|星期[一二三四五六日])/,
-                        /(聖誕節|跨年|春節|清明|端午|中秋|雙十)/
-                    ];
-                    
-                    for (const pattern of datePatterns) {
-                        const match = message.match(pattern);
-                        if (match) {
-                            enhancedData.dateMatch = match[0];
-                            break;
-                        }
+                    const dateResult = DateParser.parseDate(message);
+                    if (dateResult.date) {
+                        // 將模糊或絕對日期標準化為 ISO 格式 (YYYY-MM-DD)
+                        enhancedData.checkInDate = dateResult.isoDate; 
+                        enhancedData.dateMatch = dateResult.matchText;
                     }
                 }
                 
                 // 智慧晚數解析 (應用 _parseChineseNumber)
                 if (!enhancedData.nights) {
+                    // 匹配數字或中文數字後跟「晚/天/夜」
                     const nightsMatch = message.match(/(\d+|一|兩|二|三|四|五|六|七|八|九|十)\s*(晚|天|夜|nights?|days?)/i);
                     if (nightsMatch) {
                         const num = nightsMatch[1];
@@ -278,7 +279,7 @@ export class ModularIntentClassifier {
             case 'PEOPLE_COUNT':
                 // 智慧人數解析 (應用 _parseChineseNumber)
                 if (!enhancedData.adultCount && !enhancedData.childCount) {
-                    // 格式: "2大1小"
+                    // 格式 1: "2大1小"
                     const pattern1 = message.match(/(\d+|一|兩|二|三|四|五|六|七|八|九|十)\s*(大|大人|成人)\s*(\d+|一|兩|二|三|四|五|六|七|八|九|十)?\s*(小|小孩|兒童)?/i);
                     if (pattern1) {
                         const adults = pattern1[1];
@@ -286,13 +287,13 @@ export class ModularIntentClassifier {
                         
                         if (pattern1[3]) {
                             const children = pattern1[3];
-                            enhancedData.childCount = this._parseChineseNumber(children);
+                            enhancedData.childCount = this._parseChineseNumber(children) || 0; // 確保為數字
                         }
                     }
                     
-                    // 格式: "我們兩人"
+                    // 格式 2: "我們兩人" (作為補充，如果格式 1 失敗)
                     const pattern2 = message.match(/(我們|一家|全家|一共)\s*(\d+|一|兩|二|三|四|五|六|七|八|九|十)\s*(人|位)/);
-                    if (pattern2) {
+                    if (pattern2 && !enhancedData.adultCount) {
                         const total = pattern2[2];
                         enhancedData.adultCount = this._parseChineseNumber(total);
                     }
@@ -306,18 +307,18 @@ export class ModularIntentClassifier {
                 break;
                 
             case 'CONTACT':
-                // 智慧聯繫資訊解析 (簡化，主要依靠 Regex)
-                // 姓名
+                // 智慧聯繫資訊解析
+                // 姓名 (匹配中文字 2-4 個)
                 const nameMatch = message.match(/(?:姓名|名字|我叫|我是|聯絡人)[:：]?\s*([\u4e00-\u9fa5]{2,4})/);
-                if (nameMatch) enhancedData.contactName = nameMatch[1];
+                if (nameMatch && !enhancedData.contactName) enhancedData.contactName = nameMatch[1];
                 
-                // 電話
+                // 電話 (匹配 8-11 位數字)
                 const phoneMatch = message.match(/(?:電話|手機|號碼)[:：]?\s*(\d{8,11})|\b(\d{8,11})\b/);
-                if (phoneMatch) enhancedData.contactPhone = phoneMatch[1] || phoneMatch[2];
+                if (phoneMatch && !enhancedData.contactPhone) enhancedData.contactPhone = phoneMatch[1] || phoneMatch[2];
                 
                 // Email
                 const emailMatch = message.match(/([\w.%+-]+@[\w.-]+\.[a-zA-Z]{2,})/);
-                if (emailMatch) enhancedData.contactEmail = emailMatch[1];
+                if (emailMatch && !enhancedData.contactEmail) enhancedData.contactEmail = emailMatch[1];
                 
                 // 組合格式: "王大明, 0912345678, wang@example.com"
                 const combinedMatch = message.match(/([\u4e00-\u9fa5]{2,4})\s*[,，]\s*(\d{8,11})\s*[,，]\s*([\w.%+-]+@[\w.-]+\.[a-zA-Z]{2,})/);
@@ -344,13 +345,12 @@ export class ModularIntentClassifier {
     }
     
     /**
-     * 獲取建議步驟
+     * 獲取建議步驟 (供 RuleEngine 參考)
      */
     static getSuggestedSteps(module, session, traditionalResult) {
         const currentState = session.currentStep || session.currentState || 'init';
         const steps = [];
         
-        // 根據模組和當前狀態提供下一步建議
         // 這些建議主要是給 RuleEngine 作為決策參考的註記
         switch(module) {
             case 'BOOKING':
@@ -370,11 +370,7 @@ export class ModularIntentClassifier {
                 break;
                 
             case 'CONTACT':
-                if (!session.collectedData?.contactName) {
-                    steps.push('請提供聯絡人姓名');
-                } else if (!session.collectedData?.contactPhone) {
-                    steps.push('請提供手機號碼');
-                }
+                steps.push('收集完整聯絡人資訊');
                 break;
                 
             case 'MEMBER':
@@ -382,38 +378,14 @@ export class ModularIntentClassifier {
                 steps.push('驗證會員身份');
                 break;
                 
+            case 'CANCEL':
+                steps.push('確認是否中斷流程');
+                break;
+
             default:
                 steps.push('理解使用者需求');
         }
         
         return steps;
-    }
-    
-    /**
-     * 產生模組化建議回應 (主要作為備用，實際回應由 RuleEngine 的 Flow Config 控制)
-     */
-    static generateModuleResponse(moduleResult, session) {
-        const responses = {
-            BOOKING: {
-                init: "歡迎使用！請問您想預訂哪一天的房間？",
-                date_selected: "好的，請問您要住宿幾晚呢？",
-            },
-            DATE_SELECTION: {
-                general: "請告訴我您的入住日期（例如：12月25日、明天）",
-            },
-            CONTACT: {
-                missing_name: "請問聯絡人姓名是？",
-                missing_phone: "請提供聯絡電話",
-            }
-        };
-        
-        const module = moduleResult.topModule;
-        const currentState = session.currentStep || 'init';
-        
-        if (responses[module] && responses[module][currentState]) {
-            return responses[module][currentState];
-        }
-        
-        return `正在處理您的${moduleResult.moduleName}需求...`;
     }
 }
