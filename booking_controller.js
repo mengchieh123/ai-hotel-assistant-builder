@@ -1,4 +1,4 @@
-// booking_controller.js (V8.5 - 修復付款跳轉問題)
+// booking_controller.js (V8.5 - 修正付款跳轉問題 & 兒童人數流程)
 
 import dayjs from 'dayjs';
 import { MockAPI } from './service_mock_api.js';
@@ -107,7 +107,7 @@ function resumeFlowFromPause(session) {
 
 
 // -------------------------------------------------------------
-// II. 流程前置檢查與實體補齊
+// II. 流程前置檢查與實體補齊 (修正成人/兒童人數檢查)
 // -------------------------------------------------------------
 
 // --- 4. 流程前置檢查 (checkDateCompleteness) ---
@@ -126,9 +126,8 @@ function checkDateCompleteness(session) {
                 prompt: '入住日期必須是今日或未來日期，請重新輸入。'
             };
         }
-        if (!data.adultCount) {
-            data.adultCount = 1;
-        }
+        // 🎯 修正：移除在此處預設 adultCount = 1 的邏輯
+        // 讓流程進入 set_default_child_count 統一處理人數檢查/詢問。
         return { isHandled: true, nextStep: 'set_default_child_count' };
     }
 
@@ -140,19 +139,31 @@ function checkDateCompleteness(session) {
 }
 
 
-// --- 5. 實體補齊：自動設定兒童數 (setDefaultChildCount) ---
+// --- 5. 實體補齊/詢問人數 (setDefaultChildCount) ---
 function setDefaultChildCount(session) {
     const data = ensureCollectedData(session);
+    cleanRichCard(data);
 
-    if (data.adultCount && data.childCount === null) {
+    // 檢查成人數是否已定義或有效
+    if (!data.adultCount || parseInt(data.adultCount) < 1) {
+        data.adultCount = null; // 清除可能為無效值的 adultCount
+        log('INFO', '缺少成人數，導向 ask_guest_count。');
+        return { 
+            isHandled: true, 
+            nextStep: 'ask_guest_count',
+            prompt: '請提供【入住成人數】和【兒童數】 (例如：2大1小)。' 
+        };
+    }
+
+    // 檢查兒童數是否已定義 (但允許為 0)
+    if (data.childCount === undefined || data.childCount === null) {
         data.childCount = 0;
         log('INFO', 'childCount 實體自動補齊為 0。');
     }
-
-    if (data.adultCount) {
-        return { isHandled: true, nextStep: 'ask_room_type' };
-    }
-    return { isHandled: true, nextStep: 'ask_guest_count' };
+    
+    // 兩者皆有，進入下一步：詢問房型
+    log('INFO', `人數確認：${data.adultCount} 大 ${data.childCount} 小。導向 ask_room_type。`);
+    return { isHandled: true, nextStep: 'ask_room_type' };
 }
 
 
@@ -160,6 +171,7 @@ function setDefaultChildCount(session) {
 function checkBookingEssentials(session) {
     const data = ensureCollectedData(session);
     cleanRichCard(data);
+    // 🎯 確保 adultCount 也被檢查
     const { roomType, checkInDate, nights, roomCount, adultCount } = data;
 
     if (!roomType || !checkInDate || !nights || !roomCount || !adultCount) {
@@ -251,15 +263,34 @@ async function calculatePriceLogic(session) {
         let totalAddonCost = 0;
         const childCount = data.childCount || 0;
         const totalGuests = parseInt(adultCount) + parseInt(childCount);
+        
+        // 🎯 新增：兒童加人費用常數 (假設兒童加人費用為 NT$ 500/晚/每位兒童)
+        const CHILD_EXTRA_FEE_PER_NIGHT = 500; 
 
-        // --- 1. 計算房間總價 (原價) ---
+        // --- 1. 計算房間總價 (原價) & 兒童加人費 ---
         let currentDay = dayjs(checkInDate);
         for (let i = 0; i < nights; i++) {
             const isWeekend = currentDay.day() === 5 || currentDay.day() === 6;
             const multiplier = isWeekend ? roomDetails.weekendMultiplier : 1;
-            const nightPrice = roomDetails.price * multiplier * parseInt(roomCount);
-            totalPrice += nightPrice;
-            priceDetails.push({ date: currentDay.format('YYYY/MM/DD'), price: nightPrice, isWeekend: isWeekend });
+            
+            const nightBasePrice = roomDetails.price * multiplier * parseInt(roomCount);
+            
+            // 🎯 修正：兒童加人費用計算
+            let extraChildFee = 0;
+            if (parseInt(childCount) > 0) {
+                 // 計算方式：兒童總數 * 每位兒童每晚費用
+                 extraChildFee = CHILD_EXTRA_FEE_PER_NIGHT * parseInt(childCount);
+            }
+
+            const dailyTotal = nightBasePrice + extraChildFee; // 將兒童加人費用計入每日總價
+            totalPrice += dailyTotal; // 總價累計
+            priceDetails.push({ 
+                date: currentDay.format('YYYY/MM/DD'), 
+                price: dailyTotal, 
+                isWeekend: isWeekend, 
+                extraChildFee: extraChildFee 
+            });
+
             currentDay = currentDay.add(1, 'day');
         }
 
@@ -296,7 +327,7 @@ async function calculatePriceLogic(session) {
 
         // 儲存所有價格細節，並四捨五入到整數
         Object.assign(data, {
-            roomBasePrice: Math.round(totalPrice), // 房間原價 (折扣前)
+            roomBasePrice: Math.round(totalPrice), // 房間原價 (折扣前，包含兒童加人費)
             discountAmount: Math.round(discountAmount), // 折扣金額
             roomPriceAfterDiscount: Math.round(roomPriceAfterDiscount), // 房間總價 (折扣後)
             totalAddonCost: Math.round(totalAddonCost),
@@ -606,7 +637,7 @@ ${contactInfo}
 - **付款方式**: **${data.paymentMethod || '未選擇'}**
 ---
 💰 **價格明細**
-- 房間原價 (折扣前): NT$ ${roomBasePrice.toLocaleString('zh-TW')}
+- 房間原價 (折扣前，含兒童加人費): NT$ ${roomBasePrice.toLocaleString('zh-TW')}
 - 折扣金額: NT$ ${discountAmount.toLocaleString('zh-TW')}
 - 房間總價 (折扣後): NT$ ${roomPriceAfterDiscount.toLocaleString('zh-TW')}
 - 加購服務費用: NT$ ${totalAddonCost.toLocaleString('zh-TW')}
@@ -672,9 +703,7 @@ async function processPaymentMethod(session) {
     if (paymentMethod) {
         log('INFO', `Payment method selected: ${paymentMethod}`);
         
-        // 🎯 關鍵：選擇付款方式後，確保價格是最新的
-        // 但不要調用 calculatePriceLogic，因為它會錯誤跳轉
-        // 直接導向 confirm_booking
+        // 🎯 關鍵：選擇付款方式後，直接導向 confirm_booking
         saveCurrentState(session, 'confirm_booking');
         return { 
             isHandled: true, 
@@ -719,12 +748,12 @@ class BookingFlowController {
 
     // II. 流程前置檢查與實體補齊
     static checkDateCompleteness = checkDateCompleteness;
-    static setDefaultChildCount = setDefaultChildCount;
+    static setDefaultChildCount = setDefaultChildCount; // 🏆 修正後的人數詢問邏輯
     static checkBookingEssentials = checkBookingEssentials;
 
     // III. 業務邏輯
     static lockInventory = lockInventoryLogic;
-    static calculatePrice = calculatePriceLogic;
+    static calculatePrice = calculatePriceLogic; // 🏆 修正後的價格計算 (包含兒童加人費)
     static calculatePriceAfterAddons = calculatePriceAfterAddons;
     static loginMemberAccount = processMemberLogin;
     static registerMemberAccount = registerMemberAccountLogic;
