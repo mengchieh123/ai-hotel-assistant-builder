@@ -9,21 +9,24 @@ on:
   workflow_dispatch: 
 
 env:
+  # 使用最新的 LTS 版本
   NODE_VERSION: '20' 
+  # RENDER_SERVICE_ID 和 RENDER_API_KEY 必須在 GitHub Secrets 中設置
   RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-
+  
 jobs:
+  # 測試與構建驗證階段
   test:
     name: Test and Build Verification
     runs-on: ubuntu-latest
     
-    # 設置環境變量，定義專案路徑
+    # 設置環境變數，定義專案路徑
     env:
       PROJECT_DIR: ${{ github.event.repository.name }} 
       
     steps:
-      # 關鍵診斷步驟：使用 Bash 手動 Git Clone，繞過 actions/checkout 解決錯誤 128
-      - name: Manual Git Clone for Diagnosis (Exit Code 128)
+      # 🎯 關鍵修正：使用 Bash 手動 Git Clone，解決 Git 錯誤 128
+      - name: Manual Git Clone for Diagnosis
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
         run: |
@@ -35,7 +38,7 @@ jobs:
           
           if [ $? -ne 0 ]; then
              echo "❌ 手動 Git Clone 失敗。請檢查上方的詳細錯誤訊息。"
-             exit 1 # 如果 Clone 失敗，則停止 Workflow
+             exit 1 
           fi
           
           # 切換到專案目錄
@@ -50,24 +53,28 @@ jobs:
           
           echo "✅ Clone 成功，繼續後續步驟..."
           
-      # 從此步驟開始，所有命令都在 $PROJECT_DIR 目錄下執行
+      # 設置 Node.js
       - name: Setup Node.js v${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: ${{ env.PROJECT_DIR }}/package-lock.json 
+          cache: 'npm'
+          cache-dependency-path: ${{ env.PROJECT_DIR }}/package-lock.json # 確保緩存路徑正確
       
+      # 安裝依賴
       - name: Install dependencies (npm ci)
         run: |
           cd ${{ env.PROJECT_DIR }}
           npm ci
       
+      # 運行測試
       - name: Run tests (if present)
         run: |
           cd ${{ env.PROJECT_DIR }}
           echo "🔍 運行測試..."
           npm test 2>/dev/null || echo "⚠️  沒有測試腳本 (npm test)，跳過測試"
       
+      # 檢查服務器啟動
       - name: Check server startup
         timeout-minutes: 2
         run: |
@@ -80,6 +87,7 @@ jobs:
           if ps -p $SERVER_PID > /dev/null; then
             echo "✅ 服務器啟動成功，PID: $SERVER_PID"
             
+            # 測試健康檢查端點 (嘗試 3000 或 8080)
             if curl -f http://localhost:3000/health || curl -f http://localhost:8080/health; then
                 echo "✅ 健康檢查通過"
             else
@@ -94,6 +102,7 @@ jobs:
             exit 1
           fi
       
+      # 構建驗證
       - name: Build verification
         run: |
           cd ${{ env.PROJECT_DIR }}
@@ -101,42 +110,66 @@ jobs:
           npm run build --if-present || echo "⚠️  沒有構建腳本 (npm run build)，檢查完成"
           echo "✅ 構建檢查完成"
 
+  # 部署階段
   deploy:
     name: Deploy to Render
     needs: test
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     
+    # 設置環境變數，定義專案路徑
+    env:
+      PROJECT_DIR: ${{ github.event.repository.name }} 
+    
+    # 設置輸出，供後續通知 Job 使用
     outputs:
       service_url: ${{ steps.get_url.outputs.service_url }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        # deploy job 假設 test job 成功後，這裡使用標準 checkout 即可
+      # 🎯 關鍵修正：手動 Git Clone，解決 Git 錯誤 128
+      - name: Manual Git Clone for Deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        run: |
+          echo "🔍 嘗試手動 Git Clone..."
+          AUTH_URL="https://x-access-token:$GH_TOKEN@github.com/${{ github.repository }}"
+          git clone --depth 1 "$AUTH_URL" $PROJECT_DIR
+          
+          if [ $? -ne 0 ]; then
+             echo "❌ 手動 Git Clone 失敗。"
+             exit 1 
+          fi
+          cd $PROJECT_DIR
+          
+          if [ -d ".git/lfs" ] || grep -q 'filter=lfs' .gitattributes; then
+              echo "LFS 偵測到，手動拉取 LFS 文件..."
+              git lfs install
+              git lfs pull
+          fi
+          echo "✅ Clone 成功，繼續後續步驟..."
       
       - name: Setup Node.js v${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: ${{ env.PROJECT_DIR }}/package-lock.json
       
       - name: Install production dependencies only
-        run: npm ci --only=production
+        run: |
+          cd ${{ env.PROJECT_DIR }}
+          npm ci --only=production
       
+      # Render 部署 API 邏輯
       - name: Deploy to Render via API
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
+          cd ${{ env.PROJECT_DIR }}
           echo "🚀 開始部署到 Render..."
           
-          if [ -z "$RENDER_API_KEY" ]; then
-            echo "❌ 錯誤：RENDER_API_KEY 未設置，無法觸發部署。"
-            exit 1
-          fi
-          
-          if [ -z "$RENDER_SERVICE_ID" ]; then
-            echo "❌ 錯誤：RENDER_SERVICE_ID 未設置，無法觸發部署。"
+          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
+            echo "❌ 錯誤：RENDER API 密鑰或服務 ID 未設置。"
             exit 1
           fi
           
@@ -164,7 +197,7 @@ jobs:
           
           echo "✅ 部署觸發成功，部署 ID: $DEPLOY_ID"
           
-          echo "⏳ 等待部署完成..."
+          echo "⏳ 等待部署完成 (最多 5 分鐘)..."
           STATUS="pending"
           for i in {1..30}; do
             sleep 10
@@ -218,11 +251,12 @@ jobs:
             echo "⚠️  無法獲取服務 URL。響應截斷或格式錯誤。"
           fi
 
+  # 通知階段
   notify:
     name: Send Notification
     needs: deploy
     if: always() 
-    runs-on: ubuntu-latest # 🎯 修正：補上缺失的 runs-on 屬性
+    runs-on: ubuntu-latest
     
     permissions:
       contents: read 
