@@ -1,7 +1,7 @@
-// session_manager.js (V2.2 - 兼容性修正版)
+// session_manager.js (V2.2 - 最終修正版，解決 UUID 導入問題)
 
-import pkg from 'uuid';
-const { v4: uuidv4 } = pkg;
+// 🎯 修正：直接使用命名導入，解決 SyntaxError
+import { v4 as uuidv4 } from 'uuid'; 
 
 /**
  * 模擬一個 FlowLoader 最小化接口
