@@ -6,7 +6,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:  
+  workflow_dispatch:  # 允許手動觸發
 
 env:
   # 使用最新的 LTS 版本
@@ -21,11 +21,11 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # 1. 標準的程式碼檢出（使用官方 Action）
+      # 1. 標準的程式碼檢出
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 獲取所有歷史以解決某些 Git 問題
+          fetch-depth: 0
 
       # 2. 設置 Node.js 環境
       - name: Setup Node.js v${{ env.NODE_VERSION }}
@@ -35,46 +35,38 @@ jobs:
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
 
-      # 3. 安裝依賴
+      # 3. 安裝依賴 (會檢查 package.json 和 package-lock.json 是否同步)
       - name: Install dependencies
         run: |
           echo "📦 安裝依賴..."
-          # 由於已在 package.json 中修復，這裡移除 --legacy-peer-deps 讓 CI 更乾淨，但保留在 test job 中作為保險
+          # 這裡的 npm ci 需要 package-lock.json 是正確的
           npm ci
 
       # 4. 運行測試（如果存在）
       - name: Run tests (if present)
         run: |
           echo "🧪 運行測試..."
-          # 嘗試運行測試，如果沒有測試腳本就跳過
           npm test 2>/dev/null || echo "ℹ️  沒有測試腳本 (npm test)，跳過測試"
 
-      # 5. 健康檢查 - 使用正確的端口 (10000)
+      # 5. 健康檢查
       - name: Check server startup
         timeout-minutes: 3
         run: |
           echo "🚀 測試服務器啟動..."
           
-          # 啟動服務器在後台
           npm start &
           SERVER_PID=$!
           
-          # 等待服務器啟動
           echo "等待服務器啟動..."
           sleep 8
           
-          # 檢查服務器進程是否還在運行
           if ! ps -p $SERVER_PID > /dev/null; then
             echo "❌ 服務器進程已退出，啟動失敗"
-            echo "檢查服務器日誌："
-            # 嘗試獲取可能的錯誤輸出
-            jobs
             exit 1
           fi
           
           echo "✅ 服務器進程運行中，PID: $SERVER_PID"
           
-          # 測試健康檢查端點
           echo "測試健康檢查端點..."
           MAX_RETRIES=5
           RETRY_COUNT=0
@@ -92,12 +84,10 @@ jobs:
           done
           
           echo "❌ 健康檢查失敗：服務未在端口 10000 響應"
-          echo "當前監聽的端口:"
-          netstat -tulpn 2>/dev/null | grep LISTEN || echo "無法檢查端口"
           kill $SERVER_PID 2>/dev/null || true
           exit 1
 
-      # 6. 構建驗證（如果存在構建腳本）
+      # 6. 構建驗證
       - name: Build verification
         run: |
           echo "🔨 構建驗證..."
@@ -108,7 +98,7 @@ jobs:
   deploy:
     name: Deploy to Render
     needs: test
-    # 💥 修正後的 if 條件：使用 startsWith() 確保對主要分支的推送能夠被觸發
+    # 💥 修正後的條件：確保對 main/master 的推送不會被跳過 (解決 "This job was skipped")
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master')
     runs-on: ubuntu-latest
     
@@ -128,7 +118,6 @@ jobs:
       - name: Install production dependencies
         run: |
           echo "📦 安裝生產依賴..."
-          # 由於已在 package.json 中修復，這裡移除 --legacy-peer-deps 讓 CI 更乾淨，但保留在 test job 中作為保險
           npm ci --only=production
           echo "✅ 依賴安裝完成"
 
@@ -140,24 +129,19 @@ jobs:
         run: |
           echo "🚀 開始部署到 Render..."
           
-          # 檢查必要的環境變量
           if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
             echo "❌ 錯誤：RENDER_API_KEY 或 RENDER_SERVICE_ID 未設置"
-            echo "請在 GitHub Secrets 中設置這兩個值"
             exit 1
           fi
           
           echo "使用服務 ID: $RENDER_SERVICE_ID"
           
-          # 觸發 Render 部署
-          echo "觸發 Render 部署..."
-          
-          # 💥 核心修正點：使用轉義的雙引號來確保 JSON 正確傳遞
+          # 💥 核心修正點：使用轉義的雙引號來確保 JSON 正確傳遞 (解決 "invalid JSON")
           DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "{\"clearCache\": true}") # <--- 修正後的 curl 參數
+            -d "{\"clearCache\": true}")
           
           HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -n1)
           RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
@@ -170,17 +154,14 @@ jobs:
           
           echo "✅ 部署觸發成功，HTTP 狀態碼: $HTTP_CODE"
           
-          # 提取部署 ID
           DEPLOY_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
           
           if [ -z "$DEPLOY_ID" ]; then
             echo "⚠️  無法從響應中提取 DEPLOY_ID，但 HTTP 狀態碼表示成功"
-            echo "響應內容: $RESPONSE_BODY"
           else
             echo "部署 ID: $DEPLOY_ID"
           fi
           
-          # 等待部署完成（可選）
           echo "⏳ 等待部署完成..."
           if [ -n "$DEPLOY_ID" ]; then
             for i in {1..30}; do
@@ -204,22 +185,18 @@ jobs:
                   ;;
                 "failed"|"canceled"|"post_deploy_failed")
                   echo "❌ 部署失敗: $STATUS"
-                  echo "詳細信息: $STATUS_RESPONSE"
                   exit 1
                   ;;
                 *)
-                  # 繼續等待
                   ;;
               esac
             done
             
             if [ "$STATUS" != "live" ]; then
               echo "⚠️  部署監控超時，最終狀態: $STATUS"
-              echo "請檢查 Render Dashboard 獲取最新狀態"
             fi
           else
             echo "⚠️  未獲取到部署 ID，跳過狀態監控"
-            echo "請手動檢查 Render Dashboard 確認部署狀態"
           fi
 
       # 5. 獲取服務 URL
@@ -234,22 +211,14 @@ jobs:
           SERVICE_INFO=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID")
           
-          # 多種方法嘗試提取 URL
-          SERVICE_URL=$(echo "$SERVICE_INFO" | grep -o '"serviceDetails":{[^}]*"url":"[^"]*"' | head -1 | cut -d'"' -f6)
-          
-          if [ -z "$SERVICE_URL" ]; then
-            SERVICE_URL=$(echo "$SERVICE_INFO" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4)
-          fi
+          SERVICE_URL=$(echo "$SERVICE_INFO" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4)
           
           if [ -n "$SERVICE_URL" ]; then
             echo "服務 URL: $SERVICE_URL"
             echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
           else
-            echo "⚠️  無法從響應中提取服務 URL"
-            echo "響應內容: $SERVICE_INFO"
-            # 提供默認的 Render URL 格式
             DEFAULT_URL="https://$RENDER_SERVICE_ID.onrender.com"
-            echo "默認 URL 格式: $DEFAULT_URL"
+            echo "⚠️  無法從響應中提取服務 URL，使用默認格式: $DEFAULT_URL"
             echo "service_url=$DEFAULT_URL" >> $GITHUB_OUTPUT
           fi
 
@@ -282,7 +251,6 @@ jobs:
             - **觸發分支**: ${context.ref}
             - **觸發提交**: [\`${context.sha.substring(0, 7)}\`](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${context.sha})
             - **應用 URL**: [${serviceUrl}](${serviceUrl})
-            - **部署時間**: ${new Date().toISOString()}
             
             ## 執行狀態
             - **測試階段**: **${{ needs.test.result }}**
@@ -293,7 +261,6 @@ jobs:
             - [Render Dashboard](https://dashboard.render.com)
             `;
             
-            // 創建提交狀態
             github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -304,10 +271,8 @@ jobs:
               context: 'Render Deployment Status'
             });
             
-            // 輸出總結
             core.summary.addRaw(summary).write();
             
-            // 在 PR 上添加評論（如果有）
             if (context.payload.pull_request) {
               github.rest.issues.createComment({
                 owner: context.repo.owner,
