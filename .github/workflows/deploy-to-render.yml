@@ -40,7 +40,7 @@ jobs:
         run: |
           echo "📦 安裝依賴..."
           # 這裡的 npm ci 需要 package-lock.json 是正確的
-          npm ci
+          npm install
 
       # 4. 運行測試（如果存在）
       - name: Run tests (if present)
@@ -118,7 +118,7 @@ jobs:
       - name: Install production dependencies
         run: |
           echo "📦 安裝生產依賴..."
-          npm ci --only=production
+          npm install --only=production
           echo "✅ 依賴安裝完成"
 
       # 4. Render 部署 API 調用
