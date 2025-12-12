@@ -4,8 +4,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import pkg from 'uuid';
-const { v4: uuidv4 } = pkg;
+import { v4 as uuidv4 } from 'uuid'; // 🏆 修正點：替換 'import pkg from "uuid"; const { v4: uuidv4 } = pkg;'
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -176,10 +175,10 @@ app.post('/api/chat', async (req, res) => {
 
         // 🎯 輸出分析結果
         console.log(`🧠 [SMART_ANALYSIS] 模組: ${smartAnalysis.module}`);
-        console.log(`  ├─ 檢測意圖: ${smartAnalysis.detectedIntents.join(', ')}`);
-        console.log(`  ├─ 信心度: ${smartAnalysis.confidence}%`);
-        console.log(`  ├─ 提取實體: ${Object.keys(smartAnalysis.extractedEntities).join(', ')}`);
-        console.log(`  └─ 建議: ${smartAnalysis.suggestions.join(' → ')}`);
+        console.log(`  ├─ 檢測意圖: ${smartAnalysis.detectedIntents.join(', ')}`);
+        console.log(`  ├─ 信心度: ${smartAnalysis.confidence}%`);
+        console.log(`  ├─ 提取實體: ${Object.keys(smartAnalysis.extractedEntities).join(', ')}`);
+        console.log(`  └─ 建議: ${smartAnalysis.suggestions.join(' → ')}`);
 
     } catch (analysisError) {
         console.error('⚠️ 智慧分析失敗:', analysisError);
@@ -245,7 +244,7 @@ app.post('/api/chat', async (req, res) => {
     // 🎯 增強除錯日誌
     console.log(`[RESPONSE] ${safeSessionId} -> ${engineResult.nextStep}: "${finalResponse.reply.substring(0, 50)}..."`);
     if (smartAnalysis) {
-        console.log(`  └─ 🧠 智慧分析: ${smartAnalysis.module} (${smartAnalysis.confidence}%)`);
+        console.log(`  └─ 🧠 智慧分析: ${smartAnalysis.module} (${smartAnalysis.confidence}%)`);
     }
 
     res.json(finalResponse);
