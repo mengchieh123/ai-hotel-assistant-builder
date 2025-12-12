@@ -1,297 +1,302 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>旅萌大酒店 AI 訂房助理</title>
-    <style>
-        /* 基礎樣式 */
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .chat-wrapper { width: 100%; max-width: 420px; height: 90vh; max-height: 800px; background-color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
-        
-        /* 頁首 */
-        .header { background-color: #007bff; color: white; padding: 15px; text-align: center; border-radius: 12px 12px 0 0; }
-        .header h1 { margin: 0; font-size: 1.5em; }
-        .header p { margin: 0; font-size: 0.8em; opacity: 0.8; }
-        
-        /* 人像區 */
-        .avatar-area { padding: 10px 0; background-color: #f9f9f9; text-align: center; }
-        .avatar img { width: 60px; height: 60px; border-radius: 50%; border: 3px solid #007bff; }
-        
-        /* 聊天視窗 */
-        .chat-window { flex-grow: 1; padding: 20px; overflow-y: auto; background-color: #e5ddd5; scroll-behavior: smooth; }
-        
-        /* 訊息氣泡 */
-        .message { margin-bottom: 15px; max-width: 80%; padding: 10px 15px; border-radius: 18px; line-height: 1.4; word-wrap: break-word; position: relative; }
-        .user { background-color: #DCF8C6; color: #000; margin-left: auto; border-bottom-right-radius: 2px; }
-        .assistant { background-color: #fff; color: #000; margin-right: auto; border-bottom-left-radius: 2px; box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05); }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>旅萌大酒店 AI 訂房助理</title>
+    <style>
+        /* 基礎樣式 */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .chat-wrapper { width: 100%; max-width: 420px; height: 90vh; max-height: 800px; background-color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+        
+        /* 頁首 */
+        .header { background-color: #007bff; color: white; padding: 15px; text-align: center; border-radius: 12px 12px 0 0; }
+        .header h1 { margin: 0; font-size: 1.5em; }
+        .header p { margin: 0; font-size: 0.8em; opacity: 0.8; }
+        
+        /* 人像區 */
+        .avatar-area { padding: 10px 0; background-color: #f9f9f9; text-align: center; }
+        .avatar img { width: 60px; height: 60px; border-radius: 50%; border: 3px solid #007bff; }
+        
+        /* 聊天視窗 */
+        .chat-window { flex-grow: 1; padding: 20px; overflow-y: auto; background-color: #e5ddd5; scroll-behavior: smooth; }
+        
+        /* 訊息氣泡 */
+        .message { margin-bottom: 15px; max-width: 80%; padding: 10px 15px; border-radius: 18px; line-height: 1.4; word-wrap: break-word; position: relative; }
+        .user { background-color: #DCF8C6; color: #000; margin-left: auto; border-bottom-right-radius: 2px; }
+        .assistant { background-color: #fff; color: #000; margin-right: auto; border-bottom-left-radius: 2px; box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05); }
 
-        /* 輸入區 */
-        .input-area { display: flex; padding: 10px; background-color: #f0f0f0; border-top: 1px solid #ddd; }
-        #input-message { flex-grow: 1; padding: 10px 15px; border: 1px solid #ccc; border-radius: 20px; font-size: 1em; margin-right: 10px; }
-        #send-button { background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; transition: background-color 0.3s; }
-        #send-button:hover:not(:disabled) { background-color: #218838; }
-        #send-button:disabled { background-color: #909090; cursor: not-allowed; }
-        
-        /* ⭐️ Rich Card 樣式 - 升級以支援 Carousel */
-        .rich-card-wrapper { margin-top: 10px; }
-        .rich-card-title { font-weight: 600; margin-bottom: 8px; color: #444; }
-        /* 讓按鈕的顏色在輪播卡片中更具對比 */
-        .rich-card-btn { background-color: #007bff; color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer; transition: background-color 0.3s; width: 100%; text-align: center; }
-        .rich-card-btn:hover:not(:disabled) { background-color: #0056b3; }
-        .rich-card-btn:disabled { background-color: #aaaaaa; cursor: not-allowed; }
+        /* 輸入區 */
+        .input-area { display: flex; padding: 10px; background-color: #f0f0f0; border-top: 1px solid #ddd; }
+        #input-message { flex-grow: 1; padding: 10px 15px; border: 1px solid #ccc; border-radius: 20px; font-size: 1em; margin-right: 10px; }
+        #send-button { background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 20px; cursor: pointer; transition: background-color 0.3s; }
+        #send-button:hover:not(:disabled) { background-color: #218838; }
+        #send-button:disabled { background-color: #909090; cursor: not-allowed; }
+        
+        /* ⭐️ Rich Card 樣式 - 升級以支援 Carousel */
+        .rich-card-wrapper { margin-top: 10px; }
+        .rich-card-title { font-weight: 600; margin-bottom: 8px; color: #444; }
+        /* 讓按鈕的顏色在輪播卡片中更具對比 */
+        .rich-card-btn { background-color: #007bff; color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer; transition: background-color 0.3s; width: 100%; text-align: center; }
+        .rich-card-btn:hover:not(:disabled) { background-color: #0056b3; }
+        .rich-card-btn:disabled { background-color: #aaaaaa; cursor: not-allowed; }
 
-        /* ⭐️ 輪播容器 (Carousel) 樣式 */
-        .carousel-container { 
-            display: flex; 
-            overflow-x: auto; 
-            gap: 15px; 
-            padding: 10px 0;
-            /* 讓滾動條消失，但仍可滾動 */
-            -ms-overflow-style: none; /* IE and Edge */
-            scrollbar-width: none; /* Firefox */
-        }
-        .carousel-container::-webkit-scrollbar { display: none; } /* Chrome, Safari, Opera */
+        /* ⭐️ 輪播容器 (Carousel) 樣式 */
+        .carousel-container { 
+            display: flex; 
+            overflow-x: auto; 
+            gap: 15px; 
+            padding: 10px 0;
+            /* 讓滾動條消失，但仍可滾動 */
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+        .carousel-container::-webkit-scrollbar { display: none; } /* Chrome, Safari, Opera */
 
-        /* ⭐️ 單個卡片 (Card) 樣式 */
-        .carousel-card { 
-            flex-shrink: 0; 
-            width: 250px; /* 固定寬度，使其可以滾動 */
-            background-color: #fff; /* 修正：使其與氣泡背景一致 */
-            border: 1px solid #eee; 
-            border-radius: 12px; 
-            overflow: hidden; 
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-            display: flex;
-            flex-direction: column;
-        }
-        .card-image { width: 100%; height: 120px; object-fit: cover; }
-        .card-content { padding: 10px; display: flex; flex-direction: column; gap: 5px; flex-grow: 1; }
-        .card-content h3 { margin: 0; font-size: 1.1em; color: #333; }
-        .card-content p { margin: 0; font-size: 0.9em; color: #666; }
-        .card-section { padding: 5px 10px; font-size: 0.8em; background-color: #f9f9f9; border-top: 1px solid #f0f0f0; }
-        .card-actions { padding: 10px; border-top: 1px solid #eee; }
-    </style>
+        /* ⭐️ 單個卡片 (Card) 樣式 */
+        .carousel-card { 
+            flex-shrink: 0; 
+            width: 250px; /* 固定寬度，使其可以滾動 */
+            background-color: #fff; /* 修正：使其與氣泡背景一致 */
+            border: 1px solid #eee; 
+            border-radius: 12px; 
+            overflow: hidden; 
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+        .card-image { width: 100%; height: 120px; object-fit: cover; }
+        .card-content { padding: 10px; display: flex; flex-direction: column; gap: 5px; flex-grow: 1; }
+        .card-content h3 { margin: 0; font-size: 1.1em; color: #333; }
+        .card-content p { margin: 0; font-size: 0.9em; color: #666; }
+        .card-section { padding: 5px 10px; font-size: 0.8em; background-color: #f9f9f9; border-top: 1px solid #f0f0f0; }
+        .card-actions { padding: 10px; border-top: 1px solid #eee; }
+    </style>
 </head>
 <body>
-    <div class="chat-wrapper" role="main" aria-label="訂房助理聊天介面">
-        <header class="header">
-            <h1>AI 訂房助理</h1>
-            <p>專業且安心的訂房體驗</p>
-        </header>
+    <div class="chat-wrapper" role="main" aria-label="訂房助理聊天介面">
+        <header class="header">
+            <h1>AI 訂房助理</h1>
+            <p>專業且安心的訂房體驗</p>
+        </header>
 
-        <section class="avatar-area" aria-label="助理人像">
-            <div class="avatar">
-                <img src="https://i.imgur.com/4AiXzf8.png" alt="訂房助理人像" />
-            </div>
-        </section>
+        <section class="avatar-area" aria-label="助理人像">
+            <div class="avatar">
+                <img src="https://i.imgur.com/4AiXzf8.png" alt="訂房助理人像" />
+            </div>
+        </section>
 
-        <section class="chat-window" id="chat-window" aria-live="polite" aria-relevant="additions">
-        </section>
+        <section class="chat-window" id="chat-window" aria-live="polite" aria-relevant="additions">
+        </section>
 
-        <div class="input-area">
-            <input type="text" id="input-message" placeholder="輸入您的問題..." aria-label="輸入問題" autocomplete="off" />
-            <button type="button" id="send-button" aria-label="發送訊息">發送</button>
-        </div>
-    </div>
+        <div class="input-area">
+            <input type="text" id="input-message" placeholder="輸入您的問題..." aria-label="輸入問題" autocomplete="off" />
+            <button type="button" id="send-button" aria-label="發送訊息">發送</button>
+        </div>
+    </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const chatWindow = document.getElementById('chat-window');
-        const userInput = document.getElementById('input-message');
-        const sendBtn = document.getElementById('send-button');
+    document.addEventListener('DOMContentLoaded', () => {
+        const chatWindow = document.getElementById('chat-window');
+        const userInput = document.getElementById('input-message');
+        const sendBtn = document.getElementById('send-button');
 
-        let sessionId = localStorage.getItem('sessionId') || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-        localStorage.setItem('sessionId', sessionId);
-
-        // 首次載入時，發送一個特殊指令來觸發後端的初始回覆
-        sendMessage('', false);
-
-        /**
-         * 渲染訊息到聊天視窗
-         */
-        function appendMessage(sender, text, richCardData = null) {
-            const messageContainer = document.createElement('div');
-            messageContainer.classList.add('message', sender === 'user' ? 'user' : 'assistant');
-            
-            let messageContent = text.replace(/\n/g, '<br>');
-
-            // ⭐️ Rich Card 渲染邏輯
-            if (sender !== 'user' && richCardData) {
-                
-                // 1. button_list 處理
-                if (richCardData.type === 'button_list' && richCardData.buttons) {
-                    let cardHTML = '<div class="rich-card-wrapper">';
-                    if (richCardData.title) {
-                        cardHTML += `<p class="rich-card-title">${richCardData.title}</p>`;
-                    }
-                    cardHTML += '<div class="button-group" style="display:flex; flex-direction:column; gap:8px;">';
-                    
-                    richCardData.buttons.forEach(button => {
-                        // button.value 用於純文字回覆或簡單指令
-                        cardHTML += `<button class="rich-card-btn" type="button" data-value="${button.value}">${button.text}</button>`;
-                    });
-                    
-                    cardHTML += '</div></div>';
-                    messageContent += cardHTML;
-                } 
-                
-                // 2. ⭐️ carousel 處理 (關鍵優化：使用 richCardData.cards)
-                else if (richCardData.type === 'carousel' && richCardData.cards) {
-                    let carouselHTML = '<div class="rich-card-wrapper">';
-                    carouselHTML += '<div class="carousel-container">'; 
-                    
-                    richCardData.cards.forEach(card => { // 遍歷卡片陣列
-                        // 單個卡片
-                        carouselHTML += `<div class="carousel-card">`;
-                        if (card.image) { // 使用 card.image 鍵 (與後端約定一致)
-                            carouselHTML += `<img src="${card.image}" alt="${card.title}" class="card-image" />`;
-                        }
-                        carouselHTML += `<div class="card-content">`;
-                        carouselHTML += `<h3>${card.title}</h3>`;
-                        if (card.description) {
-                            carouselHTML += `<p>${card.description}</p>`;
-                        }
-                        
-                        // Footer 作為價格區
-                        if (card.footer) {
-                            carouselHTML += `<div class="card-section"><strong>價格:</strong> ${card.footer}</div>`;
-                        }
-
-                        carouselHTML += `</div>`; // .card-content end
-
-                        // Buttons
-                        if (card.buttons) {
-                            carouselHTML += `<div class="card-actions">`;
-                            card.buttons.forEach(button => {
-                                // 傳遞按鈕值 (例如 add:meal_breakfast)
-                                let dataToSend = button.value; 
-                                carouselHTML += `<button class="rich-card-btn" type="button" data-value='${dataToSend}' data-intent='${button.intent || ''}'>${button.text}</button>`;
-                            });
-                            carouselHTML += `</div>`; // .card-actions end
-                        }
-                        
-                        carouselHTML += `</div>`; // .carousel-card end
-                    });
-
-                    carouselHTML += '</div></div>'; // .carousel-container end, .rich-card-wrapper end
-                    messageContent += carouselHTML;
-                }
-            }
-            
-            messageContainer.innerHTML = messageContent;
-            chatWindow.appendChild(messageContainer);
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        }
-
-        /**
-         * 處理用戶輸入和 API 請求
-         * @param {string | null} customMessage - 來自按鈕的值 (可能是純文字或 JSON 字串)。
-         * @param {boolean} isUserAction - 是否為用戶主動行為 (渲染到視窗)。
-         */
-        async function sendMessage(customMessage = null, isUserAction = true) {
-            let message;
-            
-            if (customMessage !== null) {
-                // 如果是來自按鈕，customMessage 就是 data-value 的值
-                message = customMessage.trim();
-            } else {
-                message = userInput.value.trim();
-            }
-            
-            // 處理空輸入和初始連接：
-            if (!message && isUserAction) {
-                return;
-            } else if (!message && !isUserAction) {
-                message = 'initial_connection_message'; // 觸發後端初始化
-            }
-
-            if (isUserAction) {
-                // 為了用戶介面美觀，如果是點擊按鈕，只顯示一個簡單提示
-                let displayMessage = message;
-                if (customMessage !== null) {
-                    try {
-                        // 嘗試解析 JSON，如果是 JSON 數據，顯示通用提示
-                        JSON.parse(customMessage); 
-                        displayMessage = `[已點擊選項]`; 
-                    } catch (e) {
-                        // 正常文字或指令字串，繼續使用 message
-                    }
-                }
-                
-                appendMessage('user', displayMessage);
-                if (customMessage === null) {
-                    userInput.value = '';
-                }
-            }
-            
-            // 禁用輸入，等待回應
-            userInput.disabled = true;
-            sendBtn.disabled = true;
-            
-            const currentSessionId = sessionId || 'initial_session_id';
-
-            try { 
-                
-                const response = await fetch('/api/chat', { 
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    // 傳遞 message，後端會判斷它是純文字還是 JSON 字串
-                    body: JSON.stringify({ sessionId: currentSessionId, message: message }), 
-                });
-                
-                const data = await response.json();
-
-                if (response.ok) {
-                    appendMessage('assistant', data.reply, data.richCard);
-                    sessionId = data.sessionId;
-                    localStorage.setItem('sessionId', sessionId);
-                } else {
-                    const errorMessage = data.error || data.reply || `[HTTP 錯誤 ${response.status}] 服務器發生錯誤。`;
-                    appendMessage('assistant', `發生錯誤: ${errorMessage}。請稍後再試。`);
-                }
-
-            } catch (error) { 
-                console.error('API Request Failed:', error);
-                appendMessage('assistant', `抱歉，伺服器連接失敗，請檢查網路或聯繫管理員。`);
-            } finally {
-                // 重新啟用輸入
-                userInput.disabled = false;
-                sendBtn.disabled = false;
-                userInput.focus();
-            }
-        }
+        // 🎯 修正：設定後端服務的絕對路徑，確保與 Live Server 運行的前端正確通訊
+        const API_BASE_URL = 'http://localhost:3000';
         
-        // --- 事件監聽器 ---
+        let sessionId = localStorage.getItem('sessionId') || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        localStorage.setItem('sessionId', sessionId);
 
-        // 點擊發送按鈕 (用戶輸入)
-        sendBtn.addEventListener('click', () => sendMessage(null, true));
+        // 首次載入時，發送一個特殊指令來觸發後端的初始回覆
+        sendMessage('', false);
 
-        // 按下 Enter 鍵 (用戶輸入)
-        userInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                sendMessage(null, true);
-                event.preventDefault();
-            }
-        });
+        /**
+         * 渲染訊息到聊天視窗
+         */
+        function appendMessage(sender, text, richCardData = null) {
+            const messageContainer = document.createElement('div');
+            messageContainer.classList.add('message', sender === 'user' ? 'user' : 'assistant');
+            
+            let messageContent = text.replace(/\n/g, '<br>');
 
-        // 處理 Rich Card 按鈕點擊 (事件委派)
-        chatWindow.addEventListener('click', (e) => {
-            if (e.target.classList.contains('rich-card-btn')) {
-                const buttonValue = e.target.getAttribute('data-value');
-                if (buttonValue) {
-                    // 禁用當前訊息泡泡中的所有按鈕，防止重複點擊
-                    const buttons = e.target.closest('.message').querySelectorAll('.rich-card-btn');
-                    buttons.forEach(btn => btn.disabled = true);
-                    
-                    // 將按鈕的值 (例如 add:meal_breakfast) 視為用戶輸入發送
-                    sendMessage(buttonValue, true);
-                }
-            }
-        });
-    });
+            // ⭐️ Rich Card 渲染邏輯
+            if (sender !== 'user' && richCardData) {
+                
+                // 1. button_list 處理
+                if (richCardData.type === 'button_list' && richCardData.buttons) {
+                    let cardHTML = '<div class="rich-card-wrapper">';
+                    if (richCardData.title) {
+                        cardHTML += `<p class="rich-card-title">${richCardData.title}</p>`;
+                    }
+                    cardHTML += '<div class="button-group" style="display:flex; flex-direction:column; gap:8px;">';
+                    
+                    richCardData.buttons.forEach(button => {
+                        // button.value 用於純文字回覆或簡單指令
+                        cardHTML += `<button class="rich-card-btn" type="button" data-value="${button.value}">${button.text}</button>`;
+                    });
+                    
+                    cardHTML += '</div></div>';
+                    messageContent += cardHTML;
+                } 
+                
+                // 2. ⭐️ carousel 處理 (關鍵優化：使用 richCardData.cards)
+                else if (richCardData.type === 'carousel' && richCardData.cards) {
+                    let carouselHTML = '<div class="rich-card-wrapper">';
+                    carouselHTML += '<div class="carousel-container">'; 
+                    
+                    richCardData.cards.forEach(card => { // 遍歷卡片陣列
+                        // 單個卡片
+                        carouselHTML += `<div class="carousel-card">`;
+                        if (card.image) { // 使用 card.image 鍵 (與後端約定一致)
+                            carouselHTML += `<img src="${card.image}" alt="${card.title}" class="card-image" />`;
+                        }
+                        carouselHTML += `<div class="card-content">`;
+                        carouselHTML += `<h3>${card.title}</h3>`;
+                        if (card.description) {
+                            carouselHTML += `<p>${card.description}</p>`;
+                        }
+                        
+                        // Footer 作為價格區
+    實作於此                         if (card.footer) {
+                            carouselHTML += `<div class="card-section"><strong>價格:</strong> ${card.footer}</div>`;
+                        }
+
+                        carouselHTML += `</div>`; // .card-content end
+
+                        // Buttons
+                        if (card.buttons) {
+                            carouselHTML += `<div class="card-actions">`;
+                            card.buttons.forEach(button => {
+                                // 傳遞按鈕值 (例如 add:meal_breakfast)
+                                let dataToSend = button.value; 
+                                carouselHTML += `<button class="rich-card-btn" type="button" data-value='${dataToSend}' data-intent='${button.intent || ''}'>${button.text}</button>`;
+                            });
+                            carouselHTML += `</div>`; // .card-actions end
+                        }
+                        
+                        carouselHTML += `</div>`; // .carousel-card end
+                    });
+
+                    carouselHTML += '</div></div>'; // .carousel-container end, .rich-card-wrapper end
+                    messageContent += carouselHTML;
+                }
+            }
+            
+            messageContainer.innerHTML = messageContent;
+            chatWindow.appendChild(messageContainer);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        /**
+         * 處理用戶輸入和 API 請求
+         * @param {string | null} customMessage - 來自按鈕的值 (可能是純文字或 JSON 字串)。
+         * @param {boolean} isUserAction - 是否為用戶主動行為 (渲染到視窗)。
+         */
+        async function sendMessage(customMessage = null, isUserAction = true) {
+            let message;
+            
+            if (customMessage !== null) {
+                // 如果是來自按鈕，customMessage 就是 data-value 的值
+                message = customMessage.trim();
+            } else {
+                message = userInput.value.trim();
+            }
+            
+            // 處理空輸入和初始連接：
+            if (!message && isUserAction) {
+                return;
+            } else if (!message && !isUserAction) {
+                message = 'initial_connection_message'; // 觸發後端初始化
+            }
+
+            if (isUserAction) {
+                // 為了用戶介面美觀，如果是點擊按鈕，只顯示一個簡單提示
+                let displayMessage = message;
+                if (customMessage !== null) {
+                    try {
+                        // 嘗試解析 JSON，如果是 JSON 數據，顯示通用提示
+                        JSON.parse(customMessage); 
+                        displayMessage = `[已點擊選項]`; 
+                    } catch (e) {
+                        // 正常文字或指令字串，繼續使用 message
+                    }
+                }
+                
+                appendMessage('user', displayMessage);
+                if (customMessage === null) {
+                    userInput.value = '';
+                }
+            }
+            
+            // 禁用輸入，等待回應
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            
+            const currentSessionId = sessionId || 'initial_session_id';
+
+            try { 
+                
+                // 🎯 修正：使用 API_BASE_URL 確保連線到本地後端
+                const response = await fetch(`${API_BASE_URL}/api/chat`, { 
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    // 傳遞 message，後端會判斷它是純文字還是 JSON 字串
+                    body: JSON.stringify({ sessionId: currentSessionId, message: message }), 
+                });
+                
+                const data = await response.json();
+
+                if (response.ok) {
+                    appendMessage('assistant', data.reply, data.richCard);
+                    sessionId = data.sessionId;
+                    localStorage.setItem('sessionId', sessionId);
+                } else {
+                    const errorMessage = data.error || data.reply || `[HTTP 錯誤 ${response.status}] 服務器發生錯誤。`;
+                    appendMessage('assistant', `發生錯誤: ${errorMessage}。請稍後再試。`);
+                }
+
+            } catch (error) { 
+                console.error('API Request Failed:', error);
+                // 這個錯誤提示通常發生在前端無法連線到後端時
+                appendMessage('assistant', `抱歉，伺服器連接失敗，請檢查網路或聯繫管理員。`);
+            } finally {
+                // 重新啟用輸入
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+        
+        // --- 事件監聽器 ---
+
+        // 點擊發送按鈕 (用戶輸入)
+        sendBtn.addEventListener('click', () => sendMessage(null, true));
+
+        // 按下 Enter 鍵 (用戶輸入)
+        userInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                sendMessage(null, true);
+                event.preventDefault();
+            }
+        });
+
+        // 處理 Rich Card 按鈕點擊 (事件委派)
+        chatWindow.addEventListener('click', (e) => {
+            if (e.target.classList.contains('rich-card-btn')) {
+                const buttonValue = e.target.getAttribute('data-value');
+                if (buttonValue) {
+                    // 禁用當前訊息泡泡中的所有按鈕，防止重複點擊
+                    const buttons = e.target.closest('.message').querySelectorAll('.rich-card-btn');
+                    buttons.forEach(btn => btn.disabled = true);
+                    
+                    // 將按鈕的值 (例如 add:meal_breakfast) 視為用戶輸入發送
+                    sendMessage(buttonValue, true);
+                }
+            }
+        });
+    });
 </script>
 </body>
 </html>
