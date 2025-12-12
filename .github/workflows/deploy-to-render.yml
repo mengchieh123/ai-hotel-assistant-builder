@@ -74,7 +74,7 @@ jobs:
           echo "🔍 運行測試..."
           npm test 2>/dev/null || echo "⚠️  沒有測試腳本 (npm test)，跳過測試"
       
-      # 檢查服務器啟動
+      # 🎯 修正 3：健康檢查 - 將 curl 端口修正為 10000 (server.js 的預設端口)
       - name: Check server startup
         timeout-minutes: 2
         run: |
@@ -82,13 +82,14 @@ jobs:
           echo "🚀 測試服務器啟動..."
           npm start &
           SERVER_PID=$!
+          # 給服務器 5 秒鐘時間來完全啟動並監聽端口
           sleep 5 
           
           if ps -p $SERVER_PID > /dev/null; then
             echo "✅ 服務器啟動成功，PID: $SERVER_PID"
             
-            # 測試健康檢查端點 (嘗試 3000 或 8080)
-            if curl -f http://localhost:3000/health || curl -f http://localhost:8080/health; then
+            # 檢查 10000 端口
+            if curl -f http://localhost:10000/health; then
                 echo "✅ 健康檢查通過"
             else
                 echo "❌ 健康檢查失敗 (服務未響應 /health)"
@@ -114,7 +115,7 @@ jobs:
   deploy:
     name: Deploy to Render
     needs: test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && (github.ref == 'refs_heads/main' || github.ref == 'refs_heads/master')
     runs-on: ubuntu-latest
     
     # 設置環境變數，定義專案路徑
