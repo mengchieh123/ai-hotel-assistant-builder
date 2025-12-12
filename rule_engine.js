@@ -96,7 +96,7 @@ export class RuleEngine {
         // 3. 獲取當前狀態配置
         const currentStateKey = session.currentStep || dialogueFlowConfig.initial_state;
         
-        // 🏆 修正點 1: dialogueFlowFlowConfig -> dialogueFlowConfig
+        // 🏆 修正點 1: dialogueFlowConfig
         const currentStateConfig = dialogueFlowConfig.states[currentStateKey]; 
 
         // 🎯 處理高優先級/緊急意圖 (省略部分程式碼)
