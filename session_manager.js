@@ -1,8 +1,9 @@
-// session_manager.js (V2.3 - 最終修正版，解決 UUID 導入問題)
+// session_manager.js (V2.4 - 最終修正版，解決 UUID CJS 導入問題)
 
-// 🎯 修正：使用 pkg 導入，兼容 CommonJS 模組
-import pkg from 'uuid';
-const uuidv4 = pkg.v4;
+// 🎯 修正：導入 createRequire 來兼容 CommonJS 模組 (如 uuid)
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { v4: uuidv4 } = require('uuid'); 
 
 /**
  * 模擬一個 FlowLoader 最小化接口
