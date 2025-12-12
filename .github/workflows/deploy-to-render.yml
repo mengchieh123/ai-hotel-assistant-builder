@@ -6,7 +6,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:  # 修正：確保此行後面沒有多餘內容，以便正確解析手動觸發
+  workflow_dispatch: # 修正：這是乾淨的 YAML 語法
 
 env:
   # 使用最新的 LTS 版本
