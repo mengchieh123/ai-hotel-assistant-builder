@@ -25,7 +25,7 @@ jobs:
       PROJECT_DIR: ${{ github.event.repository.name }} 
       
     steps:
-      # 🎯 關鍵修正：使用 Bash 手動 Git Clone，解決 Git 錯誤 128
+      # 🎯 修正 1：手動 Git Clone，解決 Git 錯誤 128
       - name: Manual Git Clone for Diagnosis
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
@@ -59,13 +59,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: ${{ env.PROJECT_DIR }}/package-lock.json # 確保緩存路徑正確
+          cache-dependency-path: ${{ env.PROJECT_DIR }}/package-lock.json 
       
-      # 安裝依賴
+      # 🎯 修正 2：安裝依賴 (npm ci) - 加入 --legacy-peer-deps 解決 ERESOLVE 錯誤
       - name: Install dependencies (npm ci)
         run: |
           cd ${{ env.PROJECT_DIR }}
-          npm ci
+          npm ci --legacy-peer-deps
       
       # 運行測試
       - name: Run tests (if present)
@@ -126,7 +126,7 @@ jobs:
       service_url: ${{ steps.get_url.outputs.service_url }}
 
     steps:
-      # 🎯 關鍵修正：手動 Git Clone，解決 Git 錯誤 128
+      # 🎯 修正 1：手動 Git Clone，解決 Git 錯誤 128
       - name: Manual Git Clone for Deployment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
@@ -155,10 +155,11 @@ jobs:
           cache: 'npm'
           cache-dependency-path: ${{ env.PROJECT_DIR }}/package-lock.json
       
+      # 🎯 修正 2：安裝依賴 (npm ci) - 加入 --legacy-peer-deps
       - name: Install production dependencies only
         run: |
           cd ${{ env.PROJECT_DIR }}
-          npm ci --only=production
+          npm ci --only=production --legacy-peer-deps
       
       # Render 部署 API 邏輯
       - name: Deploy to Render via API
