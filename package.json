@@ -1,22 +1,31 @@
 {
   "name": "ai-hotel-assistant",
-  "version": "5.6.0",
-  "description": "AI Hotel Assistant Service with Modular Business Logic and Attractions - Full Stack Application",
+  "version": "5.7.0",
+  "description": "AI Hotel Assistant with MCP Support - Full Stack Application",
   "main": "server.js",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
+    "preinstall": "npm config set legacy-peer-deps true",
+    "start": "NODE_PATH=./node_modules node server.js",  
     "dev": "nodemon server.js",
-    "keep-alive": "node keep-alive.js",
-    "frontend": "npx serve . -s -l 8080",
-    "frontend:dev": "npx live-server . --port=3000 --entry-file=working-chat.html",
-    "build:frontend": "echo 'Frontend is static HTML, no build required'",
-    "deploy:fullstack": "npm start",
-    "test": "node test-health.js",
-    "test:api": "node test-api.js",
-    "test:frontend": "echo 'Open http://localhost:8080/working-chat.html to test frontend'",
-    "test:gemini": "node test-gemini.js"
+    "dev:mcp": "nodemon mcp-server.js",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:mcp\"",
+    "mcp": "node mcp-server.js",
+    "worker": "node worker.js",
+    "test": "node test-mcp-client.js",
+    "test:server": "node test-server.js",
+    "build": "echo 'Building AI Hotel Assistant...'",
+    "deploy": "npm run build && npm start",
+    "health": "curl -f http://localhost:3000/health || exit 1",
+    "lint": "echo 'Linting not configured'",
+    "format": "prettier --write '**/*.{js,json,md}'",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop all",
+    "pm2:logs": "pm2 logs"
   },
   "dependencies": {
+    "@google/genai": "^0.15.0",
+    "axios": "^1.6.8",
     "body-parser": "^1.20.2",
     "chrono-node": "^2.9.0",
     "cors": "^2.8.5",
@@ -24,14 +33,18 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "node-cron": "^3.0.3",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "live-server": "^1.2.2",
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "prettier": "^3.1.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   },
   "author": "AI Hotel Assistant Team",
   "license": "MIT",
@@ -41,14 +54,17 @@
     "ai",
     "assistant",
     "chatbot",
+    "mcp",
+    "render",
     "travel",
-    "reservation",
-    "frontend",
-    "fullstack"
+    "reservation"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/mengchieh123/ai-hotel-assistant-builder"
   },
-  "homepage": "https://ai-hotel-assistant-builder-production.up.railway.app"
+  "homepage": "https://ai-hotel-assistant-builder.onrender.com",
+  "bugs": {
+    "url": "https://github.com/mengchieh123/ai-hotel-assistant-builder/issues"
+  }
 }
