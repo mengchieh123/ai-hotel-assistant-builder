@@ -6,7 +6,8 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:  # 允許手動觸發
+  workflow_dispatch:  
+  # 允許手動觸發
 
 env:
   # 使用最新的 LTS 版本
