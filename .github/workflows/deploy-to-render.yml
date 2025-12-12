@@ -6,12 +6,12 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch: # 修正：這是乾淨的 YAML 語法
+  workflow_dispatch: 
 
 env:
   # 使用最新的 LTS 版本
   NODE_VERSION: '20' 
-  # RENDER_SERVICE_ID 和 RENDER_API_KEY 必須在 GitHub Secrets 中設置
+  # RENDER_SERVICE_ID 必須在 GitHub Secrets 中設置
   RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
 
 jobs:
@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 修正：設置為 0，進行完整複製，解決 Git 錯誤 128
       
       - name: Setup Node.js v${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
@@ -201,6 +203,11 @@ jobs:
     if: always() 
     runs-on: ubuntu-latest
     
+    # 修正：增加權限，允許寫入 Commit Status，解決 Resource not accessible 錯誤
+    permissions:
+      contents: read 
+      statuses: write 
+      
     steps:
       - name: Create Deployment Summary
         uses: actions/github-script@v6
