@@ -1,4 +1,4 @@
-// rule_engine.js (V2.2 - 最終優化：包含實體隔離、靜默跳轉和 Handler 遞迴鏈式執行)
+// rule_engine.js (V2.2.1 - 最終優化：修復 dialogueFlowConfig 拼寫錯誤)
 
 import { ModularIntentClassifier } from './intent_classifier.js';
 import { sessionManager } from './session_manager.js';
@@ -95,7 +95,9 @@ export class RuleEngine {
 
         // 3. 獲取當前狀態配置
         const currentStateKey = session.currentStep || dialogueFlowConfig.initial_state;
-        const currentStateConfig = dialogueFlowFlowConfig.states[currentStateKey];
+        
+        // 🏆 修正點 1: dialogueFlowFlowConfig -> dialogueFlowConfig
+        const currentStateConfig = dialogueFlowConfig.states[currentStateKey]; 
 
         // 🎯 處理高優先級/緊急意圖 (省略部分程式碼)
 
@@ -158,7 +160,8 @@ export class RuleEngine {
 
         // --- 7. 處理跳轉後的行為和回應 ---
 
-        const nextStateConfig = dialogueFlowConfig.states[nextStateKey];
+        // 🏆 修正點 2: dialogueFlowFlowConfig -> dialogueFlowConfig
+        const nextStateConfig = dialogueFlowConfig.states[nextStateKey]; 
         if (nextStateConfig) {
             richCard = nextStateConfig.richCard || richCard;
             endFlow = nextStateConfig.end || endFlow;
@@ -226,7 +229,9 @@ export class RuleEngine {
         // 【最終優化 C: Handler 狀態的即時鏈式執行 (遞迴)】
         // 確保 lock_inventory/login_verification 等 Handler 狀態能立即推進流程。
         // =========================================================
-        const finalNextStateConfig = dialogueFlowConfig.states[result.nextStep];
+        
+        // 🏆 修正點 3: dialogueFlowFlowConfig -> dialogueFlowConfig
+        const finalNextStateConfig = dialogueFlowConfig.states[result.nextStep]; 
         
         // 如果成功跳轉到 Handler 狀態且沒有回應，我們就立即遞迴推進流程
         if (jumped && (finalNextStateConfig?.type === 'handler' || finalNextStateConfig?.type === 'logic_exec') && result.response === "") {
