@@ -1,7 +1,8 @@
-// session_manager.js (V2.2 - 最終修正版，解決 UUID 導入問題)
+// session_manager.js (V2.3 - 最終修正版，解決 UUID 導入問題)
 
-// 🎯 修正：直接使用命名導入，解決 SyntaxError
-import { v4 as uuidv4 } from 'uuid'; 
+// 🎯 修正：使用 pkg 導入，兼容 CommonJS 模組
+import pkg from 'uuid';
+const uuidv4 = pkg.v4;
 
 /**
  * 模擬一個 FlowLoader 最小化接口
@@ -53,6 +54,7 @@ class SessionManager {
         this.flowLoader = mockFlowLoader; 
         this.sessions = new Map(); 
         
+        // 清理定時器設置為 10 分鐘
         setInterval(() => this.cleanupExpiredSessions(), 10 * 60 * 1000); 
         console.log('[SESSION_MGR] Manager initialized. Cleanup timer set.');
     }
