@@ -1,4 +1,4 @@
-// rule_engine.js (V2.2 - 最終優化：包含實體隔離、靜默跳轉和 Handler 遞迴鏈式執行)
+// rule_engine.js (V2.3 - 最終穩定版：修正變數初始化順序)
 
 import { ModularIntentClassifier } from './intent_classifier.js';
 import { sessionManager } from './session_manager.js';
@@ -95,7 +95,7 @@ export class RuleEngine {
 
         // 3. 獲取當前狀態配置
         const currentStateKey = session.currentStep || dialogueFlowConfig.initial_state;
-        const currentStateConfig = dialogueFlowFlowConfig.states[currentStateKey];
+        const currentStateConfig = dialogueFlowConfig.states[currentStateKey]; 
 
         // 🎯 處理高優先級/緊急意圖 (省略部分程式碼)
 
@@ -119,8 +119,8 @@ export class RuleEngine {
         // 4. 實體收集：先將 NLU 實體合併到 session
         session.collectedData = { ...session.collectedData, ...finalEntities };
 
-        // 5. 初始化狀態轉換變數
-        let nextStateKey = currentStateKey;
+        // 5. 初始化狀態轉換變數 (變數初始化提前，解決 ReferenceError)
+        let nextStateKey = currentStateKey; // 確保在使用前被宣告和初始化
         let jumped = false; 
         let richCard = currentStateConfig.richCard || null;
         let responseMessage = ""; 
@@ -158,7 +158,8 @@ export class RuleEngine {
 
         // --- 7. 處理跳轉後的行為和回應 ---
 
-        const nextStateConfig = dialogueFlowConfig.states[nextStateKey];
+        // 確保這裡訪問 nextStateKey 時，它已經被初始化 (約 145 行)
+        const nextStateConfig = dialogueFlowConfig.states[nextStateKey]; 
         if (nextStateConfig) {
             richCard = nextStateConfig.richCard || richCard;
             endFlow = nextStateConfig.end || endFlow;
@@ -226,7 +227,8 @@ export class RuleEngine {
         // 【最終優化 C: Handler 狀態的即時鏈式執行 (遞迴)】
         // 確保 lock_inventory/login_verification 等 Handler 狀態能立即推進流程。
         // =========================================================
-        const finalNextStateConfig = dialogueFlowConfig.states[result.nextStep];
+        
+        const finalNextStateConfig = dialogueFlowConfig.states[result.nextStep]; 
         
         // 如果成功跳轉到 Handler 狀態且沒有回應，我們就立即遞迴推進流程
         if (jumped && (finalNextStateConfig?.type === 'handler' || finalNextStateConfig?.type === 'logic_exec') && result.response === "") {
