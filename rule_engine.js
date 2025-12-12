@@ -97,7 +97,7 @@ export class RuleEngine {
         const currentStateKey = session.currentStep || dialogueFlowConfig.initial_state;
         
         // 🏆 修正點 1: dialogueFlowConfig
-        const currentStateConfig = dialogueFlowConfig.states[currentStateKey]; 
+        const currentStateConfig = dialogueFlowConfig.states[nextStateKey]; 
 
         // 🎯 處理高優先級/緊急意圖 (省略部分程式碼)
 
