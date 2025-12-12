@@ -21,11 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Git Diagnostics (Disable SSL Verify)
+        run: |
+          # 禁用 SSL 驗證，用於診斷是否是憑證問題導致的 Git 錯誤 128
+          git config --global http.sslVerify false
+          echo "Git SSL 驗證已禁用 (僅用於診斷)"
+          
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # 解決歷史記錄深度不足問題
-          lfs: true      # 修正：啟用 Git LFS 支援，解決 Git 錯誤 128
+          lfs: true      # 啟用 Git LFS 支援
+          token: ${{ secrets.GITHUB_TOKEN }} # 明確使用 GITHUB_TOKEN
       
       - name: Setup Node.js v${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
@@ -52,7 +59,6 @@ jobs:
           if ps -p $SERVER_PID > /dev/null; then
             echo "✅ 服務器啟動成功，PID: $SERVER_PID"
             
-            # 測試健康檢查端點 (嘗試 3000 或 8080)
             if curl -f http://localhost:3000/health || curl -f http://localhost:8080/health; then
                 echo "✅ 健康檢查通過"
             else
@@ -103,7 +109,6 @@ jobs:
         run: |
           echo "🚀 開始部署到 Render..."
           
-          # 密鑰檢查
           if [ -z "$RENDER_API_KEY" ]; then
             echo "❌ 錯誤：RENDER_API_KEY 未設置，無法觸發部署。"
             exit 1
@@ -116,21 +121,18 @@ jobs:
           
           echo "使用服務 ID: $RENDER_SERVICE_ID"
           
-          # 觸發 Render 部署 API
           DEPLOY_RESPONSE=$(curl -s -X POST \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Content-Type: application/json" \
             -d '{"clearCache": true}')
           
-          # 檢查 API 呼叫是否成功
           if [ $? -ne 0 ]; then
              echo "❌ 部署觸發失敗：CURL 錯誤。"
              echo "響應: $DEPLOY_RESPONSE"
              exit 1
           fi
           
-          # 提取部署 ID
           DEPLOY_ID=$(echo $DEPLOY_RESPONSE | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
           
           if [ -z "$DEPLOY_ID" ]; then
@@ -141,7 +143,6 @@ jobs:
           
           echo "✅ 部署觸發成功，部署 ID: $DEPLOY_ID"
           
-          # 等待部署完成 (最多 5 分鐘)
           echo "⏳ 等待部署完成..."
           STATUS="pending"
           for i in {1..30}; do
@@ -191,7 +192,6 @@ jobs:
           
           if [ -n "$SERVICE_URL" ]; then
             echo "服務 URL: $SERVICE_URL"
-            # 設置輸出變數給後續 Job 使用
             echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
           else
             echo "⚠️  無法獲取服務 URL。響應截斷或格式錯誤。"
@@ -233,7 +233,6 @@ jobs:
             - **部署階段**: **${deployResult}**
             `;
             
-            // 1. 設置提交狀態 (Commit Status)
             github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -244,5 +243,4 @@ jobs:
               context: 'Render Deployment Status'
             });
             
-            // 2. 添加到 Actions 運行摘要 (Summary)
             core.summary.addRaw(summary).write();
