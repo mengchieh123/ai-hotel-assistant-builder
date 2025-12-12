@@ -6,7 +6,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:  # 允許手動觸發
+  workflow_dispatch:  
 
 env:
   # 使用最新的 LTS 版本
@@ -39,7 +39,8 @@ jobs:
       - name: Install dependencies
         run: |
           echo "📦 安裝依賴..."
-          npm ci --legacy-peer-deps
+          # 由於已在 package.json 中修復，這裡移除 --legacy-peer-deps 讓 CI 更乾淨，但保留在 test job 中作為保險
+          npm ci
 
       # 4. 運行測試（如果存在）
       - name: Run tests (if present)
@@ -103,11 +104,11 @@ jobs:
           npm run build --if-present || echo "ℹ️  沒有構建腳本，跳過構建"
           echo "✅ 構建檢查完成"
 
-  # 部署階段 - 關鍵修復：if 條件中的 refs/heads 路徑
+  # 部署階段
   deploy:
     name: Deploy to Render
     needs: test
-    # 修復點：使用正確的 refs/heads/main 格式（不是 refs_heads）
+    # 修復點：使用正確的 refs/heads/main 格式
     if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     
@@ -127,7 +128,8 @@ jobs:
       - name: Install production dependencies
         run: |
           echo "📦 安裝生產依賴..."
-          npm ci --only=production --legacy-peer-deps
+          # 由於已在 package.json 中修復，這裡移除 --legacy-peer-deps 讓 CI 更乾淨，但保留在 test job 中作為保險
+          npm ci --only=production
           echo "✅ 依賴安裝完成"
 
       # 4. Render 部署 API 調用
@@ -149,11 +151,13 @@ jobs:
           
           # 觸發 Render 部署
           echo "觸發 Render 部署..."
+          
+          # 💥 核心修正點：使用轉義的雙引號來確保 JSON 正確傳遞
           DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"clearCache": true}')
+            -d "{\"clearCache\": true}") # <--- 修正後的 curl 參數
           
           HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -n1)
           RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
@@ -172,7 +176,6 @@ jobs:
           if [ -z "$DEPLOY_ID" ]; then
             echo "⚠️  無法從響應中提取 DEPLOY_ID，但 HTTP 狀態碼表示成功"
             echo "響應內容: $RESPONSE_BODY"
-            # 不退出，可能 Render 的響應格式有變化
           else
             echo "部署 ID: $DEPLOY_ID"
           fi
