@@ -108,8 +108,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. **核心修正：使用臨時文件傳輸 JSON (解決 invalid JSON 錯誤)**
-      - name: Trigger Render Deploy (File Transfer Method)
+      # 2. **核心修正：使用臨時文件傳輸 JSON & 偵錯**
+      - name: Trigger Render Deploy (File Transfer Method & Debug)
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
@@ -121,14 +121,21 @@ jobs:
             exit 1
           fi
           
-          echo "使用服務 ID: $RENDER_SERVICE_ID"
+          # *** 關鍵修正：清理 RENDER_SERVICE_ID 變量，確保它不包含任何空格或換行符 ***
+          CLEAN_SERVICE_ID=$(echo "$RENDER_SERVICE_ID" | tr -d '[:space:]')
+          echo "Debug: Clean Service ID: $CLEAN_SERVICE_ID"
           
           # 1. 將 JSON 內容寫入臨時文件
           echo '{"clearCache": true}' > /tmp/deploy.json
           
+          # *** 關鍵偵錯：檢查 JSON 內容是否純淨 (必須在日誌中看到此輸出) ***
+          echo "Debug: 臨時文件內容 (od -c 輸出):"
+          cat /tmp/deploy.json | od -c # <-- 偵測隱藏字元
+          echo "---"
+
           # 2. 使用 --data-binary 傳輸文件內容
           DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
+            "https://api.render.com/v1/services/$CLEAN_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Content-Type: application/json" \
             --data-binary @/tmp/deploy.json)
@@ -157,16 +164,14 @@ jobs:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
-          echo "⏳ 開始監控部署狀態..."
-          
-          DEPLOY_ID="${{ env.DEPLOY_ID }}"
+          DEPLOY_ID=${{ env.DEPLOY_ID }}
           
           if [ -z "$DEPLOY_ID" ]; then
             echo "⚠️ 未獲取到部署 ID，跳過狀態監控。"
             exit 0
           fi
           
-          echo "部署 ID: $DEPLOY_ID"
+          echo "⏳ 開始監控部署狀態..."
           
           for i in {1..30}; do
             sleep 10
@@ -185,18 +190,16 @@ jobs:
             
             if [ "$STATUS" = "live" ]; then
               echo "🎉 部署成功！服務已上線"
-              echo "DEPLOYMENT_STATUS=success" >> $GITHUB_ENV
               break
             elif [ "$STATUS" = "failed" ] || [ "$STATUS" = "canceled" ] || [ "$STATUS" = "post_deploy_failed" ]; then
               echo "❌ 部署失敗: $STATUS"
-              echo "DEPLOYMENT_STATUS=failed" >> $GITHUB_ENV
               exit 1
             fi
           done
           
           if [ "$STATUS" != "live" ]; then
             echo "⚠️ 部署監控超時，最終狀態: $STATUS"
-            echo "DEPLOYMENT_STATUS=timeout" >> $GITHUB_ENV
+            exit 1
           fi
 
       # 4. 獲取服務 URL
