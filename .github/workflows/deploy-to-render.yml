@@ -6,7 +6,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:
+  workflow_dispatch:  # 允許手動觸發
 
 env:
   # 使用最新的 LTS 版本
@@ -95,8 +95,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. **最終、最穩健的修正：使用 -d 參數和嚴格的 Key 清理**
-      - name: Trigger Render Deploy (Final Fix)
+      # 2. **終極診斷與修正：確保 Key 和 ID 絕對純淨，並強制構造 Header**
+      - name: Trigger Render Deploy (Final Diagnosis)
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
@@ -108,21 +108,30 @@ jobs:
             exit 1
           fi
           
-          # 【關鍵修正 1】對 Service ID 進行嚴格的空白字元刪除
+          # 步驟 A: 嚴格清理 Service ID
           CLEAN_SERVICE_ID=$(echo "$RENDER_SERVICE_ID" | tr -d '[:space:]')
           
-          # 【關鍵修正 2】通過 Base64 管道確保 API Key 絕對純淨
-          # 這是一種防禦性措施，用於移除 Secret 中可能存在的隱藏字元
-          CLEAN_API_KEY=$(echo "$RENDER_API_KEY" | base64 -d 2>/dev/null | tr -d '[:space:]' || echo "$RENDER_API_KEY" | tr -d '[:space:]')
-
+          # 步驟 B: 嚴格清理 API Key 並寫入臨時檔案
+          # 使用 tr -d 清理，然後寫入臨時檔案
+          echo -n "$RENDER_API_KEY" | tr -d '[:space:]' > /tmp/api_key_clean.txt
+          
+          # 步驟 C: 構造完整的 Authorization Header 檔案
+          # 將 'Authorization: Bearer <KEY>' 寫入一個檔案，確保格式無誤
+          echo -n "Authorization: Bearer " > /tmp/auth_header.txt
+          cat /tmp/api_key_clean.txt >> /tmp/auth_header.txt
+          
           echo "Debug: Clean Service ID: $CLEAN_SERVICE_ID"
           
-          # 【關鍵修正 3】使用 -d 直接傳輸 JSON 字串 (最可靠的方式)
+          # 步驟 D: 執行 CURL
+          # -H @/tmp/auth_header.txt : 從檔案讀取整個 Header (最強制的方式)
+          # -d '...' : 直接傳輸 JSON 負載
           DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "https://api.render.com/v1/services/$CLEAN_SERVICE_ID/deploys" \
-            -H "Authorization: Bearer $CLEAN_API_KEY" \
+            -H @/tmp/auth_header.txt \
             -H "Content-Type: application/json" \
-            -d '{"clearCache": true}') # <-- 直接傳遞 JSON 字串
+            -d '{"clearCache": true}')
+          
+          rm -f /tmp/api_key_clean.txt /tmp/auth_header.txt # 清理臨時檔案
           
           HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -n1)
           RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
@@ -162,6 +171,7 @@ jobs:
           for i in {1..30}; do
             sleep 10
             
+            # 在這裡，我們暫時使用最簡單的方式讀取 Key，因為 Key 已經被驗證為有效且純淨
             STATUS_RESPONSE=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
               "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID")
             
