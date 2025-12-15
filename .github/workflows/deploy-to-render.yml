@@ -35,7 +35,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
 
-      # 3. 安裝依賴
+      # 3. 安裝依賴 (使用 npm install 解決 npm ci EUSAGE 問題)
       - name: Install dependencies
         run: |
           echo "📦 安裝依賴..."
@@ -48,12 +48,13 @@ jobs:
           echo "🧪 運行測試..."
           npm test 2>/dev/null || echo "ℹ️ 沒有測試腳本 (npm test)，跳過測試"
 
-      # 5. 健康檢查
+      # 5. 健康檢查 (驗證 server.js 啟動)
       - name: Check server startup
         timeout-minutes: 3
         run: |
           echo "🚀 測試服務器啟動..."
           
+          # 執行 package.json 中的 start 腳本
           npm start &
           SERVER_PID=$!
           
@@ -72,6 +73,7 @@ jobs:
           RETRY_COUNT=0
           
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            # 根據您的 server.js，健康檢查是 /health，運行在 PORT 10000
             if curl -f -s -o /dev/null -w "%{http_code}" http://localhost:10000/health | grep -q "200"; then
               echo "✅ 健康檢查通過 (端口 10000)"
               kill $SERVER_PID 2>/dev/null || true
@@ -106,8 +108,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. 部署到 Render - 簡化版本
-      - name: Deploy to Render
+      # 2. Render 部署 API 調用 (解決 invalid JSON 問題)
+      - name: Deploy to Render via API
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
@@ -121,115 +123,76 @@ jobs:
           
           echo "使用服務 ID: $RENDER_SERVICE_ID"
           
-          # 方法1：嘗試最簡單的請求
-          echo "發送部署請求..."
-          response=$(curl -s -w "\n%{http_code}" -X POST \
+          # *** 核心修正：使用最穩定的單行 curl 語法 (解決 invalid JSON 錯誤) ***
+          DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Content-Type: application/json")
+            -H "Content-Type: application/json" \
+            -d '{"clearCache": true}')
           
-          http_code=$(echo "$response" | tail -n1)
-          body=$(echo "$response" | head -n -1)
+          HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
           
-          if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
-            echo "✅ 部署觸發成功！"
-            echo "響應內容: $body"
-            
-            # 提取部署 ID
-            deploy_id=$(echo "$body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-            if [ -n "$deploy_id" ]; then
-              echo "部署 ID: $deploy_id"
-              echo "DEPLOY_ID=$deploy_id" >> $GITHUB_ENV
-            fi
-          else
-            # 方法2：嘗試發送空 JSON
-            echo "方法1失敗，嘗試方法2..."
-            response=$(curl -s -w "\n%{http_code}" -X POST \
-              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
-              -H "Authorization: Bearer $RENDER_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d '{}')
-            
-            http_code=$(echo "$response" | tail -n1)
-            body=$(echo "$response" | head -n -1)
-            
-            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
-              echo "✅ 方法2成功！"
-              echo "響應內容: $body"
-              
-              deploy_id=$(echo "$body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-              if [ -n "$deploy_id" ]; then
-                echo "部署 ID: $deploy_id"
-                echo "DEPLOY_ID=$deploy_id" >> $GITHUB_ENV
-              fi
-            else
-              # 方法3：使用臨時文件
-              echo "方法2失敗，嘗試方法3..."
-              echo '{"clearCache":true}' > /tmp/deploy.json
-              
-              response=$(curl -s -w "\n%{http_code}" -X POST \
-                "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
-                -H "Authorization: Bearer $RENDER_API_KEY" \
-                -H "Content-Type: application/json" \
-                --data-binary @/tmp/deploy.json)
-              
-              http_code=$(echo "$response" | tail -n1)
-              body=$(echo "$response" | head -n -1)
-              
-              if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
-                echo "✅ 方法3成功！"
-                echo "響應內容: $body"
-                
-                deploy_id=$(echo "$body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-                if [ -n "$deploy_id" ]; then
-                  echo "部署 ID: $deploy_id"
-                  echo "DEPLOY_ID=$deploy_id" >> $GITHUB_ENV
-                fi
-              else
-                echo "❌ 所有方法都失敗"
-                echo "HTTP 狀態碼: $http_code"
-                echo "錯誤響應: $body"
-                exit 1
-              fi
-            fi
+          if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ 部署觸發失敗，HTTP 狀態碼: $HTTP_CODE"
+            echo "響應內容: $RESPONSE_BODY"
+            exit 1
           fi
           
-          # 監控部署狀態
+          echo "✅ 部署觸發成功，HTTP 狀態碼: $HTTP_CODE"
+          
+          DEPLOY_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+          
           if [ -n "$DEPLOY_ID" ]; then
-            echo "⏳ 開始監控部署狀態..."
-            
-            for i in {1..30}; do
-              sleep 10
-              
-              status_response=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-                "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID")
-              
-              status=$(echo "$status_response" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
-              
-              if [ -z "$status" ]; then
-                echo "檢查 ($i/30): 無法獲取狀態"
-                continue
-              fi
-              
-              echo "檢查 ($i/30): 狀態 = $status"
-              
-              if [ "$status" = "live" ]; then
-                echo "🎉 部署成功！服務已上線"
-                break
-              elif [ "$status" = "failed" ] || [ "$status" = "canceled" ] || [ "$status" = "post_deploy_failed" ]; then
-                echo "❌ 部署失敗: $status"
-                exit 1
-              fi
-            done
-            
-            if [ "$status" != "live" ]; then
-              echo "⚠️ 部署監控超時，最終狀態: $status"
-            fi
-          else
-            echo "⚠️ 未獲取到部署 ID，跳過狀態監控"
+            echo "部署 ID: $DEPLOY_ID"
+            echo "DEPLOY_ID=$DEPLOY_ID" >> $GITHUB_ENV
           fi
 
-      # 3. 獲取服務 URL
+      # 3. 監控部署狀態
+      - name: Monitor Deployment Status
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          DEPLOY_ID=${{ env.DEPLOY_ID }}
+          
+          if [ -z "$DEPLOY_ID" ]; then
+            echo "⚠️ 未獲取到部署 ID，跳過狀態監控。"
+            exit 0
+          fi
+          
+          echo "⏳ 開始監控部署狀態..."
+          
+          for i in {1..30}; do
+            sleep 10
+            
+            STATUS_RESPONSE=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID")
+            
+            STATUS=$(echo "$STATUS_RESPONSE" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+            
+            if [ -z "$STATUS" ]; then
+              echo "檢查 ($i/30): 無法獲取狀態"
+              continue
+            fi
+            
+            echo "檢查 ($i/30): 狀態 = $STATUS"
+            
+            if [ "$STATUS" = "live" ]; then
+              echo "🎉 部署成功！服務已上線"
+              break
+            elif [ "$STATUS" = "failed" ] || [ "$STATUS" = "canceled" ] || [ "$STATUS" = "post_deploy_failed" ]; then
+              echo "❌ 部署失敗: $STATUS"
+              exit 1
+            fi
+          done
+          
+          if [ "$STATUS" != "live" ]; then
+            echo "⚠️ 部署監控超時，最終狀態: $STATUS"
+            exit 1
+          fi
+
+      # 4. 獲取服務 URL
       - name: Get service URL
         id: get_url
         env:
@@ -238,18 +201,18 @@ jobs:
         run: |
           echo "🔗 獲取服務 URL..."
           
-          service_info=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+          SERVICE_INFO=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID")
           
-          service_url=$(echo "$service_info" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4)
+          SERVICE_URL=$(echo "$SERVICE_INFO" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4)
           
-          if [ -n "$service_url" ]; then
-            echo "服務 URL: $service_url"
-            echo "service_url=$service_url" >> $GITHUB_OUTPUT
+          if [ -n "$SERVICE_URL" ]; then
+            echo "服務 URL: $SERVICE_URL"
+            echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
           else
-            default_url="https://$RENDER_SERVICE_ID.onrender.com"
-            echo "⚠️ 無法從響應中提取服務 URL，使用默認格式: $default_url"
-            echo "service_url=$default_url" >> $GITHUB_OUTPUT
+            DEFAULT_URL="https://$RENDER_SERVICE_ID.onrender.com"
+            echo "⚠️ 無法從響應中提取服務 URL，使用默認格式: $DEFAULT_URL"
+            echo "service_url=$DEFAULT_URL" >> $GITHUB_OUTPUT
           fi
 
   # 通知階段
