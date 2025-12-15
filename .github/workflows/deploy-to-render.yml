@@ -108,15 +108,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. **核心修正：使用 Render CLI Action 觸發部署 (解決 invalid JSON 錯誤)**
+      # 2. **核心修正：使用穩定且可用的 Render Action 觸發部署 (解決 invalid JSON 和 Action 找不到錯誤)**
       - name: Trigger Render Deploy
-        uses: serlo/render-cli-action@v1 # 使用 Render 專用 Action
+        uses: jakejarvis/render-deploy@v1 # <--- 使用這個穩定且可用的 Action
         with:
-          api-key: ${{ secrets.RENDER_API_KEY }}
-          service-id: ${{ secrets.RENDER_SERVICE_ID }}
-          action: 'deploy'           # 觸發部署
-          wait-for-deploy: 'true'    # 等待部署完成
-          clear-cache: 'true'        # 清除緩存
+          render-api-key: ${{ secrets.RENDER_API_KEY }} 
+          render-service-id: ${{ secrets.RENDER_SERVICE_ID }} 
+          wait-for-success: 'true' # 等待部署完成
+          clear-cache: 'true'      # 清除緩存
 
       # 3. 獲取服務 URL
       - name: Get service URL
