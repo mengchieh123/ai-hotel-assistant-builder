@@ -95,8 +95,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. **關鍵修正：使用管道傳輸純 JSON 負載**
-      - name: Trigger Render Deploy
+      # 2. **最終、最穩健的修正：使用 -d 參數和嚴格的 Key 清理**
+      - name: Trigger Render Deploy (Final Fix)
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
@@ -108,18 +108,18 @@ jobs:
             exit 1
           fi
           
-          # 確保變數沒有多餘的空白
+          # 【關鍵修正 1】對 Service ID 和 API Key 進行嚴格的空白字元刪除
           CLEAN_SERVICE_ID=$(echo "$RENDER_SERVICE_ID" | tr -d '[:space:]')
-          CLEAN_API_KEY=$(echo "$RENDER_API_KEY" | tr -d '[:space:]')
-          
+          CLEAN_API_KEY=$(echo "$RENDER_API_KEY" | tr -d '[:space:]') # 注意這裡修正了變數名稱為 CLEAN_API_KEY
+
           echo "Debug: Clean Service ID: $CLEAN_SERVICE_ID"
           
-          # 【最終修正】使用 'echo -n' 和管道 '| curl --data @-' 確保純淨 JSON 傳輸
-          DEPLOY_RESPONSE=$(echo -n '{"clearCache": true}' | curl -s -w "\n%{http_code}" -X POST \
+          # 【關鍵修正 2】使用 -d 直接傳輸 JSON 字串 (最可靠的方式)
+          DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "https://api.render.com/v1/services/$CLEAN_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $CLEAN_API_KEY" \
             -H "Content-Type: application/json" \
-            --data @-) # <-- 從標準輸入讀取內容
+            -d '{"clearCache": true}') # <-- 直接傳遞 JSON 字串
           
           HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -n1)
           RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
