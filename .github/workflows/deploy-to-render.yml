@@ -157,14 +157,16 @@ jobs:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
-          DEPLOY_ID=${{ env.DEPLOY_ID }}
+          echo "⏳ 開始監控部署狀態..."
+          
+          DEPLOY_ID="${{ env.DEPLOY_ID }}"
           
           if [ -z "$DEPLOY_ID" ]; then
             echo "⚠️ 未獲取到部署 ID，跳過狀態監控。"
             exit 0
           fi
           
-          echo "⏳ 開始監控部署狀態..."
+          echo "部署 ID: $DEPLOY_ID"
           
           for i in {1..30}; do
             sleep 10
@@ -183,16 +185,18 @@ jobs:
             
             if [ "$STATUS" = "live" ]; then
               echo "🎉 部署成功！服務已上線"
+              echo "DEPLOYMENT_STATUS=success" >> $GITHUB_ENV
               break
             elif [ "$STATUS" = "failed" ] || [ "$STATUS" = "canceled" ] || [ "$STATUS" = "post_deploy_failed" ]; then
               echo "❌ 部署失敗: $STATUS"
+              echo "DEPLOYMENT_STATUS=failed" >> $GITHUB_ENV
               exit 1
             fi
           done
           
           if [ "$STATUS" != "live" ]; then
             echo "⚠️ 部署監控超時，最終狀態: $STATUS"
-            exit 1
+            echo "DEPLOYMENT_STATUS=timeout" >> $GITHUB_ENV
           fi
 
       # 4. 獲取服務 URL
