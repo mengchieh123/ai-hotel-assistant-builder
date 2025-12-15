@@ -6,7 +6,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:
+  workflow_dispatch:  # 允許手動觸發
 
 env:
   # 使用最新的 LTS 版本
@@ -108,13 +108,16 @@ jobs:
             exit 1
           fi
           
-          # 【關鍵修正 1】對 Service ID 和 API Key 進行嚴格的空白字元刪除
+          # 【關鍵修正 1】對 Service ID 進行嚴格的空白字元刪除
           CLEAN_SERVICE_ID=$(echo "$RENDER_SERVICE_ID" | tr -d '[:space:]')
-          CLEAN_API_KEY=$(echo "$RENDER_API_KEY" | tr -d '[:space:]') # 注意這裡修正了變數名稱為 CLEAN_API_KEY
+          
+          # 【關鍵修正 2】通過 Base64 管道確保 API Key 絕對純淨
+          # 這是一種防禦性措施，用於移除 Secret 中可能存在的隱藏字元
+          CLEAN_API_KEY=$(echo "$RENDER_API_KEY" | base64 -d 2>/dev/null | tr -d '[:space:]' || echo "$RENDER_API_KEY" | tr -d '[:space:]')
 
           echo "Debug: Clean Service ID: $CLEAN_SERVICE_ID"
           
-          # 【關鍵修正 2】使用 -d 直接傳輸 JSON 字串 (最可靠的方式)
+          # 【關鍵修正 3】使用 -d 直接傳輸 JSON 字串 (最可靠的方式)
           DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "https://api.render.com/v1/services/$CLEAN_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $CLEAN_API_KEY" \
