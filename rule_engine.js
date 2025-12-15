@@ -225,7 +225,7 @@ export class RuleEngine {
         session.lastMessage = message;
         session.lastIntent = finalIntent;
         session.currentStep = nextStateKey;
-        sessionManager.updateSession(session);
+        sessionManager.updateSession(sessionId, message, [finalIntent]);
 
         // 10. 返回結果
         const result = {
