@@ -6,7 +6,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:
+  workflow_dispatch:  # 允許手動觸發
 
 env:
   # 使用最新的 LTS 版本
@@ -35,7 +35,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: '**/package-lock.json'
 
-      # 3. 安裝依賴 (解決 npm ci EUSAGE 問題)
+      # 3. 安裝依賴
       - name: Install dependencies
         run: |
           echo "📦 安裝依賴..."
@@ -48,16 +48,13 @@ jobs:
           echo "🧪 運行測試..."
           npm test 2>/dev/null || echo "ℹ️ 沒有測試腳本 (npm test)，跳過測試"
 
-      # 5. 健康檢查 (驗證 server.js 啟動)
+      # 5. 健康檢查 (驗證 server.js 啟動 - 假設運行在 PORT 10000)
       - name: Check server startup
         timeout-minutes: 3
         run: |
           echo "🚀 測試服務器啟動..."
-          
-          # 執行 package.json 中的 start 腳本
           npm start &
           SERVER_PID=$!
-          
           echo "等待服務器啟動..."
           sleep 8
           
@@ -68,26 +65,16 @@ jobs:
           
           echo "✅ 服務器進程運行中，PID: $SERVER_PID"
           
-          echo "測試健康檢查端點..."
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            # 根據您的 server.js，健康檢查是 /health，運行在 PORT 10000
-            if curl -f -s -o /dev/null -w "%{http_code}" http://localhost:10000/health | grep -q "200"; then
+          # 檢查健康檢查端點 (假定 /health 跑在 10000)
+          if curl -f -s -o /dev/null -w "%{http_code}" http://localhost:10000/health | grep -q "200"; then
               echo "✅ 健康檢查通過 (端口 10000)"
               kill $SERVER_PID 2>/dev/null || true
               exit 0
-            fi
-            
-            echo "嘗試 $((RETRY_COUNT + 1))/$MAX_RETRIES: 健康檢查失敗，等待重試..."
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            sleep 3
-          done
-          
-          echo "❌ 健康檢查失敗：服務未在端口 10000 響應"
-          kill $SERVER_PID 2>/dev/null || true
-          exit 1
+          else
+              echo "❌ 健康檢查失敗：服務未在端口 10000 響應"
+              kill $SERVER_PID 2>/dev/null || true
+              exit 1
+          fi
 
       # 6. 構建驗證
       - name: Build verification
@@ -108,7 +95,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. **核心修正：確保 JSON 負載純淨**
+      # 2. **關鍵修正：使用管道傳輸純 JSON 負載**
       - name: Trigger Render Deploy
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -121,28 +108,23 @@ jobs:
             exit 1
           fi
           
-          # *** 變數清理：確保 Service ID 和 API Key 都是純淨的 ***
+          # 確保變數沒有多餘的空白
           CLEAN_SERVICE_ID=$(echo "$RENDER_SERVICE_ID" | tr -d '[:space:]')
           CLEAN_API_KEY=$(echo "$RENDER_API_KEY" | tr -d '[:space:]')
+          
           echo "Debug: Clean Service ID: $CLEAN_SERVICE_ID"
           
-          # 1. 【關鍵修正】將 JSON 內容寫入臨時文件 (使用 -n 移除換行符)
-          echo -n '{"clearCache": true}' > /tmp/deploy.json 
-          
-          # 偵錯：檢查 JSON 內容是否純淨
-          echo "Debug: 臨時文件內容 (od -c 輸出):"
-          cat /tmp/deploy.json | od -c 
-          echo "---"
-
-          # 2. 使用 --data-binary 傳輸文件內容
-          DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+          # 【最終修正】使用 'echo -n' 和管道 '| curl --data @-' 確保純淨 JSON 傳輸
+          DEPLOY_RESPONSE=$(echo -n '{"clearCache": true}' | curl -s -w "\n%{http_code}" -X POST \
             "https://api.render.com/v1/services/$CLEAN_SERVICE_ID/deploys" \
             -H "Authorization: Bearer $CLEAN_API_KEY" \
             -H "Content-Type: application/json" \
-            --data-binary @/tmp/deploy.json)
+            --data @-) # <-- 從標準輸入讀取內容
           
           HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -n1)
           RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
+          
+          echo "Render Response Body: $RESPONSE_BODY"
           
           if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
             echo "❌ 部署觸發失敗，HTTP 狀態碼: $HTTP_CODE"
@@ -245,6 +227,7 @@ jobs:
             const deployResult = '${{ needs.deploy.result }}';
             const statusState = deployResult === 'success' ? 'success' : 'failure';
             const emoji = deployResult === 'success' ? '🎉' : '❌';
+            // 由於 outputs 可能不存在，這裡使用一個預設 URL
             const serviceUrl = '${{ needs.deploy.outputs.service_url }}' || 'https://ai-hotel-assistant.onrender.com';
 
             const summary = `
