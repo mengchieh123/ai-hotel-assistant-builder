@@ -1,326 +1,256 @@
 import { ModularIntentClassifier } from './intent_classifier.js';
 import { sessionManager } from './session_manager.js';
 import config from './config.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-
-// --- 模擬 __dirname 和 __filename ---
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const FLOW_CONFIG_PATH = path.join(__dirname, 'dialogue_flow.json');
+import dialogueFlowConfig from './dialogue_flow.js';
+import * as logicHandlers from './logic_handlers.js'; // 導入所有 Logic Handler
 
 /**
- * 🎯 對話流程配置 (靜態變數)
- */
-let dialogueFlowConfig = null;
-
-/**
- * 規則引擎 - 負責業務狀態流轉和邏輯決策
- * 
+ * 核心 Rule Engine 類別
+ * 負責處理使用者輸入、判斷意圖、管理狀態、執行業務邏輯並生成回應。
  */
 export class RuleEngine {
 
     /**
-     * 靜態方法：載入並初始化對話流程配置
+     * 初始化 RuleEngine。載入所有必要配置。
      */
-    static initializeFlowConfig() {
-        if (dialogueFlowConfig) {
-            console.log('✅ [DEBUG] dialogue_flow.json 已載入。');
-            return;
+    constructor() {
+        this.intentClassifier = new ModularIntentClassifier(config.modules);
+        this.dialogueFlow = dialogueFlowConfig;
+        console.log(`✅ RuleEngine 已初始化，載入 ${Object.keys(this.dialogueFlow.states).length} 個狀態。`);
+    }
+
+    /**
+     * 獲取當前或指定狀態的配置。
+     * @param {string} stateKey - 狀態的鍵值 (例如: 'ask_dates_and_nights')。
+     * @returns {object|null} - 狀態配置物件或 null。
+     */
+    getStateConfig(stateKey) {
+        return this.dialogueFlow.states[stateKey] || null;
+    }
+
+    /**
+     * 執行規則流程。
+     * @param {string} message - 使用者輸入的訊息。
+     * @param {string} sessionId - 當前的會話 ID。
+     * @returns {Promise<object>} - 包含回應、新的會話狀態等資訊的結果物件。
+     */
+    async executeRules(message, sessionId) {
+        let session = sessionManager.getSession(sessionId);
+
+        // 1. 如果是新會話，則初始化
+        if (!session) {
+            const initialConfig = this.getStateConfig(this.dialogueFlow.initial_state);
+            // 處理初次載入時的實體清理
+            const initialEntities = initialConfig?.clear_entities || [];
+            session = sessionManager.createSession(sessionId, this.dialogueFlow.initial_state, initialEntities);
+            console.log(`[SESSION] New session created: ${sessionId}, initial state: ${this.dialogueFlow.initial_state}`);
         }
 
-        try {
-            const data = fs.readFileSync(FLOW_CONFIG_PATH, 'utf8');
-            dialogueFlowConfig = JSON.parse(data);
+        const currentStateKey = session.currentState;
+        const currentStateConfig = this.getStateConfig(currentStateKey);
 
-            if (!dialogueFlowConfig.initial_state || !dialogueFlowConfig.states) {
-                throw new Error('對話流程配置缺少 initial_state 或 states 結構');
+        if (!currentStateConfig) {
+            console.error(`❌ 狀態配置錯誤: 找不到狀態鍵值 ${currentStateKey}`);
+            // 無法找到狀態，強制重置
+            sessionManager.resetSession(sessionId);
+            return {
+                response: "系統發生內部錯誤，對話流程已被重置。請重新開始。",
+                nextState: this.dialogueFlow.initial_state,
+                richCard: null
+            };
+        }
+
+        // 2. 意圖與實體提取
+        const smartAnalysis = await this.intentClassifier.analyze(message, currentStateKey);
+        const finalIntent = smartAnalysis.finalIntent;
+
+        // 3. 高優先級意圖處理 (例如：取消流程、通用查詢)
+        let nextStateKey = null;
+        let response = null;
+        let richCard = null;
+
+        // 3.1 處理取消流程 (高優先級)
+        if (finalIntent === 'cancel_flow') {
+            const cancelStateConfig = this.getStateConfig('global_cancel_flow');
+            
+            // ❗️ 新增保護: 檢查 global_cancel_flow 是否存在於 dialogue_flow.json
+            if (cancelStateConfig) {
+                nextStateKey = cancelStateConfig.next_state || this.dialogueFlow.initial_state;
+                response = this.interpolatePrompt(cancelStateConfig.response, session.context);
+                richCard = cancelStateConfig.richCard || null;
+            } else {
+                // 如果配置不存在，退回安全狀態
+                nextStateKey = this.dialogueFlow.initial_state;
+                response = "好的，流程已重置。請重新開始預訂。";
+                richCard = null;
             }
 
-            console.log('✅ [DEBUG] dialogue_flow.json 成功載入！');
-            console.log('✅ [DEBUG] RuleEngine 靜態配置完成並已通過結構檢查。');
+            // 清理上下文並返回取消結果
+            sessionManager.resetSession(sessionId);
+            return { response, nextState: nextStateKey, richCard };
+        }
 
-        } catch (error) {
-            console.error(`💥 [ERROR] 無法載入或解析對話流程配置: ${error.message}`);
-            throw new Error(`對話流程初始化失敗: ${error.message}`);
+        // 3.2 處理通用查詢意圖 (跳出主流程)
+        if (config.generalInquiryIntents.includes(finalIntent)) {
+            // 進入通用查詢流程 (handle_general_inquiry 應為邏輯狀態)
+            nextStateKey = 'handle_general_inquiry';
+            
+            // 在通用查詢後，儲存當前狀態，以便返回
+            session.context.pauseFromState = currentStateKey;
+            sessionManager.updateSession(sessionId, session.context, session.currentState); 
+        } else {
+            // 4. 處理一般狀態轉換 (流程內部)
+
+            // 4.1. 嘗試從當前狀態的 intents 定義中轉換狀態
+            if (currentStateConfig.intents && currentStateConfig.intents[finalIntent]) {
+                nextStateKey = currentStateConfig.intents[finalIntent];
+            } else if (currentStateConfig.next_state) {
+                // 4.2. 否則，使用當前狀態預設的 next_state
+                nextStateKey = currentStateConfig.next_state;
+            }
+
+            // 4.3. 實體更新: 將提取到的實體合併到會話上下文
+            this.updateContextWithEntities(session.context, smartAnalysis.entities);
+
+            // 4.4. 檢查當前狀態的 Rules
+            if (currentStateConfig.rules) {
+                for (const rule of currentStateConfig.rules) {
+                    if (this.evaluateCondition(rule.condition, session.context)) {
+                        nextStateKey = rule.next_state;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // 5. 執行狀態轉換邏輯
+        let finalStateKey = nextStateKey;
+        
+        // 5.1. 如果是 logic_exec 狀態，執行 Handler
+        while (finalStateKey && this.getStateConfig(finalStateKey)?.type === 'logic_exec') {
+            const logicConfig = this.getStateConfig(finalStateKey);
+            const handlerName = logicConfig.handler;
+            const handler = logicHandlers[handlerName];
+
+            if (handler) {
+                try {
+                    console.log(`🤖 執行邏輯 Handler: ${handlerName}`);
+                    // 執行邏輯，並獲取新的上下文和下一個狀態鍵
+                    const logicResult = await handler(session.context, message);
+                    session.context = { ...session.context, ...logicResult.context };
+                    
+                    // 如果邏輯 Handler 執行成功
+                    if (logicResult.success) {
+                        finalStateKey = logicResult.nextState || logicConfig.next_state;
+                    } else {
+                        // 如果邏輯 Handler 執行失敗，則進入 fallback_state
+                        finalStateKey = logicConfig.fallback_state || this.dialogueFlow.initial_state;
+                    }
+                } catch (e) {
+                    console.error(`💥 邏輯 Handler 執行錯誤 (${handlerName}):`, e);
+                    // 邏輯執行發生例外，進入 fallback_state
+                    finalStateKey = logicConfig.fallback_state || this.dialogueFlow.initial_state;
+                }
+            } else {
+                console.error(`❌ 邏輯 Handler 錯誤: 找不到 Handler 函數 ${handlerName}`);
+                finalStateKey = logicConfig.fallback_state || this.dialogueFlow.initial_state;
+            }
+        }
+
+        // 6. 確定最終回應
+        const finalStateConfig = this.getStateConfig(finalStateKey);
+        
+        // 6.1. Fallback 檢查：如果最終狀態仍是當前狀態，且訊息未被處理，則觸發 Fallback
+        if (finalStateKey === currentStateKey) {
+            // 如果無法轉換狀態，嘗試使用 fallback_state
+            const fallbackStateKey = currentStateConfig.fallback_state;
+            if (fallbackStateKey) {
+                finalStateKey = fallbackStateKey;
+            } else {
+                // 否則，轉到通用 fallback 狀態 (例如: fallback_end 或 init)
+                // 檢查是否連續 Fallback
+                session.fallbackCount = (session.fallbackCount || 0) + 1;
+                if (session.fallbackCount > config.maxFallbackAttempts) {
+                    finalStateKey = 'fallback_end'; // 轉到終止狀態
+                } else {
+                    finalStateKey = currentStateKey; // 留在當前狀態，使用 Fallback 提示
+                }
+            }
+        } else {
+             // 成功轉換狀態，重置 Fallback 計數器
+             session.fallbackCount = 0;
+        }
+
+        // 6.2. 獲取最終回應配置
+        let actualFinalConfig = this.getStateConfig(finalStateKey);
+        
+        // ❗️ 新增保護: 確保 fallback_end 狀態存在
+        if (finalStateKey === 'fallback_end' && !actualFinalConfig) {
+            console.error("❌ 警告: dialogue_flow.json 缺少 'fallback_end' 狀態配置。");
+            actualFinalConfig = {
+                prompt: "抱歉，系統遇到連續錯誤，請嘗試重新開始。",
+                richCard: null
+            };
+            finalStateKey = this.dialogueFlow.initial_state;
+            sessionManager.resetSession(sessionId); // 遇到嚴重 Fallback，強制重置
+        }
+
+        response = this.interpolatePrompt(actualFinalConfig.prompt, session.context);
+        richCard = actualFinalConfig.richCard || null;
+
+        // 7. 更新會話狀態
+        sessionManager.updateSession(sessionId, session.context, finalStateKey);
+
+        // 8. 返回結果
+        return {
+            response,
+            nextState: finalStateKey,
+            richCard
+        };
+    }
+
+    /**
+     * 將實體合併到會話上下文中。
+     * @param {object} context - 當前的會話上下文。
+     * @param {object} entities - 提取到的實體物件。
+     */
+    updateContextWithEntities(context, entities) {
+        for (const key in entities) {
+            if (entities[key] !== undefined && entities[key] !== null) {
+                context[key] = entities[key];
+            }
         }
     }
 
     /**
-     * 靜態方法：安全地評估 condition 字符串
-     * 檢查 collectedData 中是否包含所有需要的 key
+     * 評估條件字串 (例如: 'checkInDate && nights')。
+     * @param {string} condition - 條件字串。
+     * @param {object} context - 會話上下文。
+     * @returns {boolean} - 條件評估結果。
      */
-    static _evaluateCondition(conditionString, data) {
-        if (!conditionString) return false;
-
+    evaluateCondition(condition, context) {
+        // 使用 with 語句確保上下文變數可用於評估 (注意：實際生產環境應避免使用 with)
+        // 在這裡，我們將 context 屬性直接作為區域變數引入
         try {
-            // 處理多個條件 (例如: roomType && checkInDate)
-            let conditions = conditionString.split('&&').map(key => key.trim());
-
-            return conditions.every(key =>
-                data[key] !== null &&
-                data[key] !== undefined &&
-                (typeof data[key] === 'string' ? data[key].length > 0 : true) // 確保字串非空
-            );
-
+            const conditionFunc = new Function('context', `with(context) { return ${condition} }`);
+            return conditionFunc(context);
         } catch (e) {
-            console.error(`💥 條件解析錯誤: ${conditionString}`, e);
+            console.error(`❌ 條件評估錯誤: ${condition}`, e);
             return false;
         }
     }
 
     /**
-     * 靜態方法：執行規則引擎的核心邏輯
+     * 將提示中的佔位符替換為會話上下文中的值。
+     * @param {string} prompt - 包含佔位符的提示。
+     * @param {object} context - 會話上下文。
+     * @returns {string} - 替換後的提示。
      */
-    static async executeRules(message, sessionId) {
-        // 確保配置已初始化
-        if (!dialogueFlowConfig) {
-            this.initializeFlowConfig();
-        }
-
-        // 1. 獲取會話狀態
-        const session = sessionManager.getSession(sessionId);
-
-        // 2. 執行模組化智慧分類 (NLU Layer)
-        // 🚨 僅在訊息非空時執行 NLU (避免遞迴鏈式執行時再次執行 NLU)
-        let finalIntent = null;
-        let finalEntities = {};
-        let modularResult = { topModule: null, confidence: 0, enhancedData: {} };
-
-        if (message.trim().length > 0) {
-            const traditionalResult = { intents: [], entities: {} };
-            modularResult = ModularIntentClassifier.classify(
-                message,
-                traditionalResult,
-                session
-            );
-            finalIntent = modularResult.topIntent;
-            finalEntities = modularResult.enhancedData;
-        } else {
-             // 如果是空訊息 (用於鏈式執行)，則從 session 繼承上一次的意圖
-             finalIntent = session.lastIntent || null;
-             console.log(`🔗 [CHAIN_EXEC] 繼承上一個意圖: ${finalIntent}`);
-        }
-
-        // 3. 獲取當前狀態配置
-        const currentStateKey = session.currentStep || dialogueFlowConfig.initial_state;
-        const currentStateConfig = dialogueFlowConfig.states[currentStateKey];
-
-        // 🎯 錯誤檢查：當前狀態是否存在
-        if (!currentStateConfig) {
-            console.error(`💥 [CRITICAL_CONFIG_ERROR] dialogue_flow.json 缺少狀態配置：'${currentStateKey}'`);
-            return {
-                response: `系統配置錯誤：缺少 '${currentStateKey}' 的定義。`,
-                nextStep: 'error_end',
-                endFlow: true,
-                sessionId: sessionId,
-                richCard: null,
-                analysis: { module: 'SYSTEM', confidence: 100, intent: 'critical_error' }
-            };
-        }
-
-
-        // =========================================================
-        // 【修正 1：處理高優先級/緊急意圖，確保配置存在且參數呼叫正確】
-        // =========================================================
-        if (finalIntent === 'cancel_flow') {
-            const cancelStateKey = 'global_cancel_flow';
-            const cancelStateConfig = dialogueFlowConfig.states[cancelStateKey];
-            
-            // 🚨 錯誤保護：檢查取消狀態配置是否存在
-            if (!cancelStateConfig || !cancelStateConfig.response) {
-                 console.error(`💥 [CRITICAL_CONFIG_ERROR] dialogue_flow.json 缺少必要狀態或回應：'${cancelStateKey}'`);
-                 sessionManager.updateSession(sessionId, message, [finalIntent]); 
-                 return {
-                     response: `系統配置錯誤：缺少 '${cancelStateKey}' 的定義。請重試或聯繫管理員。`,
-                     nextStep: 'error_end',
-                     endFlow: true,
-                     sessionId: sessionId,
-                     richCard: null,
-                     analysis: { module: 'SYSTEM', confidence: 100, intent: 'critical_error' }
-                 };
-            }
-
-            session.currentStep = cancelStateKey;
-            sessionManager.updateSession(sessionId, message, [finalIntent]); 
-            
-            return {
-                response: cancelStateConfig.response,
-                nextStep: cancelStateKey,
-                endFlow: true,
-                sessionId: sessionId,
-                richCard: cancelStateConfig.richCard || null,
-                analysis: { module: 'SYSTEM', confidence: 100, intent: 'cancel_flow' }
-            };
-        }
-        // =========================================================
-
-        // =========================================================
-        // 【核心修改 A: 實體隔離 (解決密碼誤判)】
-        // =========================================================
-        if (currentStateKey === 'ask_member_password') {
-            // 在密碼輸入狀態，強制清除所有可能被誤判為密碼的實體
-            delete finalEntities.roomCount;
-            delete finalEntities.rawNumber;
-            delete finalEntities.nights;
-
-            // 將輸入的原始文本視為密碼
-            if (message && message.length > 0) {
-                 finalEntities.memberPassword = message.trim();
-                 console.log(`🔒 [ENTITY_ISOLATION] 忽略 RoomCount/RawNumber, 強制設定 memberPassword`);
-            }
-        }
-        // =========================================================
-
-        // 4. 實體收集：將 NLU 實體合併到 session (確保 collectedData 存在)
-        if (!session.collectedData) {
-            session.collectedData = {};
-        }
-        session.collectedData = { ...session.collectedData, ...finalEntities };
-
-        // 5. 初始化狀態轉換變數
-        let nextStateKey = currentStateKey;
-        let jumped = false;
-        let richCard = currentStateConfig.richCard || null;
-        let responseMessage = "";
-        let endFlow = currentStateConfig.end || false;
-
-        // --- 6. 狀態轉換邏輯 ---
-
-        // 6a. 檢查意圖驅動的跳轉
-        const intentTransition = currentStateConfig.intents?.[finalIntent];
-        if (intentTransition) {
-            nextStateKey = intentTransition;
-            jumped = true;
-            console.log(`➡️ [INTENT_JUMP] 意圖 ${finalIntent} 驅動跳轉至 ${nextStateKey}`);
-        }
-
-        // 6b. 檢查條件規則驅動的跳轉
-        else if (currentStateConfig.rules && Array.isArray(currentStateConfig.rules)) {
-            const matchedRule = currentStateConfig.rules.find(rule => {
-                // 修正點：使用 RuleEngine._evaluateCondition 呼叫靜態方法
-                return RuleEngine._evaluateCondition(rule.condition, session.collectedData);
-            });
-
-            if (matchedRule) {
-                nextStateKey = matchedRule.next_state;
-                jumped = true;
-                console.log(`➡️ [RULE_JUMP] 規則 ${matchedRule.condition} 滿足，跳轉至 ${nextStateKey}`);
-            }
-        }
-
-        // 6c. 處理流程啟動意圖
-        else if (currentStateKey === dialogueFlowConfig.initial_state && finalIntent === 'booking_start') {
-            nextStateKey = currentStateConfig.next_state;
-            jumped = true;
-            console.log(`➡️ [INIT_START] 意圖 ${finalIntent} 啟動流程，跳轉至 ${nextStateKey}`);
-        }
-
-        // --- 7. 處理跳轉後的行為和回應 ---
-
-        const nextStateConfig = dialogueFlowConfig.states[nextStateKey];
-        if (nextStateConfig) {
-            richCard = nextStateConfig.richCard || richCard;
-            endFlow = nextStateConfig.end || endFlow;
-
-            // =========================================================
-            // 【核心修改 B: 回應抑制 (解決 Handler 通用回應)】
-            // =========================================================
-            if (jumped) {
-                // 如果成功跳轉到新狀態
-                if (nextStateConfig.type === 'handler' || nextStateConfig.type === 'logic_exec') {
-                    responseMessage = ""; // 內部處理狀態不對用戶回應 (將在遞迴中由下一狀態產生)
-                    console.log(`🤫 [RESPONSE_SUPPRESS] 跳轉到 Handler 狀態 (${nextStateKey})，回應已抑制。`);
-                } else {
-                    // 否則，新狀態是詢問/提示狀態，輸出其提示
-                    responseMessage = nextStateConfig.prompt || nextStateConfig.response || "";
-                }
-            } else {
-                // 如果流程停留在當前狀態 (沒有跳轉)
-                responseMessage = currentStateConfig.prompt || currentStateConfig.response || "";
-            }
-            // =========================================================
-        }
-
-        // --- 8. Fallback 處理 ---
-
-        if (nextStateKey === currentStateKey && !jumped && message.trim().length > 0) {
-            session.fallbackCount = (session.fallbackCount || 0) + 1;
-
-            if (session.fallbackCount >= 2) {
-                // 連續兩次 fallback 失敗，建議轉接或重置
-                responseMessage = "抱歉，我似乎無法理解您的意思。我將為您轉接人工客服或重置預訂流程。請問您是否需要重置？";
-                nextStateKey = 'fallback_end'; // 進入終止狀態
-                endFlow = false;
-            } else {
-                // 第一次或第二次 fallback
-                responseMessage = currentStateConfig.fallback || "抱歉，我不太明白您的意思。您是否可以換個方式說呢？";
-            }
-            if (currentStateConfig.fallback_state) {
-                nextStateKey = currentStateConfig.fallback_state;
-            }
-        } else {
-             // 成功跳轉後重置 fallback 計數
-             session.fallbackCount = 0;
-        }
-
-
-        // 9. 更新會話狀態 (使用正確的參數簽名)
-        session.lastMessage = message;
-        session.lastIntent = finalIntent;
-        session.currentStep = nextStateKey;
-        // 🚨 關鍵修正：確保使用正確的參數呼叫 updateSession
-        sessionManager.updateSession(sessionId, message, finalIntent ? [finalIntent] : []); 
-
-        // 10. 返回結果
-        const result = {
-            response: responseMessage,
-            nextStep: nextStateKey,
-            endFlow: endFlow,
-            sessionId: sessionId,
-            richCard: richCard,
-            analysis: {
-                module: modularResult.topModule,
-                confidence: modularResult.confidence,
-                intent: finalIntent
-            }
-        };
-
-        // =========================================================
-        // 【最終優化 C: Handler 狀態的即時鏈式執行 (遞迴)】
-        // =========================================================
-
-        const finalNextStateConfig = dialogueFlowConfig.states[result.nextStep];
-
-        // 檢查：如果剛跳轉到 Handler 狀態 (且不是遞迴中的空訊息)，則立即執行下一步
-        if (jumped && (finalNextStateConfig?.type === 'handler' || finalNextStateConfig?.type === 'logic_exec') && finalNextStateConfig.next_state) {
-            
-             // 確保 Handler 狀態不進入無限遞迴
-             if (finalNextStateConfig.next_state === finalNextStateConfig.name) {
-                 console.error(`💥 [CHAIN_ERROR] Handler 狀態 ${result.nextStep} 存在無限遞迴鏈接！`);
-                 return result; // 避免崩潰，直接返回當前結果
-             }
-
-             console.log(`🔗 [CHAIN_EXEC] 進入 Handler 狀態 (${result.nextStep})，將立即遞迴執行下一步。`);
-             
-             // 在遞迴時，使用 **空訊息** 呼叫 RuleEngine，避免 NLU 干擾
-             // 遞迴呼叫將從下一狀態開始，並使用上一次的意圖 (finalIntent)
-             const chainResult = await this.executeRules('', sessionId);
-             return chainResult;
-        }
-
-        return result;
-    }
-    
-    // 註：這兩個方法沒有邏輯變動，保持原樣
-    static _handleEmergencyFlow(session, flowType) {
-        // ... (保持原樣)
-    }
-
-    static _generateMissingDataPrompt(dataKey) {
-        // ... (保持原樣)
+    interpolatePrompt(prompt, context) {
+        if (!prompt) return "";
+        return prompt.replace(/\{(\w+)\}/g, (match, key) => {
+            // 處理 context 中不存在的鍵值，避免輸出 'undefined'
+            return context[key] !== undefined && context[key] !== null ? context[key] : `[${key} not set]`;
+        });
     }
 }
