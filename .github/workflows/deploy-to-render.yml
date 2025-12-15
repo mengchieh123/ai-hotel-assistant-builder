@@ -2,394 +2,279 @@ name: Deploy to Render (CI/CD)
 
 # 觸發條件
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-  workflow_dispatch:  # 允許手動觸發
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:  # 允許手動觸發
 
 env:
-  # 使用最新的 LTS 版本
-  NODE_VERSION: '20'
-  # RENDER_SERVICE_ID 和 RENDER_API_KEY 必須在 GitHub Secrets 中設置
-  RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+  # 使用最新的 LTS 版本
+  NODE_VERSION: '20'
+  # RENDER_SERVICE_ID 和 RENDER_API_KEY 必須在 GitHub Secrets 中設置
+  RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
 
 jobs:
-  # 測試與構建驗證階段
-  test:
-    name: Test and Build Verification
-    runs-on: ubuntu-latest
-    
-    steps:
-      # 1. 標準的程式碼檢出
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+  # 測試與構建驗證階段
+  test:
+    name: Test and Build Verification
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 標準的程式碼檢出
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # 2. 設置 Node.js 環境
-      - name: Setup Node.js v${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: '**/package-lock.json'
+      # 2. 設置 Node.js 環境
+      - name: Setup Node.js v${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
 
-      # 3. 安裝依賴
-      - name: Install dependencies
-        run: |
-          echo "📦 安裝依賴..."
-          npm install
-          echo "✅ 依賴安裝完成"
+      # 3. 安裝依賴 (使用 npm install 繞過 lockfile 嚴格檢查)
+      - name: Install dependencies
+        run: |
+          echo "📦 安裝依賴..."
+          npm install # <--- 修正點
+          echo "✅ 依賴安裝完成"
 
-      # 4. 運行測試（如果存在）
-      - name: Run tests (if present)
-        run: |
-          echo "🧪 運行測試..."
-          npm test 2>/dev/null || echo "ℹ️ 沒有測試腳本 (npm test)，跳過測試"
+      # 4. 運行測試（如果存在）
+      - name: Run tests (if present)
+        run: |
+          echo "🧪 運行測試..."
+          npm test 2>/dev/null || echo "ℹ️  沒有測試腳本 (npm test)，跳過測試"
 
-      # 5. 健康檢查（可選，測試時可跳過）
-      - name: Check server startup
-        timeout-minutes: 3
-        continue-on-error: true  # 允許此步驟失敗
-        run: |
-          echo "🚀 測試服務器啟動..."
-          
-          npm start &
-          SERVER_PID=$!
-          
-          echo "等待服務器啟動..."
-          sleep 8
-          
-          if ! ps -p $SERVER_PID > /dev/null; then
-            echo "❌ 服務器進程已退出，啟動失敗"
-            exit 1
-          fi
-          
-          echo "✅ 服務器進程運行中，PID: $SERVER_PID"
-          
-          echo "測試健康檢查端點..."
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s -o /dev/null -w "%{http_code}" http://localhost:10000/health | grep -q "200"; then
-              echo "✅ 健康檢查通過 (端口 10000)"
-              kill $SERVER_PID 2>/dev/null || true
-              exit 0
-            fi
-            
-            echo "嘗試 $((RETRY_COUNT + 1))/$MAX_RETRIES: 健康檢查失敗，等待重試..."
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            sleep 3
-          done
-          
-          echo "❌ 健康檢查失敗：服務未在端口 10000 響應"
-          kill $SERVER_PID 2>/dev/null || true
-          exit 1
+      # 5. 健康檢查 (使用 npm start 執行 server.js)
+      - name: Check server startup
+        timeout-minutes: 3
+        run: |
+          echo "🚀 測試服務器啟動..."
+          
+          # 執行 package.json 中的 start 腳本: NODE_PATH=./node_modules node server.js
+          npm start &
+          SERVER_PID=$!
+          
+          echo "等待服務器啟動..."
+          sleep 8
+          
+          if ! ps -p $SERVER_PID > /dev/null; then
+            echo "❌ 服務器進程已退出，啟動失敗"
+            exit 1
+          fi
+          
+          echo "✅ 服務器進程運行中，PID: $SERVER_PID"
+          
+          echo "測試健康檢查端點..."
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            # 根據您的 server.js，健康檢查是 /health，運行在 PORT 10000
+            if curl -f -s -o /dev/null -w "%{http_code}" http://localhost:10000/health | grep -q "200"; then
+              echo "✅ 健康檢查通過 (端口 10000)"
+              kill $SERVER_PID 2>/dev/null || true
+              exit 0
+            fi
+            
+            echo "嘗試 $((RETRY_COUNT + 1))/$MAX_RETRIES: 健康檢查失敗，等待重試..."
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            sleep 3
+          done
+          
+          echo "❌ 健康檢查失敗：服務未在端口 10000 響應"
+          kill $SERVER_PID 2>/dev/null || true
+          exit 1
 
-      # 6. 構建驗證
-      - name: Build verification
-        run: |
-          echo "🔨 構建驗證..."
-          npm run build --if-present || echo "ℹ️ 沒有構建腳本，跳過構建"
-          echo "✅ 構建檢查完成"
+      # 6. 構建驗證
+      - name: Build verification
+        run: |
+          echo "🔨 構建驗證..."
+          npm run build --if-present || echo "ℹ️  沒有構建腳本，跳過構建"
+          echo "✅ 構建檢查完成"
 
-  # 部署階段
-  deploy:
-    name: Deploy to Render
-    needs: test
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master')
-    runs-on: ubuntu-latest
-    
-    steps:
-      # 1. 檢出程式碼
-      - name: Checkout code
-        uses: actions/checkout@v4
+  # 部署階段
+  deploy:
+    name: Deploy to Render
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master')
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 檢出程式碼
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      # 2. 調試步驟：檢查環境變量
-      - name: Debug Environment Variables
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          echo "🔧 調試環境變量..."
-          echo "RENDER_SERVICE_ID 長度: ${#RENDER_SERVICE_ID}"
-          echo "RENDER_API_KEY 前 10 個字符: ${RENDER_API_KEY:0:10}..."
-          
-          # 驗證服務 ID 格式
-          if [[ "$RENDER_SERVICE_ID" =~ ^[a-zA-Z0-9]{12}$ ]]; then
-            echo "✅ RENDER_SERVICE_ID 格式正確"
-          else
-            echo "⚠️ RENDER_SERVICE_ID 格式可能不正確"
-          fi
+      # 2. 設置 Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      # 3. 使用 Node.js 腳本來進行部署（最可靠的方式）
-      - name: Deploy to Render using Node.js
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          echo "🚀 開始部署到 Render..."
-          
-          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
-            echo "❌ 錯誤：RENDER_API_KEY 或 RENDER_SERVICE_ID 未設置"
-            exit 1
-          fi
-          
-          echo "使用服務 ID: $RENDER_SERVICE_ID"
-          
-          # 創建 Node.js 腳本來處理部署
-          cat > deploy.js << 'EOF'
-          const https = require('https');
-          
-          const RENDER_API_KEY = process.env.RENDER_API_KEY;
-          const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID;
-          
-          if (!RENDER_API_KEY || !RENDER_SERVICE_ID) {
-            console.error('❌ 錯誤：缺少環境變量');
-            process.exit(1);
-          }
-          
-          const options = {
-            hostname: 'api.render.com',
-            port: 443,
-            path: `/v1/services/${RENDER_SERVICE_ID}/deploys`,
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${RENDER_API_KEY}`,
-              'Content-Type': 'application/json',
-              'User-Agent': 'GitHub-Actions-Deploy/1.0'
-            }
-          };
-          
-          console.log('📤 發送部署請求...');
-          
-          const req = https.request(options, (res) => {
-            let data = '';
-            
-            res.on('data', (chunk) => {
-              data += chunk;
-            });
-            
-            res.on('end', () => {
-              console.log(`📥 響應狀態碼: ${res.statusCode}`);
-              console.log(`📦 響應內容: ${data}`);
-              
-              if (res.statusCode === 200 || res.statusCode === 201) {
-                try {
-                  const response = JSON.parse(data);
-                  const deployId = response.id;
-                  
-                  if (deployId) {
-                    console.log(`✅ 部署觸發成功！部署 ID: ${deployId}`);
-                    
-                    // 設置輸出變量
-                    console.log(`::set-output name=deploy_id::${deployId}`);
-                    
-                    // 監控部署狀態
-                    monitorDeployment(deployId);
-                  } else {
-                    console.log('✅ 部署觸發成功（無部署 ID）');
-                  }
-                } catch (e) {
-                  console.log('✅ 部署觸發成功（無法解析 JSON）');
-                }
-              } else {
-                console.error(`❌ 部署失敗: ${res.statusCode}`);
-                console.error(`詳細信息: ${data}`);
-                process.exit(1);
-              }
-            });
-          });
-          
-          req.on('error', (error) => {
-            console.error(`❌ 請求錯誤: ${error.message}`);
-            process.exit(1);
-          });
-          
-          // 發送簡單的 JSON 數據
-          const postData = JSON.stringify({});
-          req.setHeader('Content-Length', Buffer.byteLength(postData));
-          req.write(postData);
-          req.end();
-          
-          function monitorDeployment(deployId) {
-            console.log('⏳ 開始監控部署狀態...');
-            
-            const checkOptions = {
-              hostname: 'api.render.com',
-              port: 443,
-              path: `/v1/services/${RENDER_SERVICE_ID}/deploys/${deployId}`,
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${RENDER_API_KEY}`,
-                'User-Agent': 'GitHub-Actions-Deploy/1.0'
-              }
-            };
-            
-            let checks = 0;
-            const maxChecks = 30;
-            
-            function checkStatus() {
-              if (checks >= maxChecks) {
-                console.log('⚠️ 監控超時');
-                return;
-              }
-              
-              checks++;
-              setTimeout(() => {
-                const req = https.request(checkOptions, (res) => {
-                  let data = '';
-                  
-                  res.on('data', (chunk) => {
-                    data += chunk;
-                  });
-                  
-                  res.on('end', () => {
-                    try {
-                      const response = JSON.parse(data);
-                      const status = response.status;
-                      
-                      console.log(`檢查 ${checks}/${maxChecks}: 狀態 = ${status}`);
-                      
-                      if (status === 'live') {
-                        console.log('🎉 部署成功！服務已上線');
-                      } else if (status === 'failed' || status === 'canceled' || status === 'post_deploy_failed') {
-                        console.error(`❌ 部署失敗: ${status}`);
-                        process.exit(1);
-                      } else {
-                        // 繼續檢查
-                        checkStatus();
-                      }
-                    } catch (e) {
-                      console.log(`檢查 ${checks}/${maxChecks}: 無法解析響應`);
-                      checkStatus();
-                    }
-                  });
-                });
-                
-                req.on('error', (error) => {
-                  console.log(`檢查 ${checks}/${maxChecks}: 請求錯誤，繼續嘗試...`);
-                  checkStatus();
-                });
-                
-                req.end();
-              }, 10000); // 每10秒檢查一次
-            }
-            
-            checkStatus();
-          }
-          EOF
-          
-          # 運行 Node.js 部署腳本
-          node deploy.js
-          
-          # 如果 Node.js 腳本失敗，嘗試使用 curl 備用方法
-          if [ $? -ne 0 ]; then
-            echo "Node.js 方法失敗，嘗試 curl 備用方法..."
-            
-            # 方法1：使用 echo 和管道
-            echo '{}' | curl -s -w "\n%{http_code}" -X POST \
-              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
-              -H "Authorization: Bearer $RENDER_API_KEY" \
-              -H "Content-Type: application/json" \
-              --data-binary @- > curl_response.txt
-              
-            HTTP_CODE=$(tail -n1 curl_response.txt)
-            RESPONSE_BODY=$(head -n -1 curl_response.txt)
-            
-            echo "CURL 響應狀態碼: $HTTP_CODE"
-            echo "CURL 響應內容: $RESPONSE_BODY"
-            
-            if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ CURL 方法部署成功"
-            else
-              echo "❌ 所有方法都失敗"
-              exit 1
-            fi
-          fi
+      # 3. 安裝生產依賴 (使用 npm install 繞過 lockfile 嚴格檢查)
+      - name: Install production dependencies
+        run: |
+          echo "📦 安裝生產依賴..."
+          npm install --only=production # <--- 修正點
+          echo "✅ 依賴安裝完成"
 
-      # 4. 獲取服務 URL
-      - name: Get service URL
-        id: get_url
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          echo "🔗 獲取服務 URL..."
-          
-          # 使用簡單的 curl 命令
-          SERVICE_URL=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID" | \
-            grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
-          
-          if [ -n "$SERVICE_URL" ]; then
-            echo "服務 URL: $SERVICE_URL"
-            echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
-          else
-            # 嘗試使用默認格式
-            DEFAULT_URL="https://$RENDER_SERVICE_ID.onrender.com"
-            echo "⚠️ 無法從 API 獲取 URL，使用默認格式: $DEFAULT_URL"
-            echo "service_url=$DEFAULT_URL" >> $GITHUB_OUTPUT
-          fi
+      # 4. Render 部署 API 調用
+      - name: Deploy to Render via API
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          echo "🚀 開始部署到 Render..."
+          
+          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
+            echo "❌ 錯誤：RENDER_API_KEY 或 RENDER_SERVICE_ID 未設置"
+            exit 1
+          fi
+          
+          echo "使用服務 ID: $RENDER_SERVICE_ID"
+          
+          # *** 核心修正：使用最穩定的單行 curl 語法，解決 invalid JSON 錯誤 ***
+          DEPLOY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" -H "Authorization: Bearer $RENDER_API_KEY" -H "Content-Type: application/json" -d "{\"clearCache\": true}")
+          
+          HTTP_CODE=$(echo "$DEPLOY_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$DEPLOY_RESPONSE" | head -n -1)
+          
+          if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ 部署觸發失敗，HTTP 狀態碼: $HTTP_CODE"
+            echo "響應內容: $RESPONSE_BODY"
+            exit 1
+          fi
+          
+          echo "✅ 部署觸發成功，HTTP 狀態碼: $HTTP_CODE"
+          
+          DEPLOY_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+          
+          if [ -z "$DEPLOY_ID" ]; then
+            echo "⚠️  無法從響應中提取 DEPLOY_ID，但 HTTP 狀態碼表示成功"
+          else
+            echo "部署 ID: $DEPLOY_ID"
+          fi
+          
+          echo "⏳ 等待部署完成..."
+          if [ -n "$DEPLOY_ID" ]; then
+            for i in {1..30}; do
+              sleep 10
+              STATUS_RESPONSE=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+                "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$DEPLOY_ID")
+              
+              STATUS=$(echo "$STATUS_RESPONSE" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+              
+              if [ -z "$STATUS" ]; then
+                echo "檢查狀態 ($i/30): 無法獲取狀態"
+                continue
+              fi
+              
+              echo "檢查狀態 ($i/30): $STATUS"
+              
+              case $STATUS in
+                "live")
+                  echo "🎉 部署成功！服務已上線"
+                  break
+                  ;;
+                "failed"|"canceled"|"post_deploy_failed")
+                  echo "❌ 部署失敗: $STATUS"
+                  exit 1
+                  ;;
+                *)
+                  ;;
+              esac
+            done
+            
+            if [ "$STATUS" != "live" ]; then
+              echo "⚠️  部署監控超時，最終狀態: $STATUS"
+            fi
+          else
+            echo "⚠️  未獲取到部署 ID，跳過狀態監控"
+          fi
 
-  # 通知階段
-  notify:
-    name: Send Notification
-    needs: deploy
-    if: always()
-    runs-on: ubuntu-latest
-    
-    permissions:
-      contents: read
-      statuses: write
-      
-    steps:
-      - name: Create Deployment Summary
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const deployResult = '${{ needs.deploy.result }}';
-            const statusState = deployResult === 'success' ? 'success' : 'failure';
-            const emoji = deployResult === 'success' ? '🎉' : '❌';
-            const serviceUrl = '${{ needs.deploy.outputs.service_url }}' || 'https://ai-hotel-assistant.onrender.com';
+      # 5. 獲取服務 URL
+      - name: Get service URL
+        id: get_url
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          echo "🔗 獲取服務 URL..."
+          
+          SERVICE_INFO=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID")
+          
+          SERVICE_URL=$(echo "$SERVICE_INFO" | grep -o '"url":"[^"]*"' | head -1 | cut -d'"' -f4)
+          
+          if [ -n "$SERVICE_URL" ]; then
+            echo "服務 URL: $SERVICE_URL"
+            echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+          else
+            DEFAULT_URL="https://$RENDER_SERVICE_ID.onrender.com"
+            echo "⚠️  無法從響應中提取服務 URL，使用默認格式: $DEFAULT_URL"
+            echo "service_url=$DEFAULT_URL" >> $GITHUB_OUTPUT
+          fi
 
-            const summary = `
-            # ${emoji} 部署報告 - AI Hotel Assistant
-            
-            ## 基本資訊
-            - **狀態**: **${deployResult.toUpperCase()}**
-            - **觸發分支**: ${context.ref}
-            - **觸發提交**: [\`${context.sha.substring(0, 7)}\`](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${context.sha})
-            - **應用 URL**: [${serviceUrl}](${serviceUrl})
-            
-            ## 執行狀態
-            - **測試階段**: **${{ needs.test.result }}**
-            - **部署階段**: **${deployResult}**
-            
-            ## 相關連結
-            - [GitHub Actions 運行詳情](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
-            - [Render Dashboard](https://dashboard.render.com)
-            `;
-            
-            github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: statusState,
-              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              description: statusState === 'success' ? 'Render 部署成功' : 'Render 部署失敗',
-              context: 'Render Deployment Status'
-            });
-            
-            core.summary.addRaw(summary).write();
-            
-            if (context.payload.pull_request) {
-              github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: `## ${emoji} 部署完成\n\n${summary}`
-              });
-            }
+  # 通知階段
+  notify:
+    name: Send Notification
+    needs: deploy
+    if: always()
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      statuses: write
+      
+    steps:
+      - name: Create Deployment Summary
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const deployResult = '${{ needs.deploy.result }}';
+            const statusState = deployResult === 'success' ? 'success' : 'failure';
+            const emoji = deployResult === 'success' ? '🎉' : '❌';
+            const serviceUrl = '${{ needs.deploy.outputs.service_url }}' || 'https://ai-hotel-assistant.onrender.com';
+
+            const summary = `
+            # ${emoji} 部署報告 - AI Hotel Assistant
+            
+            ## 基本資訊
+            - **狀態**: **${deployResult.toUpperCase()}**
+            - **觸發分支**: ${context.ref}
+            - **觸發提交**: [\`${context.sha.substring(0, 7)}\`](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${context.sha})
+            - **應用 URL**: [${serviceUrl}](${serviceUrl})
+            
+            ## 執行狀態
+            - **測試階段**: **${{ needs.test.result }}**
+            - **部署階段**: **${deployResult}**
+            
+            ## 相關連結
+            - [GitHub Actions 運行詳情](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            - [Render Dashboard](https://dashboard.render.com)
+            `;
+            
+            github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: statusState,
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              description: statusState === 'success' ? 'Render 部署成功' : 'Render 部署失敗',
+              context: 'Render Deployment Status'
+            });
+            
+            core.summary.addRaw(summary).write();
+            
+            if (context.payload.pull_request) {
+              github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `## ${emoji} 部署完成\n\n${summary}`
+              });
+            }
