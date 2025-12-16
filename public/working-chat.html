@@ -1,132 +1,208 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 飯店助手 - 對話測試</title>
+    <title>AI 助理測試介面 - 簡約藍白</title>
     <style>
-        /* 由於您前面提供了完整的 CSS，這裡不再重複貼上，請確保您的 HTML 檔案中 CSS 完整 */
-        /* ... 您的 CSS 樣式 ... */
+        /* 藍白簡約風格 CSS 樣式 */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* 更改字體 */
+            margin: 0;
+            padding: 0;
+            background-color: #F8F9FA; /* 淺灰色背景 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .chat-container {
+            width: 100%;
+            max-width: 500px; /* 略微縮小寬度以顯簡約 */
+            background: #FFFFFF;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* 柔和陰影 */
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .header {
+            background-color: #007BFF; /* 主藍色 */
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+        .messages {
+            flex-grow: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 18px; /* 更圓潤 */
+            max-width: 85%;
+            word-wrap: break-word;
+            line-height: 1.4;
+        }
+        .user {
+            align-self: flex-end;
+            background-color: #007BFF; /* 用戶訊息：主藍色 */
+            color: white;
+            border-bottom-right-radius: 4px; /* 簡約不對稱 */
+        }
+        .ai {
+            align-self: flex-start;
+            background-color: #E9ECEF; /* AI 訊息：極淺灰色 */
+            color: #343A40; /* 深灰文字 */
+            border-bottom-left-radius: 4px;
+        }
+        .input-area {
+            display: flex;
+            padding: 15px;
+            background-color: #FFFFFF;
+            border-top: 1px solid #DEE2E6;
+        }
+        .input-area input {
+            flex-grow: 1;
+            padding: 12px;
+            border: 1px solid #CED4DA;
+            border-radius: 20px; /* 圓角輸入框 */
+            margin-right: 10px;
+            font-size: 1em;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .input-area input:focus {
+            border-color: #007BFF;
+        }
+        .input-area button {
+            padding: 10px 20px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 20px;
+            font-size: 1em;
+            transition: background-color 0.3s;
+        }
+        .input-area button:hover {
+            background-color: #0056b3;
+        }
+        .debug-info {
+            font-size: 0.75em;
+            color: #6C757D;
+            margin-top: 5px;
+            padding-top: 5px;
+            border-top: 1px dotted #ADB5BD;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🤖 AI 飯店助手</h1>
-            <p>產品經理測試介面 - 即時對話體驗</p>
-        </div>
-
-        <div class="status-bar">
+    <div class="chat-container">
+        <div class="header">AI 助理測試介面 (藍白簡約)</div>
+        <div class="messages" id="messages">
             </div>
-
-        <div class="chat-container" id="chatContainer">
-            </div>
-
-        <div class="input-container">
-            <div class="input-wrapper">
-                <input 
-                    type="text" 
-                    id="messageInput" 
-                    placeholder="輸入您的問題..."
-                    onkeypress="handleKeyPress(event)"
-                >
-                <button id="sendButton" onclick="sendMessage()">發送</button>
-            </div>
+        <div class="input-area">
+            <input 
+                type="text" 
+                id="userInput" 
+                placeholder="輸入您的訊息..." 
+                onkeypress="handleKeyPress(event)"
+            >
+            <button onclick="sendMessage()">發送</button>
         </div>
     </div>
 
     <script>
-        const API_BASE = window.location.origin;
-        // 🚨 修正點：將 /api/ai/chat 修正為後端監聽的 /api/chat
-        const API_ENDPOINT = `${API_BASE}/api/chat`; 
-        
-        const sessionId = 'pm-demo-' + Date.now();
-        let isWaiting = false;
+        const chatApiUrl = '/api/chat'; 
+        let sessionId = localStorage.getItem('chatSessionId') || generateSessionId();
 
-        // 檢查 AI 服務狀態 (路徑修正為 /health)
-        async function checkAIStatus() {
-            try {
-<<<<<<< HEAD
-                const response = await fetch(`${API_BASE}/health`);
-=======
-                const response = await fetch(`${API_BASE}/health`); // 使用 /health 端點檢查
->>>>>>> 80640f4421749ff79f464629d4db5b7ad0759257
-                const data = await response.json();
-                
-                const statusDot = document.getElementById('statusDot');
-                const statusText = document.getElementById('statusText');
-                
-                // 這裡的邏輯需要您修改以適應您的 /health 結構
-                // 假設您的 /health 返回 status: 'ok'
-                if (data.status === 'ok') { 
-                    statusDot.classList.add('active');
-                    statusText.textContent = '✅ 後端連線成功';
-                } else {
-                    statusText.textContent = '⚠️ 後端狀態異常';
-                }
-            } catch (error) {
-                console.error('Status check failed:', error);
-                document.getElementById('statusText').textContent = '❌ 連線失敗';
+        document.addEventListener('DOMContentLoaded', (event) => {
+            appendMessage('AI', '您好，我是訂房助理，請問有什麼可以為您服務的？', { state: 'init' });
+            // 頁面載入時，發送一個空訊息來初始化會話
+            sendMessage('', true); 
+        });
+
+        function generateSessionId() {
+            const newId = 'session_' + Math.random().toString(36).substring(2, 9);
+            localStorage.setItem('chatSessionId', newId);
+            return newId;
+        }
+
+        function appendMessage(sender, text, debug = {}) {
+            const messagesContainer = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${sender.toLowerCase()}`;
+            
+            let htmlContent = `<strong>${sender}:</strong> ${text}`;
+            
+            if (Object.keys(debug).length > 0) {
+                const debugHtml = `
+                    <div class="debug-info">
+                        [DEBUG] 狀態: ${debug.state || 'N/A'} | 意圖: ${debug.matchedIntent || 'N/A'}
+                    </div>
+                `;
+                htmlContent += debugHtml;
+            }
+
+            messageElement.innerHTML = htmlContent;
+            messagesContainer.appendChild(messageElement);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
             }
         }
 
-        // 發送訊息
-        async function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const message = input.value.trim();
+        async function sendMessage(defaultMessage = null, isInit = false) {
+            const inputField = document.getElementById('userInput');
+            const message = defaultMessage === null ? inputField.value.trim() : defaultMessage;
             
-            if (!message || isWaiting) return;
-            
-            input.value = '';
-            addMessage('user', message);
-            
-            isWaiting = true;
-            document.getElementById('sendButton').disabled = true;
-            showTypingIndicator();
-            
+            if (!message && !isInit) return;
+
+            if (!isInit) {
+                appendMessage('您', message);
+                inputField.value = '';
+            }
+
             try {
-<<<<<<< HEAD
-                const response = await fetch(`${API_BASE}/api/chat`, {
-=======
-                // 🚨 修正點：使用修正後的 API_ENDPOINT
-                const response = await fetch(API_ENDPOINT, { 
->>>>>>> 80640f4421749ff79f464629d4db5b7ad0759257
+                const response = await fetch(chatApiUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
                     body: JSON.stringify({
-                        message: message,
-                        sessionId: sessionId
+                        sessionId: sessionId,
+                        message: message
                     })
                 });
-                
+
                 const data = await response.json();
                 
-                hideTypingIndicator();
-                
-                if (response.ok && data.reply) { // 檢查 HTTP 狀態碼和是否有回覆內容
-                    addMessage('assistant', data.reply);
-                } else {
-                    const errorMsg = data.error || data.reply || `伺服器回應錯誤 (Status ${response.status})。`;
-                    addMessage('assistant', `抱歉，我目前無法回答您的問題。原因: ${errorMsg}`, true);
+                if (data.sessionId && data.sessionId !== sessionId) {
+                    sessionId = data.sessionId;
+                    localStorage.setItem('chatSessionId', sessionId);
                 }
+
+                appendMessage(
+                    'AI', 
+                    data.responseText || '伺服器沒有回應。', 
+                    data.debug || {}
+                );
+
             } catch (error) {
-                console.error('Send message failed:', error);
-                hideTypingIndicator();
-                addMessage('assistant', '發生錯誤，請檢查終端機日誌。', true);
-            } finally {
-                isWaiting = false;
-                document.getElementById('sendButton').disabled = false;
+                console.error('API 呼叫失敗:', error);
+                appendMessage('AI', '連線錯誤，請檢查伺服器是否運行。');
             }
         }
-
-        // ... [省略所有其他前端函數：sendQuickReply, addMessage, showTypingIndicator, hideTypingIndicator, clearChat, handleKeyPress] ...
-        // 請確保您 HTML 檔案中的這些函數是完整的。
-
-        // 初始化
-        document.addEventListener('DOMContentLoaded', () => {
-            checkAIStatus();
-            document.getElementById('messageInput').focus();
-        });
     </script>
 </body>
 </html>

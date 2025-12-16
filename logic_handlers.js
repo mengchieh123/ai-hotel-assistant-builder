@@ -342,23 +342,3 @@ export function resumeFlowFromPause(data) {
         nextState: pauseFromState 
     };
 }
-
-// 確保所有 Handler 都已導出
-export { 
-    checkDateCompleteness, 
-    setDefaultChildCount, 
-    checkBookingEssentials,
-    lockInventory,
-    calculatePrice,
-    loginMemberAccount,
-    registerMemberAccount,
-    generateAddonsCarousel,
-    executeAddonsSelection,
-    validateContactInfo,
-    handleSpecialRequests,
-    processPaymentMethod,
-    generateOrderSummary,
-    submitBooking,
-    processGeneralInquiry,
-    resumeFlowFromPause
-};
