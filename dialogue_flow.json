@@ -1,12 +1,15 @@
 {
     "name": "HotelBookingFlow",
-    "version": "2.0_Modular_Flow",
+    "version": "2.0_Modular_Flow_IntentFix",
     "description": "V2.0 模組化流程：將會員登入、加購服務和聯絡資訊徹底拆分。",
     "initial_state": "init",
+    "globalFallbackRule": {
+        "prompt": "抱歉，我不明白您的意思，您是否要開始訂房？您可以輸入『我想訂房』。",
+        "fallback_state": "init"
+    },
     "states": {
         "init": {
             "prompt": "歡迎使用旅萌大酒店 AI 訂房助理！請問您想預訂哪一天的房間，以及住宿幾晚？ (例如：明天, 2晚)",
-            "next_state": "ask_dates_and_nights",
             "clear_entities": [
                 "roomType", "roomCount", "checkInDate", "nights", "memberAccount",
                 "contactName", "contactPhone", "contactEmail", "specialRequest",
@@ -17,6 +20,13 @@
                 "pauseFromState"
             ],
             "entities": ["adultCount", "childCount", "roomCount", "checkInDate", "nights"],
+            "intents": {
+                "booking": "ask_dates_and_nights", 
+                "general_inquiry": "handle_general_inquiry",
+                "correction": "select_correction_target",
+                "login": "login_member_account",
+                "emergency_exit": "end_conversation"
+            },
             "rules": [
                 {
                     "condition": "checkInDate && nights",
