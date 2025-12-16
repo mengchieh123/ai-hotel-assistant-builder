@@ -19,10 +19,9 @@ import { sessionManager } from './session_manager.js';
 import { SmartNLUHelper } from './smart_nlu_helper.js'; // 🏆 外部化導入
 
 // ----------------------------------------------------
-// 🏆 核心修復點：伺服器啟動時，強制執行 RuleEngine 的配置初始化
+const ruleEngine = new RuleEngine();// 🏆 核心修復點：伺服器啟動時，強制執行 RuleEngine 的配置初始化
 // ----------------------------------------------------
 try {
-    RuleEngine.initializeFlowConfig();
     console.log('✅ RuleEngine 配置初始化完成');
 } catch (error) {
     console.error(`💥 應用程式啟動失敗：RuleEngine 初始化錯誤。訊息: ${error.message}`);
@@ -189,7 +188,7 @@ app.post('/api/chat', async (req, res) => {
     let engineResult;
     try {
         // 呼叫 RuleEngine 的靜態方法
-        engineResult = await RuleEngine.executeRules(trimmedMessage, safeSessionId);
+        engineResult = await ruleEngine.executeRules(trimmedMessage, safeSessionId);
 
         // 🎯 檢查 engineResult 結構
         if (!engineResult || typeof engineResult !== 'object') {

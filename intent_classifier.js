@@ -1,4 +1,4 @@
-// modular_intent_classifier.js (ESM - 完整優化版 V1.2)
+// modular_intent_classifier.js (ESM - 最終優化版 V1.3)
 
 import { DateParser } from './date_parser.js'; // 假設 DateParser 位於同一目錄
 
@@ -17,7 +17,7 @@ export class ModularIntentClassifier {
     };
 
     /**
-     * @returns {number} 將中文數字字串轉換為數字
+     * @returns {number} 將中文數字字串轉換為數字 (靜態方法)
      */
     static _parseChineseNumber(str) {
         if (!str) return null;
@@ -31,7 +31,7 @@ export class ModularIntentClassifier {
     }
 
     /**
-     * 模組定義（根據飯店業務）
+     * 模組定義 (靜態常量)
      */
     static MODULES = {
         BOOKING: {
@@ -116,15 +116,15 @@ export class ModularIntentClassifier {
     // ------------------------------------
 
     /**
-     * 模組化意圖分類 - 增強現有 SmartIntentClassifier
+     * 模組化意圖分類 (非靜態方法，供 RuleEngine 實例調用)
      * @param {string} message - 使用者訊息
      * @param {object} traditionalResult - 傳統分類結果
      * @param {object} session - 當前會話數據
      * @returns {object} 增強的分類結果
      */
-    static classify(message, traditionalResult = {}, session = {}) {
+    classify(message, traditionalResult = {}, session = {}) {
         const lowerMsg = message.toLowerCase().trim();
-        const modules = JSON.parse(JSON.stringify(this.MODULES)); // 深度複製模組以避免靜態數據汙染
+        const modules = JSON.parse(JSON.stringify(ModularIntentClassifier.MODULES)); // 深度複製靜態模組
         
         let totalConfidence = 0;
         let totalWeightedConfidence = 0;
@@ -183,10 +183,10 @@ export class ModularIntentClassifier {
             ? Math.min(100, Math.round((maxWeightedConfidence / totalWeightedConfidence) * 100)) 
             : 0;
         
-        // 提取智慧數據（增強傳統實體提取）
+        // 提取智慧數據（調用實例方法）
         const enhancedData = this.extractEnhancedData(message, selectedModule, traditionalResult.entities || {}, session);
         
-        // 根據模組建議下一步
+        // 根據模組建議下一步（調用實例方法）
         const suggestedSteps = this.getSuggestedSteps(selectedModule, session, traditionalResult);
         
         // 判斷是否需要覆蓋傳統意圖
@@ -198,10 +198,10 @@ export class ModularIntentClassifier {
         const finalIntent = moduleDetails?.primaryIntent || traditionalResult.intents?.[0] || 'unrecognized';
 
         return {
-            topModule: selectedModule, // 為了與 RuleEngine 的 topModule 命名一致
+            topModule: selectedModule,
             moduleName: moduleDetails?.name || '一般模組',
             moduleColor: moduleDetails?.color || '⚪',
-            topIntent: finalIntent, // 為了與 RuleEngine 的 finalIntent 命名一致
+            topIntent: finalIntent,
             confidence: confidencePercentage,
             confidenceScore: maxWeightedConfidence,
             suggestedSteps,
@@ -216,16 +216,16 @@ export class ModularIntentClassifier {
     }
     
     /**
-     * 提取增強數據
+     * 提取增強數據 (非靜態方法，調用靜態輔助函數)
      */
-    static extractEnhancedData(message, module, traditionalEntities, session) {
+    extractEnhancedData(message, module, traditionalEntities, session) {
         const enhancedData = { ...traditionalEntities };
         const lowerMsg = message.toLowerCase();
         
         switch(module) {
             case 'BOOKING':
             case 'DATE_SELECTION':
-                // 智慧日期解析與標準化 (使用 DateParser 模組)
+                // 智慧日期解析與標準化
                 if (!enhancedData.checkInDate) {
                     const dateResult = DateParser.parseDate(message);
                     if (dateResult.date) {
@@ -235,13 +235,13 @@ export class ModularIntentClassifier {
                     }
                 }
                 
-                // 智慧晚數解析 (應用 _parseChineseNumber)
+                // 智慧晚數解析
                 if (!enhancedData.nights) {
                     // 匹配數字或中文數字後跟「晚/天/夜」
                     const nightsMatch = message.match(/(\d+|一|兩|二|三|四|五|六|七|八|九|十)\s*(晚|天|夜|nights?|days?)/i);
                     if (nightsMatch) {
                         const num = nightsMatch[1];
-                        enhancedData.nights = this._parseChineseNumber(num);
+                        enhancedData.nights = ModularIntentClassifier._parseChineseNumber(num);
                     }
                 }
                 break;
@@ -264,12 +264,12 @@ export class ModularIntentClassifier {
                     }
                 }
                 
-                // 房間數量 (應用 _parseChineseNumber)
+                // 房間數量
                 if (!enhancedData.roomCount) {
                     const countMatch = message.match(/(\d+|一|兩|二|三|四|五|六|七|八|九|十)\s*(間|個|room)/i);
                     if (countMatch) {
                         const num = countMatch[1];
-                        enhancedData.roomCount = this._parseChineseNumber(num);
+                        enhancedData.roomCount = ModularIntentClassifier._parseChineseNumber(num);
                     } else if (message.includes('一間') || message.includes('一個')) {
                         enhancedData.roomCount = 1;
                     }
@@ -277,17 +277,17 @@ export class ModularIntentClassifier {
                 break;
                 
             case 'PEOPLE_COUNT':
-                // 智慧人數解析 (應用 _parseChineseNumber)
+                // 智慧人數解析
                 if (!enhancedData.adultCount && !enhancedData.childCount) {
                     // 格式 1: "2大1小"
                     const pattern1 = message.match(/(\d+|一|兩|二|三|四|五|六|七|八|九|十)\s*(大|大人|成人)\s*(\d+|一|兩|二|三|四|五|六|七|八|九|十)?\s*(小|小孩|兒童)?/i);
                     if (pattern1) {
                         const adults = pattern1[1];
-                        enhancedData.adultCount = this._parseChineseNumber(adults);
+                        enhancedData.adultCount = ModularIntentClassifier._parseChineseNumber(adults);
                         
                         if (pattern1[3]) {
                             const children = pattern1[3];
-                            enhancedData.childCount = this._parseChineseNumber(children) || 0; // 確保為數字
+                            enhancedData.childCount = ModularIntentClassifier._parseChineseNumber(children) || 0;
                         }
                     }
                     
@@ -295,7 +295,7 @@ export class ModularIntentClassifier {
                     const pattern2 = message.match(/(我們|一家|全家|一共)\s*(\d+|一|兩|二|三|四|五|六|七|八|九|十)\s*(人|位)/);
                     if (pattern2 && !enhancedData.adultCount) {
                         const total = pattern2[2];
-                        enhancedData.adultCount = this._parseChineseNumber(total);
+                        enhancedData.adultCount = ModularIntentClassifier._parseChineseNumber(total);
                     }
                     
                     // 特殊情況
@@ -345,9 +345,9 @@ export class ModularIntentClassifier {
     }
     
     /**
-     * 獲取建議步驟 (供 RuleEngine 參考)
+     * 獲取建議步驟 (非靜態方法，供 RuleEngine 參考)
      */
-    static getSuggestedSteps(module, session, traditionalResult) {
+    getSuggestedSteps(module, session, traditionalResult) {
         const currentState = session.currentStep || session.currentState || 'init';
         const steps = [];
         
