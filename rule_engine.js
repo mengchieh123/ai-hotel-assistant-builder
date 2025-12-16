@@ -11,7 +11,6 @@ const logError = (message, error) => console.error(`${LOG_PREFIX} 💥 ${message
 
 /**
  * RuleEngine 負責根據意圖、當前狀態和會話歷史來決定下一步行動。
- * V2.5 修正了狀態屬性、方法名稱和實體合併邏輯。
  */
 export class RuleEngine {
 
@@ -20,7 +19,6 @@ export class RuleEngine {
      */
     constructor(flowConfig = dialogueFlowConfig) {
         log('RuleEngine 實例化完成。');
-        // 確保配置被正確載入
         if (!flowConfig || !flowConfig.states) {
             logError('初始化失敗：dialogueFlowConfig 結構無效或未載入。');
             throw new Error('RuleEngine initialization failed: Invalid flow configuration.');
@@ -39,10 +37,9 @@ export class RuleEngine {
     async executeRules(message, sessionId) {
         let session = sessionManager.getSession(sessionId);
         
-        // 🚨 修復 1：狀態屬性統一。使用 currentStep 或 currentState。
+        // 確保狀態屬性統一
         let currentState = session.currentStep || session.currentState; 
 
-        // 如果狀態仍然未定義，從 SessionManager 獲取初始狀態（以防萬一）
         if (!currentState) {
              currentState = this.flowConfig.initial_state || 'init';
              sessionManager.updateCurrentState(sessionId, currentState);
@@ -54,11 +51,14 @@ export class RuleEngine {
             // 1. 意圖識別 (調用非靜態方法)
             const classificationResult = await this.classifier.classify(message);
             
-            // 注意：我們使用 enhancedData 作為最終的實體集
-            const { primaryIntent, confidence, entities, debugInfo } = classificationResult;
+            // 💥 關鍵修復點：正確解構 ModularIntentClassifier 的回傳值 💥
+            const { 
+                topIntent: primaryIntent, // 從 topIntent 重新命名為 primaryIntent
+                confidence, 
+                enhancedData: entities,  // 從 enhancedData 重新命名為 entities
+                debugInfo 
+            } = classificationResult;
 
-            // 記錄使用者輸入和意圖 (可選，取決於 sessionManager 的 updateSession 方法)
-            // sessionManager.updateSession(sessionId, message, [primaryIntent]);
 
             log(`意圖識別結果: ${primaryIntent || '無意圖'}, 信心度: ${confidence}%`);
 
@@ -74,18 +74,16 @@ export class RuleEngine {
             let nextState = currentState;
             let matchedRule = null;
 
-            // 遍歷當前狀態的所有規則
-            // 首先檢查 stateConfig.intents 規則（如果存在）
+            // 遍歷規則
+            // 首先檢查 stateConfig.intents 規則
             if (stateConfig.intents && primaryIntent && stateConfig.intents[primaryIntent]) {
                 const intentRuleState = stateConfig.intents[primaryIntent];
                 matchedRule = { intent: primaryIntent, nextState: intentRuleState };
                 nextState = intentRuleState;
-                // 注意：這裡不設定 actualFinalConfig，因為它只是一個跳轉
                 log(`匹配到 Intention Map 規則: 意圖 ${primaryIntent}, 轉換到狀態: ${nextState}`);
             } else if (stateConfig.rules) {
                  // 遍歷 stateConfig.rules 規則
                 for (const rule of stateConfig.rules) {
-                    // 這裡的邏輯需要更複雜，要處理 condition 判斷，但為了簡化，先只處理意圖匹配
                     if (rule.intent === primaryIntent) {
                         matchedRule = rule;
                         nextState = rule.nextState || currentState; // 預設狀態不變
@@ -115,7 +113,7 @@ export class RuleEngine {
                 }
             }
             
-            // 🚨 修復 2：實體數據合併到會話。必須在 Handler 執行前完成。
+            // 實體數據合併到會話。必須在 Handler 執行前完成。
             if (entities && Object.keys(entities).length > 0) {
                 sessionManager.mergeEntities(sessionId, entities);
                 // 重新獲取 session，確保 Handler 使用最新的 collectedData
@@ -132,7 +130,7 @@ export class RuleEngine {
                 richCard = actualFinalConfig.richCard || null; 
             }
             
-            // 檢查是否需要執行額外的處理邏輯 (Handler 優先級最高)
+            // 檢查是否需要執行額外的處理邏輯
             const handlerName = (matchedRule && matchedRule.handler) || stateConfig.handler;
             
             if (handlerName) {
@@ -140,7 +138,6 @@ export class RuleEngine {
                 if (typeof handlerFunction === 'function') {
                     log(`執行 Handler: ${handlerName}`);
                     
-                    // 確保 currentConfig 存在，即使是透過 fallback 或 intents 跳轉
                     const handlerCurrentConfig = actualFinalConfig || stateConfig; 
 
                     const handlerResult = await handlerFunction({
@@ -149,7 +146,7 @@ export class RuleEngine {
                         primaryIntent,
                         entities,
                         config: this.flowConfig,
-                        currentConfig: handlerCurrentConfig // 傳遞匹配的配置
+                        currentConfig: handlerCurrentConfig 
                     });
 
                     // 覆蓋回應文本、卡片和 nextState
@@ -165,7 +162,6 @@ export class RuleEngine {
 
             // 6. 更新會話狀態
             if (nextState !== currentState) {
-                // 🚨 修復 3：使用 sessionManager.updateCurrentState
                 sessionManager.updateCurrentState(sessionId, nextState); 
                 log(`會話狀態更新為: ${nextState}`);
             }
@@ -194,7 +190,6 @@ export class RuleEngine {
      */
     _handleErrorResponse(sessionId, message) {
         const errorState = 'error';
-        // 🚨 修復 3：使用 sessionManager.updateCurrentState
         sessionManager.updateCurrentState(sessionId, errorState);
         return {
             sessionId,
