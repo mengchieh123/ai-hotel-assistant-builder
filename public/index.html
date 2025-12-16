@@ -82,7 +82,7 @@
 
         <section class="avatar-area" aria-label="助理人像">
             <div class="avatar">
-                <img src="https://i.imgur.com/4AiXzf8.png" alt="訂房助理人像" />
+                                <img src="https://i.imgur.com/gK9qQ4O.png" alt="訂房助理人像" />
             </div>
         </section>
 
@@ -101,9 +101,9 @@
         const userInput = document.getElementById('input-message');
         const sendBtn = document.getElementById('send-button');
 
-        // 🎯 修正：設定後端服務的絕對路徑，確保與 Live Server 運行的前端正確通訊
-        const API_BASE_URL = 'http://localhost:3000';
-        
+        // 🎯 設定後端服務的絕對路徑 (請確保與您的伺服器端口一致，如果伺服器跑在 10000，這裡也需改為 10000)
+        const API_BASE_URL = 'http://localhost:3000';
+        
         let sessionId = localStorage.getItem('sessionId') || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         localStorage.setItem('sessionId', sessionId);
 
@@ -157,7 +157,7 @@
                         }
                         
                         // Footer 作為價格區
-    實作於此                         if (card.footer) {
+                        if (card.footer) {
                             carouselHTML += `<div class="card-section"><strong>價格:</strong> ${card.footer}</div>`;
                         }
 
@@ -236,7 +236,7 @@
 
             try { 
                 
-                // 🎯 修正：使用 API_BASE_URL 確保連線到本地後端
+                // 🎯 使用 API_BASE_URL 確保連線到本地後端
                 const response = await fetch(`${API_BASE_URL}/api/chat`, { 
                     method: 'POST',
                     headers: {
